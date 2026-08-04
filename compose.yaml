@@ -1,0 +1,114 @@
+# Trust Server Manager — scheletro.
+#
+# Contiene: reti, volumi, secret, Postgres, migrazioni Alembic, API con
+# /api/health e /api/ready, container non-root, healthcheck automatici.
+#
+# NON contiene ancora (commit separati, BACKEND-PLAN.md §9):
+#   - il servizio `web` nginx con l'allowlist dei file statici (§6)
+#   - autenticazione (§8.1), motore di diff (§8.10), persistenza inventario (§8.11)
+
+name: tsm
+
+networks:
+  # Postgres vive solo qui. `internal: true` = nessun gateway verso l'esterno:
+  # i container su questa rete non raggiungono la rete dell'host né internet.
+  internal:
+    internal: true
+  # Solo per ciò che deve essere raggiungibile dall'esterno (oggi: l'API).
+  edge: {}
+
+volumes:
+  pgdata: {}
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+
+services:
+  db:
+    image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193  # postgres:17-alpine
+    networks: [internal]
+    # NESSUNA sezione `ports`. Postgres non è raggiungibile dall'host:
+    # lo verifica tools/smoke-test.py.
+    environment:
+      POSTGRES_DB: tsm
+      POSTGRES_USER: tsm
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tsm -d tsm -q"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    # NB: `user:` non è impostato di proposito. L'entrypoint dell'immagine postgres
+    # parte da root per fare initdb sul volume e poi passa a `postgres`: il server
+    # gira quindi non-root da solo. Forzare `user:` romperebbe l'inizializzazione
+    # del volume, che viene creato di proprietà di root.
+    # Lo smoke test verifica che il processo del server sia effettivamente non-root.
+
+  # Migrazioni come servizio one-shot: l'API non ha bisogno di privilegi DDL a runtime
+  # e l'ordine di avvio è esplicito invece di essere nascosto in un entrypoint.
+  migrate:
+    build:
+      context: ./backend
+    image: tsm-api:0.1.0
+    command: ["alembic", "upgrade", "head"]
+    networks: [internal]
+    depends_on:
+      db:
+        condition: service_healthy
+    secrets:
+      - postgres_password
+    environment:
+      TSM_DB_HOST: db
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+    image: tsm-api:0.1.0
+    networks: [internal, edge]
+    ports:
+      # Solo loopback: in produzione ci parlerà nginx, non l'esterno.
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - postgres_password
+    environment:
+      TSM_DB_HOST: db
+    healthcheck:
+      # urllib solleva su 503, quindi exit != 0 => unhealthy. Nessun curl:
+      # non è presente in python:slim e non vale la pena aggiungerlo.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          try:
+              sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8000/api/ready", timeout=3).status == 200 else 1)
+          except Exception:
+              sys.exit(1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped

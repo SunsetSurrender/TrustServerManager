@@ -1,0 +1,11 @@
+-r requirements.txt
+
+# Dipendenze di sviluppo — NON entrano nell'immagine di produzione (§6 del piano).
+#
+# playwright: verifica dell'avvio offline (tools/offline-boot-test.py, §5) e in seguito
+# i test di round-trip degli _uid (§8.4), che devono girare sul frontend reale.
+# Usa il Chrome già installato (channel="chrome"), non scarica browser.
+playwright==1.62.0
+
+pytest==9.1.1
+httpx==0.28.1

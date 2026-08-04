@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="ext-resource-dependency" content="./xlsx.js" data-resource-id="xlsx">
+<!-- React locale: support.js carica React da unpkg.com solo se window.React/ReactDOM
+     non esistono già. Caricandoli qui prima, il fetch alla CDN non avviene: requisito
+     per la rete chiusa. Provenienza e hash in vendor/README.md. -->
+<script src="./vendor/react.production.min.js"></script>
+<script src="./vendor/react-dom.production.min.js"></script>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -996,6 +1001,25 @@
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;coloreAccento&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#3d7bea&quot;,&quot;options&quot;:[&quot;#3d7bea&quot;,&quot;#e2231a&quot;,&quot;#3fb6a8&quot;,&quot;#ffb020&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Aspetto&quot;},&quot;mostraLegenda&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Pianta&quot;}}">
+// Modulo identità (handoff/identity.js), caricato in componentDidMount.
+// Ogni percorso che crea o ricostruisce entità passa da qui: mai oggetti letterali
+// costruiti da zero, altrimenti si perde l'_uid. Vedi BACKEND-PLAN.md §8.4.
+let IDENT = null;
+
+/** Identità per una entità nuova. Solleva se il modulo non è pronto: meglio un
+ *  errore visibile che un'entità senza identità salvata di nascosto. */
+const newUid = () => {
+  if (!IDENT) throw new Error('identity.js non caricato: impossibile generare un _uid');
+  return IDENT.newUid();
+};
+
+/** Oggetto derivato dall'esistente: i campi sconosciuti e i metadati futuri
+ *  sopravvivono. Per le entità nuove genera l'_uid. */
+const preserveIdentity = (original, patch) => {
+  if (!IDENT) throw new Error('identity.js non caricato: impossibile preservare l\'_uid');
+  return IDENT.preserveIdentity(original, patch);
+};
+
 class Component extends DCLogic {
   state = { data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
 
@@ -1117,8 +1141,20 @@ class Component extends DCLogic {
 
   componentDidMount() {
     this._syncTheme();
-    import('./inventario.js').then(mod => {
+    // identity.js prima dei dati: i percorsi di creazione/modifica ne dipendono e
+    // l'app non deve poter accettare un documento senza identità (§8.4 del piano).
+    Promise.all([import('./identity.js'), import('./inventario.js')]).then(([ident, mod]) => {
+      IDENT = ident;
       const data = JSON.parse(JSON.stringify(mod.DATI));
+      // Il seed è già migrato (tools/migrate-seed-uids.mjs). Se qui mancano identità
+      // il file è vecchio: si segnala e NON si genera nulla a runtime — il backfill
+      // è solo dello script di migrazione.
+      const seedErrors = ident.validateDocument(data);
+      if (seedErrors.length) {
+        console.error('[identity] seed senza identità valide:', seedErrors);
+        alert('Dati di partenza senza identità valide (' + seedErrors.length + ' problemi).\n'
+            + 'Eseguire tools/migrate-seed-uids.mjs. Nessuna identità viene generata a runtime.');
+      }
       const loc = data.locations[0];
       let st = { data, locId: loc.id, roomId: loc.sale[0].id };
       const m = (window.location.hash || '').match(/rack=([^/]+)\/([^/]+)\/(.+)/);
@@ -1228,7 +1264,7 @@ class Component extends DCLogic {
       ]},
       { id: 'import', titolo: 'Import, export, confronto e stampa', blocchi: [
         B('Esportare', 'Pulsante "Esporta ▾": JSON completo (tutto: struttura, inventario, registro — è il formato di backup), CSV dispositivi (per Excel), oppure Stampa/PDF della vista corrente.'),
-        B('Importare (Admin)', '"↑ JSON" ripristina un backup completo. "↑ CSV" aggiorna i dispositivi: il file deve avere le intestazioni location, sala, rack, nome, tipo, stato, modello, ip, seriale, referente, u, h, garanzia, supporto, note (separatore virgola o punto e virgola).'),
+        B('Importare (Admin)', '"↑ JSON" ripristina un backup completo. "↑ CSV" aggiorna i dispositivi: il file deve avere le intestazioni location, sala, rack, nome, tipo, stato, modello, ip, seriale, referente, u, h, garanzia, supporto, note (separatore virgola o punto e virgola).', 'La colonna _uid è l\'identità del dispositivo: va lasciata come esce dall\'export per aggiornare un dispositivo esistente, e vuota per crearne uno nuovo. Il nome NON è identità (si può rinominare): se lo stesso nome compare su più dispositivi e manca l\'_uid, la riga è ambigua e viene saltata invece di aggiornare quello sbagliato. Un backup JSON prodotto prima dell\'introduzione degli _uid viene rifiutato: va migrato una volta con lo script dedicato.'),
         B('Confrontare due rilievi', 'Il pulsante "Confronta" mette a fianco il dato attuale e un rilievo precedente: accetta sia un export JSON completo sia un CSV di dispositivi (servono almeno le colonne nome e rack). Il riepilogo elenca aggiunti, rimossi, spostati e modificati — utile dopo un giro di verifica in sala.'),
         B('Scheda rack stampabile', 'Nella scheda del rack, il pulsante di stampa produce un foglio con vista frontale ed elenco dispositivi: da appendere fisicamente al rack.')
       ]},
@@ -1293,8 +1329,10 @@ class Component extends DCLogic {
         const next = JSON.parse(JSON.stringify(S.data));
         next.manuale = next.manuale || [];
         const id = d.id || ('man-' + Date.now());
-        const voce = { id, titolo, blocchi: [{ titolo: '', paragrafi: par }] };
         const k = next.manuale.findIndex(x => x.id === id);
+        // Le voci di manuale SONO entità identificate (create/modificate/eliminate una
+        // per una, normalizzate in fase 2): l'oggetto va derivato, non ricostruito.
+        const voce = preserveIdentity(k >= 0 ? next.manuale[k] : null, { id, titolo, blocchi: [{ titolo: '', paragrafi: par }] });
         if (k >= 0) next.manuale[k] = voce; else next.manuale.push(voce);
         this.persist(next, (d.id ? 'Modificata' : 'Aggiunta') + ' voce di manuale "' + titolo + '"');
         this.setState({ manEditing: false, manualSec: id, manDraft: null });
@@ -2074,9 +2112,11 @@ class Component extends DCLogic {
       URL.revokeObjectURL(a.href);
     };
     const doExpCsv = () => {
-      const rows = [['location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note']];
+      // _uid in prima colonna: è ciò che rende il giro export→modifica→import
+      // non distruttivo per l'identità (§8.4).
+      const rows = [['_uid', 'location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note']];
       for (const L of locations) for (const R of L.sale) for (const rk of R.racks) for (const d of rk.devices)
-        rows.push([L.id, R.id, rk.id, d.name, d.type, d.stato || 'attivo', d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
+        rows.push([d._uid || '', L.id, R.id, rk.id, d.name, d.type, d.stato || 'attivo', d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
       csvDownload(rows, 'inventario-sale-server.csv');
     };
 
@@ -2106,7 +2146,7 @@ class Component extends DCLogic {
         const id = nome.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         if (locations.some(l => l.id === id)) { alert('Esiste già un sito con questo nome.'); return; }
         const next = JSON.parse(JSON.stringify(data));
-        next.locations.push({ id, nome, sale: [] });
+        next.locations.push({ _uid: newUid(), id, nome, sale: [] });
         this.persist(next, 'Creato sito ' + nome);
         this.setState({ siteFormOpen: false, siteName: '', locId: id, roomId: null, selRack: null });
       },
@@ -2131,7 +2171,8 @@ class Component extends DCLogic {
           : { lato: rd.pLato, y: Math.min(hh - 0.5, Math.max(0, parseFloat(rd.pPos) || 0)), w: Math.max(0.5, parseFloat(rd.pW) || 0.9) }) : null;
         const next = JSON.parse(JSON.stringify(data));
         const L = next.locations.find(l => l.id === loc.id);
-        const sala = { id, nome, w, h: hh, area: (w * hh).toFixed(2) + ' m²', dim: w.toFixed(2) + ' × ' + hh.toFixed(2) + ' m', vani: [{ x: 0, y: 0, w, h: hh, porta }], racks: [] };
+        // i vani non hanno _uid: value object della sala (vedi identity.js)
+        const sala = { _uid: newUid(), id, nome, w, h: hh, area: (w * hh).toFixed(2) + ' m²', dim: w.toFixed(2) + ' × ' + hh.toFixed(2) + ' m', vani: [{ x: 0, y: 0, w, h: hh, porta }], racks: [] };
         L.sale.push(sala);
         this.persist(next, 'Creata sala ' + nome + ' in ' + loc.nome);
         this.setState({ roomFormOpen: false, roomId: id, selRack: null, roomError: '' });
@@ -2151,6 +2192,21 @@ class Component extends DCLogic {
           try {
             const parsed = JSON.parse(rd.result);
             if (!parsed.locations) throw new Error('formato non valido');
+            // Un backup senza identità valide viene RIFIUTATO (§8.4): il percorso
+            // normale non fa backfill, altrimenti ricaricare un file vecchio
+            // fabbricherebbe identità sostitutive per tutto l'inventario.
+            // I backup legacy si trattano una volta con tools/migrate-seed-uids.mjs.
+            const idErrors = IDENT.validateDocument(parsed);
+            if (idErrors.length) {
+              const missing = idErrors.filter(e => e.code === 'missing_uid').length;
+              alert('Backup rifiutato: ' + idErrors.length + ' problemi di identità'
+                  + (missing ? ' (' + missing + ' entità senza _uid)' : '') + '.\n\n'
+                  + idErrors.slice(0, 5).map(e => '• ' + e.message).join('\n')
+                  + (idErrors.length > 5 ? '\n…' : '')
+                  + '\n\nUn backup precedente all\'introduzione degli _uid va migrato una volta '
+                  + 'con tools/migrate-seed-uids.mjs. Il percorso di import non genera identità.');
+              return;
+            }
             const nSale = parsed.locations.reduce((t, l) => t + l.sale.length, 0);
             if (!window.confirm('Il backup contiene ' + parsed.locations.length + ' siti e ' + nSale + ' sale e sostituirà TUTTI i dati attuali. Procedere?')) return;
             const L = parsed.locations[0];
@@ -2393,12 +2449,14 @@ class Component extends DCLogic {
             uTot += rk.u; uUsati += used; nDev += rk.devices.length;
             rck.push([L.nome, R.nome, rk.id, rk.name || '', (rk.seriali || []).join(' / '), rk.row || '', rk.u, used, rk.u - used, Math.round(used / rk.u * 100) + '%', rk.devices.length]);
             for (const d of rk.devices)
-              dev.push([L.nome, R.nome, rk.id, d.name, (TYPES[d.type] || TYPES.altro).label, d.stato || 'attivo', d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
+              dev.push([d._uid || '', L.nome, R.nome, rk.id, d.name, (TYPES[d.type] || TYPES.altro).label, d.stato || 'attivo', d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
           }
           sal.push([L.nome, R.nome, R.dim || '', R.area || '', R.racks.length, nDev, uTot, uUsati, uTot - uUsati, uTot ? Math.round(uUsati / uTot * 100) + '%' : '0%']);
         }
         const blob = mod.creaXlsx([
-          { nome: 'Dispositivi', intestazioni: ['Location', 'Sala', 'Rack', 'Nome', 'Tipo', 'Stato', 'Modello', 'IP', 'Seriale', 'Referente', 'U', 'Altezza U', 'Garanzia', 'Supporto', 'Note'], righe: dev },
+          // `_uid` anche qui: le intestazioni vengono minuscolizzate in import, quindi
+          // questo foglio è ri-importabile e senza identità produrrebbe sostituzioni.
+          { nome: 'Dispositivi', intestazioni: ['_uid', 'Location', 'Sala', 'Rack', 'Nome', 'Tipo', 'Stato', 'Modello', 'IP', 'Seriale', 'Referente', 'U', 'Altezza U', 'Garanzia', 'Supporto', 'Note'], righe: dev },
           { nome: 'Rack', intestazioni: ['Location', 'Sala', 'Rack', 'Descrizione', 'Seriali', 'Fila', 'Unità', 'U occupate', 'U libere', 'Occupazione', 'Dispositivi'], righe: rck },
           { nome: 'Sale', intestazioni: ['Location', 'Sala', 'Dimensioni', 'Superficie', 'Rack', 'Dispositivi', 'U totali', 'U occupate', 'U libere', 'Occupazione'], righe: sal }
         ]);
@@ -2667,11 +2725,11 @@ class Component extends DCLogic {
       impApplyBtnStyle: { flex: 1, background: accent, color: '#ffffff', border: 'none', borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
       scaricaModello: async () => {
         const mod = await import((window.__resources && window.__resources.xlsx) || './xlsx.js');
-        const hdr = ['location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note'];
+        const hdr = ['_uid', 'location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note'];
         const esempio = [];
         const L0 = locations[0], R0 = L0 && L0.sale[0], K0 = R0 && R0.racks[0];
-        if (K0) esempio.push([L0.id, R0.id, K0.id, 'srv-esempio-01', 'server', 'attivo', 'Dell R660', '10.0.0.100', 'SN-ESEMPIO', 'Team Infra', '10', '1', '2027-12-31', '2028-06-30', 'riga di esempio: sostituiscila']);
-        const rifer = [['tipo', 'server, rete, storage, firewall, alimentazione, altro'], ['stato', 'attivo, manutenzione, dismissione, dismesso'], ['u', 'slot di partenza contato dal basso (numero)'], ['h', 'altezza in unità rack (numero)'], ['garanzia / supporto', 'date in formato AAAA-MM-GG'], ['location / sala / rack', 'devono esistere già nell\'applicazione (usa gli id sotto)']];
+        if (K0) esempio.push(['', L0.id, R0.id, K0.id, 'srv-esempio-01', 'server', 'attivo', 'Dell R660', '10.0.0.100', 'SN-ESEMPIO', 'Team Infra', '10', '1', '2027-12-31', '2028-06-30', 'riga di esempio: sostituiscila']);
+        const rifer = [['_uid', 'identità del dispositivo: LASCIARE VUOTO per i nuovi, NON modificare per quelli esistenti'], ['tipo', 'server, rete, storage, firewall, alimentazione, altro'], ['stato', 'attivo, manutenzione, dismissione, dismesso'], ['u', 'slot di partenza contato dal basso (numero)'], ['h', 'altezza in unità rack (numero)'], ['garanzia / supporto', 'date in formato AAAA-MM-GG'], ['location / sala / rack', 'devono esistere già nell\'applicazione (usa gli id sotto)'], ['nome', 'NON è identità: si può rinominare. Per aggiornare un dispositivo esistente serve la colonna _uid, altrimenti un nome ripetuto rende la riga ambigua e viene saltata']];
         const esistenti = [];
         for (const L of locations) for (const R of L.sale) for (const rk of R.racks) esistenti.push([L.id, L.nome, R.id, R.nome, rk.id, rk.u]);
         const blob = mod.creaXlsx([
@@ -2713,25 +2771,38 @@ class Component extends DCLogic {
             if (u + hh - 1 > K.u) return skip('posizione U' + u + '+' + hh + 'U oltre le ' + K.u + ' unità del rack ' + K.id);
             const tipo = g('tipo').toLowerCase();
             const stato = g('stato').toLowerCase();
-            const esistente = K.devices.find(d => d.name === nome);
-            const altrove = !esistente && locations.some(l => l.sale.some(r => r.racks.some(rk => rk.devices.some(d => d.name === nome))));
-            if (esistente && S.impMode === 'new') return skip('già presente in ' + K.id + ' (modalità "solo nuovi")');
-            // collisione di slot con un dispositivo diverso
-            const clash = K.devices.find(d => d.name !== nome && u <= d.u + (d.h || 1) - 1 && d.u <= u + hh - 1);
+
+            // --- identità della riga (§8.4): _uid > id interno > nome se univoco ---
+            // Il nome è mutabile e NON è identità: se compare in più dispositivi la
+            // corrispondenza è ambigua e la riga si rifiuta, non si indovina.
+            const m = IDENT.matchDeviceForImport(data, { _uid: g('_uid'), id: g('id'), nome });
+            if (m.ambiguous) return skip('identità ambigua — ' + m.reason);
+            const esistente = m.match ? m.match.obj : null;
+            const altrove = !!(esistente && !K.devices.some(d => d._uid === esistente._uid));
+            if (esistente && S.impMode === 'new') return skip('già presente (' + m.reason + ', modalità "solo nuovi")');
+
+            // collisione di slot: confronto per _uid, non per nome
+            const clash = K.devices.find(d => (!esistente || d._uid !== esistente._uid) && u <= d.u + (d.h || 1) - 1 && d.u <= u + hh - 1);
             const chiave = K.id + '#' + u;
             if (usati[chiave]) return skip('due righe puntano allo stesso slot U' + u + ' del rack ' + K.id);
             if (clash) return skip('slot U' + u + ' del rack ' + K.id + ' occupato da ' + clash.name);
             usati[chiave] = true;
-            const dev = {
-              id: nome, name: nome,
+
+            // Aggiornamento: si parte dall'oggetto esistente, così _uid e campi
+            // sconosciuti sopravvivono. Nuovo: preserveIdentity genera l'_uid.
+            // L'`id` interno NON viene riscritto col nome se il dispositivo esiste già:
+            // era il modo in cui una rinomina distruggeva l'identità.
+            const dev = preserveIdentity(esistente, {
+              id: esistente ? esistente.id : (g('id') || nome),
+              name: nome,
               type: TYPES[tipo] ? tipo : 'altro',
               stato: STATI.includes(stato) ? stato : 'attivo',
               model: g('modello'), ip: g('ip'), serial: g('seriale'), owner: g('referente'),
               u, h: hh, garanzia: g('garanzia'), supporto: g('supporto'), note: g('note')
-            };
+            });
             azioni.push({ loc: L.id, sala: R.id, rack: K.id, dev });
-            if (esistente) { aggiornati++; rows.push({ esito: 'aggiornato', txt: nome + ' → aggiorna in ' + K.id + ' U' + u, color: '#ffb020' }); }
-            else { nuovi++; rows.push({ esito: 'nuovo', txt: nome + ' → nuovo in ' + R.nome + ' / ' + K.id + ' U' + u + (altrove ? ' (verrà spostato da un altro rack)' : ''), color: '#3ddc84' }); }
+            if (esistente) { aggiornati++; rows.push({ esito: 'aggiornato', txt: nome + ' → aggiorna in ' + K.id + ' U' + u + ' (' + m.reason + ')' + (altrove ? ' — spostato da un altro rack' : ''), color: '#ffb020' }); }
+            else { nuovi++; rows.push({ esito: 'nuovo', txt: nome + ' → nuovo in ' + R.nome + ' / ' + K.id + ' U' + u, color: '#3ddc84' }); }
           });
           const summary = nuovi + ' nuovi · ' + aggiornati + ' da aggiornare · ' + saltati + ' righe da saltare';
           this.setState({ impPreview: { file: f.name, summary, nuovi, aggiornati, saltati, azioni, rows: rows.map(r => ({ txt: r.txt, style: { fontFamily: "'Roboto Mono',monospace", fontSize: 11, color: 'var(--dd7dde4)', padding: '3px 0 3px 8px', borderLeft: '2px solid ' + r.color } })) } });
@@ -2743,10 +2814,18 @@ class Component extends DCLogic {
         if (!canEdit) { alert('Passa in modalità Editing per applicare l\'import.'); return; }
         const next = JSON.parse(JSON.stringify(data));
         for (const a of p.azioni) {
-          // rimuovo eventuali omonimi altrove, poi inserisco nel rack indicato
-          for (const L of next.locations) for (const R of L.sale) for (const rk of R.racks) rk.devices = rk.devices.filter(d => d.name !== a.dev.name);
+          // Si rimuove l'entità per _uid, non per nome: prima un omonimo qualsiasi
+          // veniva cancellato e reinserito, cioè una sostituzione di identità a ogni
+          // import. Ora lo stesso _uid viene spostato nel rack indicato (§8.4).
+          for (const L of next.locations) for (const R of L.sale) for (const rk of R.racks) rk.devices = rk.devices.filter(d => d._uid !== a.dev._uid);
           const K = next.locations.find(l => l.id === a.loc).sale.find(r => r.id === a.sala).racks.find(r => r.id === a.rack);
           K.devices.push(a.dev);
+        }
+        const impErrors = IDENT.validateAgainstBase(data, next);
+        if (impErrors.length) {
+          alert('Import annullato: l\'operazione avrebbe alterato l\'identità di ' + impErrors.length
+              + ' entità.\n\n' + impErrors.slice(0, 5).map(e => '• ' + e.message).join('\n'));
+          return;
         }
         this.persist(next, 'Import tabellare da ' + p.file + ': ' + p.nuovi + ' nuovi, ' + p.aggiornati + ' aggiornati');
         this.setState({ impPreview: null });
@@ -2804,7 +2883,7 @@ class Component extends DCLogic {
           Object.assign(t, { id, name: dr.name || id, row: dr.row, u, w, h: hh, x, y, seriali: [dr.seriale1, dr.seriale2].map(s => (s || '').trim()).filter(Boolean) });
           t.devices.forEach(d => { if (d.u + (d.h || 1) - 1 > u) d.u = Math.max(1, u - (d.h || 1) + 1); });
         } else {
-          RM.racks.push({ id, name: dr.name || id, row: dr.row || 'A', u, x, y, w, h: hh, seriali: [dr.seriale1, dr.seriale2].map(s => (s || '').trim()).filter(Boolean), devices: [] });
+          RM.racks.push({ _uid: newUid(), id, name: dr.name || id, row: dr.row || 'A', u, x, y, w, h: hh, seriali: [dr.seriale1, dr.seriale2].map(s => (s || '').trim()).filter(Boolean), devices: [] });
         }
         this.persist(next, (dr._orig ? 'Modificato rack ' + id : 'Nuovo rack ' + id) + ' in ' + room.nome);
         this.setState({ rackEditing: null, selRack: id, rackError: '' });
@@ -2917,10 +2996,20 @@ class Component extends DCLogic {
         const clash = target.devices.find(d => d.id !== S.selDev && u <= d.u + (d.h || 1) - 1 && d.u <= u + h - 1);
         if (clash) { this.setState({ draftError: 'Posizione U' + u + ' occupata da ' + clash.name + '.' }); return; }
         const id = S.selDev || ('d' + Date.now());
-        const dev = { id, name: dr.name.trim(), type: dr.type, stato: dr.stato || 'attivo', model: dr.model, ip: dr.ip, serial: dr.serial, owner: dr.owner, garanzia: dr.garanzia || '', supporto: dr.supporto || '', note: dr.note || '', u, h };
+        // L'oggetto va DERIVATO dall'esistente, non ricostruito: altrimenti si perdono
+        // _uid e ogni campo non elencato qui (§8.4). Per un dispositivo nuovo, orig è
+        // null e preserveIdentity genera l'_uid.
+        const orig = S.selDev
+          ? (() => { for (const L of locations) for (const R of L.sale) for (const rk of R.racks) { const f = rk.devices.find(d => d.id === S.selDev); if (f) return f; } return null; })()
+          : null;
+        const dev = preserveIdentity(orig, { id, name: dr.name.trim(), type: dr.type, stato: dr.stato || 'attivo', model: dr.model, ip: dr.ip, serial: dr.serial, owner: dr.owner, garanzia: dr.garanzia || '', supporto: dr.supporto || '', note: dr.note || '', u, h });
         const next = JSON.parse(JSON.stringify(data));
         for (const L of next.locations) for (const R of L.sale) for (const rk of R.racks) {
-          rk.devices = rk.devices.filter(d => d.id !== id);
+          // Rimozione per _uid, non per id: gli id dei dispositivi derivano dal nome e
+          // possono ripetersi fra rack diversi, quindi filtrare per id cancellerebbe
+          // anche un omonimo estraneo. Per un dispositivo nuovo l'_uid non combacia
+          // con nulla e non rimuove niente.
+          rk.devices = rk.devices.filter(d => d._uid !== dev._uid);
           if (L.id === loc.id && R.id === dr.room && rk.id === dr.rack) rk.devices.push(dev);
         }
         this.persist(next, (S.selDev ? 'Modificato' : 'Aggiunto') + ' dispositivo ' + dev.name + ' in ' + dr.rack + ' (' + room.nome + ')');

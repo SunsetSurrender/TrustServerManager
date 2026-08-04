@@ -1,0 +1,12 @@
+{
+  "_commento": "Valori attesi per tools/verify-seed-migration.mjs. Rigenerare SOLO con --update e dopo aver verificato a mano il cambiamento del seed.",
+  "counts": {
+    "location": 3,
+    "room": 6,
+    "rack": 102,
+    "device": 86
+  },
+  "total": 197,
+  "canonicalSha256": "b4efaf7c1adf094c15c6323bf971004b544d064938702bc1fe40465a3e89ebc3",
+  "canonicalNote": "SHA-256 di JSON.stringify del seed con gli _uid rimossi ricorsivamente e le chiavi ordinate alfabeticamente a ogni livello."
+}

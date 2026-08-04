@@ -638,33 +638,85 @@ Attenzione anche all'import tabellare CSV/XLSX
 quindi deve generare `_uid` per i nuovi e **preservarli** per gli aggiornati. È il percorso
 che tocca più righe in una volta, quindi quello dove un `_uid` perso fa più danno.
 
+#### Corrispondenza per l'import da foglio
+
+`_uid` è l'**unica** identità. In particolare `device.id` non lo è: deriva dal nome, è
+modificabile, e **non è univoco a livello globale** — due rack possono contenere due
+dispositivi con lo stesso `id`.
+
+| Riga | Come si identifica | Spostamento fra rack |
+|---|---|---|
+| con `_uid` | identità certa, ricerca su tutto l'inventario | **consentito** |
+| senza `_uid` | `id`, poi `nome`, **solo dentro il rack di destinazione** | **vietato** |
+
+Senza `_uid` la corrispondenza serve ad aggiornare, mai a spostare: una riga legacy che
+combacia con un dispositivo in un **altro** rack viene rifiutata con l'indicazione di
+aggiungere la colonna `_uid`. Accettarla vorrebbe dire spostare un dispositivo basandosi su
+qualcosa che non è identità — ed è esattamente ciò che il codice precedente faceva in
+silenzio, cancellando gli omonimi in tutto l'inventario prima di reinserire.
+
+Zero candidati nel rack e nessuno altrove → dispositivo nuovo. Candidati multipli, o zero
+nel rack ma presenti altrove → **rifiuto**, non un tentativo di indovinare.
+
 #### Stato: implementato
 
 | Cosa | Dove |
 |---|---|
-| logica di identità (generazione, validazione, match per import) | `handoff/identity.js` |
+| logica di identità (generazione, validazione, match, mappatura colonne) | `handoff/identity.js` |
 | migrazione una-volta-sola del seed | `tools/migrate-seed-uids.mjs` (197 entità) |
-| verifica che la migrazione non abbia alterato dati | `tools/verify-seed-migration.mjs` |
-| test della logica in isolamento | `tools/identity-tests.mjs` (43 test) |
-| test del cablaggio nell'app reale | `tools/identity-ui-test.py` |
+| verifica durevole del seed | `tools/verify-seed-migration.mjs` + `tools/seed-migration.expected.json` |
+| fixture neutre rispetto al linguaggio | `fixtures/identity/*.json` (32) |
+| test JS (fixture + specifica frontend) | `tools/identity-tests.mjs` (85 test) |
+| validatore e motore di diff in Python | `backend/app/identity/` |
+| test Python (fixture + proprietà) | `backend/tests/` (175 test) |
+| cablaggio nell'app reale | `tools/identity-ui-test.py` |
+| round-trip semantico XLSX | `tools/xlsx-roundtrip-test.py` |
 
 Percorsi di ricostruzione coperti: creazione di sito, sala, rack e dispositivo; modifica
 manuale di dispositivo (`saveDraft`); voci di manuale (`manSave`); import guidato CSV/XLSX
 (analisi e applicazione); import di backup JSON; export CSV/XLSX/JSON con colonna `_uid`.
 
-Due difetti latenti trovati mentre si copriva questi percorsi, e corretti qui:
+Quattro difetti latenti trovati mentre si copriva questi percorsi, tutti corretti:
 
-1. `saveDraft` rimuoveva il dispositivo con `filter(d => d.id !== id)`. Gli `id` dei
-   dispositivi derivano dal nome e possono ripetersi fra rack, quindi la modifica di un
-   dispositivo poteva cancellarne un omonimo in un altro rack. Ora il filtro è per `_uid`.
+1. `saveDraft` rimuoveva il dispositivo con `filter(d => d.id !== id)`. Poiché gli `id` non
+   sono univoci fra rack, modificare un dispositivo poteva cancellarne un omonimo altrove.
+   Ora il filtro è per `_uid`.
 2. Il foglio XLSX di export («Dispositivi») usa intestazioni maiuscole, ma l'import le
-   minuscolizza prima di confrontarle: quel foglio **è** ri-importabile. Senza `_uid` un
-   giro export→import avrebbe sostituito l'identità di ogni dispositivo. Ora la colonna c'è.
+   minuscolizza: quel foglio **è** ri-importabile. Senza `_uid` un giro export→import
+   sostituiva l'identità di ogni dispositivo. Ora la colonna c'è.
+3. Nello stesso foglio l'altezza si chiama `Altezza U`, che l'import non riconosceva
+   (cercava `h`): ri-importandolo **tutte le altezze tornavano a 1**. Risolto con una mappa
+   di alias di intestazione (`normalizeHeaders`).
+4. Peggiore del precedente e trovato cercandolo: le **etichette degli stati non coincidono
+   con le chiavi** (`manutenzione` → «In manutenzione»). L'import confrontava con le chiavi,
+   quindi ri-importando il foglio ogni dispositivo in manutenzione o in dismissione
+   **tornava ad "attivo"**, azzerando in silenzio il ciclo di vita. Risolto con `parseStato`
+   / `parseTipo`, che accettano sia chiavi sia etichette.
 
-⚠ Difetto preesistente **non** corretto in questo commit, perché fuori ambito: nello stesso
-foglio la colonna dell'altezza si chiama `Altezza U`, che l'import non riconosce (cerca `h`).
-Ri-importando quel foglio le altezze tornano tutte a 1. Va sistemato quando si affronterà
-l'import, o rinominando l'intestazione o accettando l'alias.
+`tools/xlsx-roundtrip-test.py` dimostra la preservazione **semantica** del giro
+export→import sull'app reale: 86 dispositivi, altezze non predefinite (2, 3, 4 e 6 U) e
+stati non predefiniti, confrontati campo per campo. Nessun dispositivo perso, creato o
+spostato. Unica differenza ammessa e dichiarata: il giro **materializza i default
+documentati** (un dispositivo senza `stato` esce come `attivo`, che è già il valore che la
+UI mostra), quindi il confronto è sul valore efficace, non sulla presenza della chiave.
+
+#### Verifica durevole della migrazione
+
+Il controllo non dipende da git — deve restare valido dopo il commit, dopo un rebase e su
+una copia senza storia. `tools/seed-migration.expected.json` committa:
+
+- i **conteggi per tipo** (location 3, room 6, rack 102, device 86 — totale 197);
+- lo **SHA-256 della forma canonica** del seed: documento con gli `_uid` rimossi
+  ricorsivamente e le chiavi ordinate a ogni livello.
+
+Così un dato alterato o perso cambia lo SHA, entità aggiunte o rimosse cambiano i conteggi, e
+un cambiamento dei soli `_uid` è ignorato per costruzione — è ciò che rende il controllo
+indipendente dai valori casuali generati dalla migrazione. Verificato che lo SHA reagisca
+davvero a una modifica di dato, alla rimozione di un dispositivo e a un cambio di geometria
+di un vano, e che resti invariato al cambio di un `_uid`.
+
+Se il seed cambia legittimamente: verificare il diff, poi
+`node tools/verify-seed-migration.mjs --update`.
 
 #### Test di round-trip obbligatori
 
@@ -870,13 +922,43 @@ Forma indicativa di un evento:
   "fromPos": { "u": 32 }, "toPos": { "u": 18 } }
 ```
 
-#### Test del motore, in isolamento
+#### Stato: implementato, non ancora agganciato
 
-Il diff va testato da solo, senza HTTP e senza DB, su coppie di documenti costruiti a mano:
-rinomina, spostamento fra genitori, riposizionamento a genitore invariato, riordino puro,
-inserimento in testa (che **non** deve generare eventi sui fratelli), cancellazione,
-modifica di attributo, e le combinazioni rename+move e add+reorder. Più un caso di
-non-modifica che deve produrre lista vuota.
+`backend/app/identity/` — **puro**: nessun FastAPI, nessun SQLAlchemy, nessuna transazione.
+L'aggancio (autorizzazione per ambito, commit atomico, audit) è ai punti 5-6 di §9.
+
+| Modulo | Contenuto |
+|---|---|
+| `model.py` | attraversamento, vocabolario delle entità, ambiti, campi posizione/etichetta |
+| `validator.py` | validazione dell'identità, stessi codici del frontend |
+| `diff.py` | eventi di dominio |
+
+**Determinismo garantito**, perché l'audit deve essere riproducibile:
+
+- eventi ordinati per `(tipo di entità, tipo di evento, uid, uid del genitore)`;
+- chiavi dei dizionari di modifiche ordinate;
+- i sotto-documenti incorporati nei payload (per esempio i `vani` dentro un update di sala)
+  vengono **canonicalizzati ricorsivamente**. Senza questo, l'ordine delle chiavi dell'input
+  finirebbe nell'output e due richieste equivalenti produrrebbero JSON di audit diversi:
+  «deterministico» deve voler dire identico byte per byte, non solo semanticamente uguale.
+  Un test lo verifica rimescolando l'ordine delle chiavi in ingresso.
+
+#### Fixture condivise: il contratto fra i due linguaggi
+
+`fixtures/identity/*.json` — 32 casi, ognuno con `before`, `after`, `expectedValid`,
+`expectedErrorCodes` e, dove ha senso, `expectedEvents`. Consumate **da entrambe** le suite:
+JavaScript verifica validità e codici, Python verifica anche gli eventi.
+
+Le aspettative sono **scritte a mano** (in `tools/make-identity-fixtures.mjs`, che genera i
+file), non calcolate da un motore di diff: derivarle dall'implementazione significherebbe
+verificarla contro sé stessa.
+
+Coperti: `add`, `delete`, `update`, `rename`, `move` (fra genitori e di sola posizione),
+`reorder` (rack e sale), `rename`+`move` sulla stessa entità, soppressione del `reorder` per
+add e per delete, cancellazione a cascata, inserimento in testa che **non** deve toccare i
+fratelli, non-modifica con lista vuota, update dei `vani` come update della sala, voci di
+manuale, impostazioni — e ogni codice di rifiuto. Due test parametrizzati falliscono se un
+tipo di evento o un codice di errore resta senza fixture.
 
 Questi test sono la specifica eseguibile dell'autorizzazione: se il diff sbaglia a
 classificare, §8.3 concede o nega i permessi sbagliati, e nessun test di endpoint lo
@@ -985,9 +1067,9 @@ Ambito per l'autorizzazione: `manuale` (admin), come già in §8.3.
    rifiuto dei backup JSON legacy, migrazione una-volta-sola del seed, test~~
    ✔ **fatto** — `handoff/identity.js`, `tools/migrate-seed-uids.mjs`,
    `tools/identity-tests.mjs`, `tools/identity-ui-test.py`
-4. **Motore di diff identity-aware** (§8.10), con i suoi test in isolamento, prima di tutto
-   ciò che lo usa — serve a §8.3, §8.9 e alla fase 2 (§1). Scritto due volte male costa più
-   di una volta bene.
+4. ~~**Motore di diff identity-aware** (§8.10) e validatore, puri, con fixture condivise e
+   test~~ ✔ **fatto** — `backend/app/identity/`, `fixtures/identity/`, `backend/tests/`.
+   Deliberatamente NON agganciato a FastAPI né a Postgres: è il passo 6.
 5. Auth: users con `disabled_at` (§8.6), sessioni, login, cambio password provvisoria,
    rimozione del bypass client
 6. `GET`/`PUT /api/inventory` con commit atomico (§8.11), validazione degli `_uid` (§8.4),

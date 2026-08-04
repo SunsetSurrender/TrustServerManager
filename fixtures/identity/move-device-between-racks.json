@@ -1,0 +1,304 @@
+{
+  "name": "move-device-between-racks",
+  "description": "Spostamento fra rack: ambito devices anche se tocca due sottoalberi di rack. È il caso che un diff per percorso classificherebbe come structure.",
+  "before": {
+    "versione": 3,
+    "notifiche": {
+      "email": "a@b.c",
+      "giorni": 30,
+      "attive": false
+    },
+    "manuale": [
+      {
+        "_uid": "eeeeeeee-0000-4000-8000-000000000001",
+        "id": "man-1",
+        "titolo": "Voce uno",
+        "blocchi": []
+      }
+    ],
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000001",
+        "id": "sito-1",
+        "nome": "Sito 1",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "id": "sala-1",
+            "nome": "Sala 1",
+            "w": 6,
+            "h": 5,
+            "vani": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 6,
+                "h": 5
+              }
+            ],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-00000000000a",
+                "id": "R01",
+                "name": "Rack R01",
+                "row": "A",
+                "u": 45,
+                "x": 0.5,
+                "y": 0.5,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-00000000000a",
+                    "id": "srv-01",
+                    "name": "srv-01",
+                    "type": "server",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "u": 10,
+                    "h": 1
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-00000000000b",
+                    "id": "srv-02",
+                    "name": "srv-02",
+                    "type": "server",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "u": 20,
+                    "h": 1
+                  }
+                ]
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-00000000000b",
+                "id": "R02",
+                "name": "Rack R02",
+                "row": "A",
+                "u": 45,
+                "x": 1.5,
+                "y": 0.5,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-00000000000c",
+                    "id": "srv-03",
+                    "name": "srv-03",
+                    "type": "server",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "u": 30,
+                    "h": 1
+                  }
+                ]
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-00000000000c",
+                "id": "R03",
+                "name": "Rack R03",
+                "row": "B",
+                "u": 45,
+                "x": 2.5,
+                "y": 0.5,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": []
+              }
+            ]
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000002",
+            "id": "sala-2",
+            "nome": "Sala 2",
+            "w": 4,
+            "h": 4,
+            "vani": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 4,
+                "h": 4
+              }
+            ],
+            "racks": []
+          }
+        ]
+      },
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000002",
+        "id": "sito-2",
+        "nome": "Sito 2",
+        "sale": []
+      }
+    ]
+  },
+  "after": {
+    "versione": 3,
+    "notifiche": {
+      "email": "a@b.c",
+      "giorni": 30,
+      "attive": false
+    },
+    "manuale": [
+      {
+        "_uid": "eeeeeeee-0000-4000-8000-000000000001",
+        "id": "man-1",
+        "titolo": "Voce uno",
+        "blocchi": []
+      }
+    ],
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000001",
+        "id": "sito-1",
+        "nome": "Sito 1",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "id": "sala-1",
+            "nome": "Sala 1",
+            "w": 6,
+            "h": 5,
+            "vani": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 6,
+                "h": 5
+              }
+            ],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-00000000000a",
+                "id": "R01",
+                "name": "Rack R01",
+                "row": "A",
+                "u": 45,
+                "x": 0.5,
+                "y": 0.5,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-00000000000b",
+                    "id": "srv-02",
+                    "name": "srv-02",
+                    "type": "server",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "u": 20,
+                    "h": 1
+                  }
+                ]
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-00000000000b",
+                "id": "R02",
+                "name": "Rack R02",
+                "row": "A",
+                "u": 45,
+                "x": 1.5,
+                "y": 0.5,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-00000000000c",
+                    "id": "srv-03",
+                    "name": "srv-03",
+                    "type": "server",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "u": 30,
+                    "h": 1
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-00000000000a",
+                    "id": "srv-01",
+                    "name": "srv-01",
+                    "type": "server",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "u": 10,
+                    "h": 1
+                  }
+                ]
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-00000000000c",
+                "id": "R03",
+                "name": "Rack R03",
+                "row": "B",
+                "u": 45,
+                "x": 2.5,
+                "y": 0.5,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": []
+              }
+            ]
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000002",
+            "id": "sala-2",
+            "nome": "Sala 2",
+            "w": 4,
+            "h": 4,
+            "vani": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 4,
+                "h": 4
+              }
+            ],
+            "racks": []
+          }
+        ]
+      },
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000002",
+        "id": "sito-2",
+        "nome": "Sito 2",
+        "sale": []
+      }
+    ]
+  },
+  "expectedValid": true,
+  "expectedErrorCodes": [],
+  "expectedEvents": [
+    {
+      "event": "move",
+      "entity": "device",
+      "uid": "dddddddd-0000-4000-8000-00000000000a",
+      "scope": "devices",
+      "fromParentUid": "cccccccc-0000-4000-8000-00000000000a",
+      "toParentUid": "cccccccc-0000-4000-8000-00000000000b",
+      "fromPos": {
+        "u": 10
+      },
+      "toPos": {
+        "u": 10
+      }
+    }
+  ]
+}

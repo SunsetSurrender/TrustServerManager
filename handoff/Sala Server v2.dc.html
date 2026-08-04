@@ -2745,11 +2745,13 @@ class Component extends DCLogic {
         e.target.value = '';
         try {
           const tab = await this._leggiTabella(f);
-          const hdr = tab.intestazioni.map(s => String(s).trim().toLowerCase());
+          // Alias di intestazione risolti dal modulo: l'export XLSX formattato usa
+          // "Altezza U" e non "h", quindi senza questa normalizzazione ri-importare
+          // quel foglio azzerava le altezze a 1.
+          const hdr = IDENT.normalizeHeaders(tab.intestazioni);
           const idx = (n) => hdr.indexOf(n);
           const mancanti = ['location', 'sala', 'rack', 'nome'].filter(c => idx(c) < 0);
           if (mancanti.length) throw new Error('colonne mancanti: ' + mancanti.join(', ') + '. Scarica il modello per la struttura corretta.');
-          const STATI = ['attivo', 'manutenzione', 'dismissione', 'dismesso'];
           const rows = [];
           const azioni = [];
           let nuovi = 0, aggiornati = 0, saltati = 0;
@@ -2769,13 +2771,11 @@ class Component extends DCLogic {
             const u = Math.max(1, parseInt(g('u'), 10) || 1);
             const hh = Math.max(1, parseInt(g('h'), 10) || 1);
             if (u + hh - 1 > K.u) return skip('posizione U' + u + '+' + hh + 'U oltre le ' + K.u + ' unità del rack ' + K.id);
-            const tipo = g('tipo').toLowerCase();
-            const stato = g('stato').toLowerCase();
-
-            // --- identità della riga (§8.4): _uid > id interno > nome se univoco ---
-            // Il nome è mutabile e NON è identità: se compare in più dispositivi la
-            // corrispondenza è ambigua e la riga si rifiuta, non si indovina.
-            const m = IDENT.matchDeviceForImport(data, { _uid: g('_uid'), id: g('id'), nome });
+            // --- identità della riga (§8.4) ---
+            // Solo l'_uid è identità. Senza _uid la corrispondenza è limitata al rack
+            // di destinazione e non può spostare un dispositivo fra rack: `id` e `nome`
+            // sono modificabili e `id` non è univoco a livello globale.
+            const m = IDENT.matchDeviceForImport(data, { _uid: g('_uid'), id: g('id'), nome }, K);
             if (m.ambiguous) return skip('identità ambigua — ' + m.reason);
             const esistente = m.match ? m.match.obj : null;
             const altrove = !!(esistente && !K.devices.some(d => d._uid === esistente._uid));
@@ -2792,11 +2792,14 @@ class Component extends DCLogic {
             // sconosciuti sopravvivono. Nuovo: preserveIdentity genera l'_uid.
             // L'`id` interno NON viene riscritto col nome se il dispositivo esiste già:
             // era il modo in cui una rinomina distruggeva l'identità.
+            // parseTipo/parseStato accettano sia le chiavi sia le etichette visualizzate
+            // ("In manutenzione" → manutenzione): l'export formattato scrive le etichette
+            // e senza questa conversione un re-import riportava ogni stato ad "attivo".
             const dev = preserveIdentity(esistente, {
               id: esistente ? esistente.id : (g('id') || nome),
               name: nome,
-              type: TYPES[tipo] ? tipo : 'altro',
-              stato: STATI.includes(stato) ? stato : 'attivo',
+              type: IDENT.parseTipo(g('tipo'), esistente ? (esistente.type || 'altro') : 'altro'),
+              stato: IDENT.parseStato(g('stato'), esistente ? (esistente.stato || 'attivo') : 'attivo'),
               model: g('modello'), ip: g('ip'), serial: g('seriale'), owner: g('referente'),
               u, h: hh, garanzia: g('garanzia'), supporto: g('supporto'), note: g('note')
             });

@@ -29,7 +29,13 @@ const SEED_URL = new URL('../handoff/inventario.js', import.meta.url);
 const SEED_OUT = 'handoff/inventario.js';
 
 const { DATI: doc } = await import(SEED_URL.href);
-const { validateDocument } = await import(new URL('../handoff/identity.js', import.meta.url).href);
+const { validateDocument, CURRENT_SCHEMA_VERSION, checkSchemaVersion } =
+  await import(new URL('../handoff/identity.js', import.meta.url).href);
+
+// La migrazione è anche l'unico posto che può PORTARE il documento alla versione
+// di schema corrente: il percorso normale rifiuta e rimanda qui (§8.13).
+const schemaBefore = doc.schemaVersion ?? null;
+doc.schemaVersion = CURRENT_SCHEMA_VERSION;
 
 let generated = 0;
 let preserved = 0;
@@ -77,7 +83,7 @@ if (Array.isArray(doc.manuale)) {
 }
 
 // ---- verifica prima di scrivere: nessun duplicato, tutti conformi ----
-const errors = validateDocument(doc);
+const errors = [...validateDocument(doc), ...checkSchemaVersion(doc)];
 if (errors.length) {
   console.error('MIGRAZIONE ANNULLATA — il documento risultante non è valido:');
   for (const e of errors) console.error(`  ${e.code}: ${e.message}`);
@@ -98,10 +104,14 @@ const header = `// ============================================================
 //
 // I \`vani\` non hanno \`_uid\`: sono la geometria della sala, non entità.
 //
+// \`schemaVersion\` è la forma del documento (§8.13), da non confondere con la
+// revisione ottimistica dell'inventario. Il campo \`versione\` è un residuo
+// informale del prototipo e non ha semantica.
+//
 // In produzione questo modulo è sostituito dalle chiamate all'API
 // (GET /api/inventory) e non entra nell'immagine web (§6 del piano).
 //
-// Entità con identità: ${total}
+// Entità con identità: ${total} · schemaVersion: ${CURRENT_SCHEMA_VERSION}
 // ============================================================
 
 export const DATI = `;
@@ -109,3 +119,4 @@ export const DATI = `;
 writeFileSync(SEED_OUT, header + JSON.stringify(doc, null, 2) + ';\n', 'utf8');
 
 console.log(`Seed migrato: ${generated} _uid generati, ${preserved} conservati, ${total} totali.`);
+console.log(`schemaVersion: ${schemaBefore ?? '(assente)'} → ${CURRENT_SCHEMA_VERSION}`);

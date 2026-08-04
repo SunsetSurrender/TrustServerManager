@@ -1,0 +1,15 @@
+{
+  "name": "edit-reorder-rooms-forbidden",
+  "description": "Riordino delle sale (\"Riordinata sala\" della UI): struttura, vietato a edit.",
+  "role": "edit",
+  "fromIdentityFixture": "reorder-rooms",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "room",
+      "event": "reorder",
+      "requiredRole": "admin"
+    }
+  ]
+}

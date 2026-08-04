@@ -1,0 +1,15 @@
+{
+  "name": "edit-cascade-delete-forbidden",
+  "description": "CASCATA: eliminare un rack produce il delete del rack più quello di ogni dispositivo contenuto. I delete di dispositivo sarebbero concessi a edit, ma quello del rack no: l'intera modifica è respinta. È il caso in cui una politica che guarda un evento alla volta lascerebbe passare metà operazione.",
+  "role": "edit",
+  "fromIdentityFixture": "delete-rack-cascades-to-devices",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "rack",
+      "event": "delete",
+      "requiredRole": "admin"
+    }
+  ]
+}

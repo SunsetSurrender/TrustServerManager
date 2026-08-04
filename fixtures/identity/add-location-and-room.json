@@ -2,6 +2,7 @@
   "name": "add-location-and-room",
   "description": "Creazione di sito e sala: due add, ordinati per tipo (location prima di room).",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

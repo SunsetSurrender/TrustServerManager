@@ -43,6 +43,9 @@ const dev = (uid, id, extra = {}) => ({
 });
 
 const base = () => ({
+  // `schemaVersion` è la forma del documento (§8.13); `versione` è il residuo
+  // informale del prototipo, senza semantica.
+  schemaVersion: 1,
   versione: 3,
   notifiche: { email: 'a@b.c', giorni: 30, attive: false },
   manuale: [{ _uid: U.man1, id: 'man-1', titolo: 'Voce uno', blocchi: [] }],

@@ -1,0 +1,15 @@
+{
+  "name": "edit-add-rack-forbidden-with-suppressed-reorder",
+  "description": "Inserimento di rack in testa: il reorder è soppresso, resta il solo add, che a edit è vietato. Verifica anche che la soppressione non introduca violazioni fantasma.",
+  "role": "edit",
+  "fromIdentityFixture": "reorder-suppressed-by-add",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "rack",
+      "event": "add",
+      "requiredRole": "admin"
+    }
+  ]
+}

@@ -2,6 +2,7 @@
   "name": "rename-device",
   "description": "Rinomina di codice e nome a _uid invariato: evento rename, non delete+add.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

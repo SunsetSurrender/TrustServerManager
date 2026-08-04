@@ -1,0 +1,8 @@
+{
+  "name": "empty-admin-allowed",
+  "description": "Insieme di eventi vuoto con ruolo admin: consentito. Non è una scrittura, e un PUT che non produce eventi non crea nemmeno una versione.",
+  "role": "admin",
+  "events": [],
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

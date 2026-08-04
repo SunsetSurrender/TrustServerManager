@@ -525,6 +525,9 @@ che viene confrontato con il ruolo:
 | `manuale` | voci del manuale | `admin` |
 | `settings` | notifiche, SMTP non segreto | `admin` |
 
+La politica è implementata come modulo puro: vedi **§8.15** per le regole esatte per
+evento, il comportamento «tutto o niente» e il formato delle violazioni.
+
 Un `PUT` che tocca ambiti non consentiti → **403 con l'elenco degli eventi incriminati**
 (evento, entità, `_uid`, percorso leggibile), e niente viene scritto: il controllo avviene
 dentro la stessa transazione della scrittura (§8.11), quindi o passa tutto o non passa niente.
@@ -657,6 +660,19 @@ silenzio, cancellando gli omonimi in tutto l'inventario prima di reinserire.
 
 Zero candidati nel rack e nessuno altrove → dispositivo nuovo. Candidati multipli, o zero
 nel rack ma presenti altrove → **rifiuto**, non un tentativo di indovinare.
+
+Due rifiuti ulteriori, entrambi casi in cui l'esito dipenderebbe altrimenti da una scelta
+arbitraria:
+
+- **`id` e `nome` che indicano dispositivi diversi**, anche dentro lo stesso rack di
+  destinazione: la riga è contraddittoria. Preferire una delle due chiavi vorrebbe dire
+  decidere quale informazione dell'utente ignorare, e l'esito dipenderebbe dalla precedenza
+  scelta nel codice.
+- **Due righe che puntano allo stesso dispositivo** — per `_uid` uguale o perché risolvono
+  alla stessa entità per vie diverse: la seconda sovrascriverebbe la prima e il risultato
+  dipenderebbe dall'ordine delle righe nel foglio. Il tracciamento è un insieme di
+  «rivendicazioni» passato a `matchDeviceForImport`; una riga *nuova* non rivendica nulla,
+  quindi due righe nuove distinte restano ammesse.
 
 #### Stato: implementato
 
@@ -1057,6 +1073,128 @@ una voce di manuale sarebbe stata un delete+add.
 
 Ambito per l'autorizzazione: `manuale` (admin), come già in §8.3.
 
+### 8.13 `schemaVersion`: la forma del documento, non la revisione
+
+Due numeri diversi, da non confondere mai:
+
+| | Cosa conta | Quando cambia |
+|---|---|---|
+| `inventory_head.version` (§8.11) | le modifiche ai **dati** | a ogni salvataggio |
+| `schemaVersion` (documento) | la **forma** del documento | solo quando cambia la struttura |
+
+La revisione cresce continuamente e non dice nulla su come interpretare il contenuto; la
+versione di schema determina se il documento è interpretabile senza migrazione. Un inventario
+alla revisione 900 è ancora `schemaVersion: 1`.
+
+Regole del percorso normale (`PUT`, import JSON):
+
+| Caso | Esito |
+|---|---|
+| `schemaVersion` = corrente | accettato |
+| assente | `schema_version_missing` — precede l'introduzione del campo, serve migrazione |
+| più vecchia | `schema_version_too_old` — serve una migrazione esplicita |
+| più recente | `schema_version_too_new` — il client conosce una forma che il server non sa interpretare |
+| non intero | `schema_version_invalid` |
+
+Come per gli `_uid` (§8.4), **il percorso normale non aggiorna lo schema in silenzio**: rifiuta
+e rimanda alla migrazione. Solo `tools/migrate-seed-uids.mjs` porta un documento alla versione
+corrente. La canonicalizzazione (§8.14) non inventa il campo, per la stessa ragione.
+
+⚠ Attenzione a `True` in Python: è un `int`, quindi un booleano passerebbe per la versione 1 se
+non lo si escludesse esplicitamente. C'è un test.
+
+Nota sul campo `versione: 3` presente nel seed: era un contatore informale del prototipo,
+senza semantica applicata da nessuna parte. Resta dov'è per non alterare i dati, ma **non** è
+la versione di schema.
+
+Implementazione: `backend/app/identity/schema.py`, `handoff/identity.js`.
+
+### 8.14 Forma canonica: i default documentati, materializzati
+
+Il prototipo tratta l'assenza di certi campi come equivalente a un default: `d.stato ||
+'attivo'`, `d.h || 1`, `TYPES[d.type] || TYPES.altro`, `(rk.seriali || [])`. Un dispositivo
+senza `stato` e uno con `stato: "attivo"` sono la stessa cosa per l'applicazione e per l'utente.
+
+Senza canonicalizzazione quella equivalenza diventa rumore: l'import che scrive esplicitamente
+i default produrrebbe un `update` **per ogni dispositivo**, un audit pieno di modifiche che non
+sono modifiche, e uno SHA del seed che cambia senza che sia cambiato nulla.
+
+Quindi la regola: **canonicalizzare prima di confrontare e prima di calcolare hash.** Il diff
+(§8.10) canonicalizza entrambi i documenti in ingresso; la verifica del seed canonicalizza
+prima di hashare.
+
+Proprietà garantite, con test dedicati:
+
+- **pura** — non modifica l'input;
+- **idempotente** — `canonicalise(canonicalise(d)) == canonicalise(d)`;
+- **non inventa `_uid`** — il backfill è solo della migrazione (§8.4);
+- **non inventa `schemaVersion`** — un documento senza versione va rifiutato (§8.13);
+- **non inventa `notifiche` / `smtp`** — completa i sotto-campi solo se l'oggetto esiste già,
+  altrimenti il primo salvataggio riporterebbe modifiche che l'utente non ha fatto;
+- **non materializza `smtp.password`** — non vive nel documento (§8.7) e reintrodurla come
+  stringa vuota la rimetterebbe nello schema;
+- **conserva i falsy espliciti** — `""`, `0` e `false` sono valori dell'utente, non assenze.
+  Solo `None`/`undefined` viene sostituito.
+
+Le due tabelle di default (`ENTITY_DEFAULTS`, `SETTINGS_DEFAULTS`) esistono in doppia copia —
+`backend/app/identity/canonical.py` e `handoff/identity.js` — e vanno tenute allineate. Ogni
+voce corrisponde a un `|| default` che l'applicazione già applica in lettura: materializzarlo
+non cambia il significato del documento, lo rende esplicito.
+
+Nota: l'applicazione **non** canonicalizza a runtime, per non modificarne il comportamento in
+questo commit. La canonicalizzazione è lato server (diff) e lato verifica (hash). È il motivo
+per cui `tools/xlsx-roundtrip-test.py` deve ancora dichiarare che il giro export→import
+materializza i default.
+
+### 8.15 Politica di autorizzazione: pura, sugli eventi
+
+`backend/app/authz/policy.py` — **pura**: consuma la lista di eventi del diff (§8.10) e
+decide. Nessun FastAPI, nessun database, nessuna sessione: chi è l'utente e che ruolo ha lo
+stabilisce il chiamante. L'aggancio è il punto 6 di §9.
+
+| Ruolo | Può |
+|---|---|
+| `view` | **niente**: nessuna scrittura sull'inventario |
+| `edit` | sui **dispositivi**: `add`, `update`, `rename`, `move`, `delete` |
+| `admin` | tutto: dispositivi, rack, sale, siti, voci di manuale, impostazioni |
+| rollback | **solo `admin`** |
+
+**Tutto o niente.** Si esamina l'insieme *completo* degli eventi e se anche uno solo è vietato
+l'intera modifica viene respinta. Applicare la parte consentita significherebbe scrivere un
+documento che l'utente non ha composto e lasciare l'inventario in uno stato che nessuno ha
+chiesto. Il caso che lo rende evidente è la **cascata**: eliminare un rack produce il `delete`
+del rack più un `delete` per ogni dispositivo contenuto — i delete di dispositivo sarebbero
+concessi a `edit`, quello del rack no, e una politica che guardasse un evento alla volta
+lascerebbe passare metà operazione.
+
+Scelte che vale la pena rendere esplicite:
+
+- **`reorder` non è concesso a `edit`**, nemmeno sui dispositivi: riordinare una collezione è
+  disposizione, che il README assegna alla struttura. Un operatore *sposta* (`move`), non
+  riordina.
+- **`admin` è il default per ciò che non è previsto.** Un tipo di entità o di evento nuovo
+  nasce ristretto, invece di diventare scrivibile per distrazione.
+- **Un ruolo ignoto è un errore**, non un permesso vuoto: si fallisce in chiuso
+  (`unknown_role`). Vale anche per `"Admin"` con la maiuscola.
+- **Insieme vuoto = consentito** a qualunque ruolo, `view` compreso: non è una scrittura, e un
+  `PUT` che non produce eventi non deve nemmeno creare una versione (§8.10).
+- **Il rollback non si autorizza per ambito** perché tocca tutto: è un'operazione a sé
+  (`authorize_rollback`).
+
+Violazioni leggibili dalla macchina e in ordine deterministico:
+`{code, role, entity, event, scope, requiredRole, uid, message}`. `requiredRole` serve al
+client per dire «serve un amministratore» invece di un rifiuto generico. Vengono riportate
+**tutte**, non solo la prima.
+
+Fixture in `fixtures/policy/` (32), consumate da `backend/tests/test_policy.py`. Le più
+significative non elencano gli eventi a mano ma li ricavano dal **motore di diff reale** via
+`fromIdentityFixture`, così cascate, `rename`+`move` e `reorder` sono quelli che il motore
+produce davvero e non quelli che immaginavo producesse. Coperti: insiemi vuoti per i tre
+ruoli, ogni evento di dispositivo per `edit`, mescolanze consentito/vietato (una e più
+violazioni), cascata negata a `edit` e concessa a `admin`, `reorder` di rack e di sale,
+soppressione del `reorder` che non deve generare violazioni fantasma, `vani` come update di
+sala, voci di manuale, impostazioni, ruolo ignoto e i tre casi di rollback.
+
 ## 9. Ordine di lavoro proposto
 
 1. ~~Vendorizzare React → l'app parte in rete chiusa~~ ✔ **fatto** (§5)
@@ -1070,6 +1208,9 @@ Ambito per l'autorizzazione: `manuale` (admin), come già in §8.3.
 4. ~~**Motore di diff identity-aware** (§8.10) e validatore, puri, con fixture condivise e
    test~~ ✔ **fatto** — `backend/app/identity/`, `fixtures/identity/`, `backend/tests/`.
    Deliberatamente NON agganciato a FastAPI né a Postgres: è il passo 6.
+4-bis. ~~**Default canonici** (§8.14), **`schemaVersion`** (§8.13) e **politica di
+   autorizzazione** pura sugli eventi (§8.15), con fixture e test~~ ✔ **fatto** —
+   `backend/app/identity/{canonical,schema}.py`, `backend/app/authz/`, `fixtures/policy/`
 5. Auth: users con `disabled_at` (§8.6), sessioni, login, cambio password provvisoria,
    rimozione del bypass client
 6. `GET`/`PUT /api/inventory` con commit atomico (§8.11), validazione degli `_uid` (§8.4),

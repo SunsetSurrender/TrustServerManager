@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .canonical import canonicalise
 from .model import (
     EVENT_RANK,
     KIND_RANK,
@@ -112,9 +113,18 @@ def _changed(before: dict, after: dict) -> dict:
 def diff_documents(base_doc: dict | None, next_doc: dict | None) -> list[Event]:
     """Eventi di dominio fra due documenti, in ordine deterministico.
 
+    I due documenti vengono **canonicalizzati** prima del confronto (§8.14): un
+    campo assente e il suo valore predefinito sono la stessa cosa per
+    l'applicazione, quindi il passaggio da assente a default non deve produrre
+    eventi. Senza questo, un import che scrive esplicitamente i default
+    genererebbe un `update` per ogni dispositivo.
+
     Presuppone che `next_doc` abbia superato la validazione dell'identità: senza
     `_uid` univoci il confronto non è definito. Vedi validator.validate_against_base.
     """
+    base_doc = canonicalise(base_doc)
+    next_doc = canonicalise(next_doc)
+
     events: list[Event] = []
 
     base_by_uid = {e.uid: e for e in walk(base_doc) if e.uid is not None}

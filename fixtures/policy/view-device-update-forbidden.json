@@ -1,0 +1,22 @@
+{
+  "name": "view-device-update-forbidden",
+  "description": "view non può scrivere sull'inventario, nemmeno il più innocuo update.",
+  "role": "view",
+  "events": [
+    {
+      "entity": "device",
+      "event": "update",
+      "uid": "dddddddd-0000-4000-8000-00000000000a",
+      "scope": "devices"
+    }
+  ],
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "device",
+      "event": "update",
+      "requiredRole": "edit"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "edit-rename-and-move-allowed",
+  "description": "rename + move sulla stessa entità: due eventi, entrambi sui dispositivi, entrambi concessi a edit.",
+  "role": "edit",
+  "fromIdentityFixture": "rename-and-move",
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

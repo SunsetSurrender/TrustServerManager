@@ -2,6 +2,7 @@
   "name": "delete-plus-unrelated-add",
   "description": "Delete di A e add di un dispositivo NON correlato: due eventi legittimi, nessun rifiuto.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

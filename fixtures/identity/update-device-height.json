@@ -2,6 +2,7 @@
   "name": "update-device-height",
   "description": "L'altezza in U è una dimensione, non una posizione: update, non move.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

@@ -1,0 +1,15 @@
+{
+  "name": "edit-settings-forbidden",
+  "description": "Le impostazioni sono di admin.",
+  "role": "edit",
+  "fromIdentityFixture": "update-settings",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "settings",
+      "event": "update",
+      "requiredRole": "admin"
+    }
+  ]
+}

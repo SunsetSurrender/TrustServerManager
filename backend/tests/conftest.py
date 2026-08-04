@@ -11,27 +11,32 @@ from pathlib import Path
 
 import pytest
 
-FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "identity"
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
+FIXTURE_DIR = FIXTURES / "identity"
+POLICY_DIR = FIXTURES / "policy"
 
 
-def load_fixtures() -> list[dict]:
-    if not FIXTURE_DIR.is_dir():
-        raise RuntimeError(
-            f"fixture non trovate in {FIXTURE_DIR}. Generarle con "
-            "`node tools/make-identity-fixtures.mjs`."
-        )
+def _load(directory: Path, generator: str) -> list[dict]:
+    if not directory.is_dir():
+        raise RuntimeError(f"fixture non trovate in {directory}. Generarle con `node {generator}`.")
     out = []
-    for path in sorted(FIXTURE_DIR.glob("*.json")):
+    for path in sorted(directory.glob("*.json")):
         with path.open(encoding="utf-8") as fh:
             data = json.load(fh)
         data["_file"] = path.name
         out.append(data)
     if not out:
-        raise RuntimeError(f"nessuna fixture in {FIXTURE_DIR}")
+        raise RuntimeError(f"nessuna fixture in {directory}")
     return out
 
 
+def load_fixtures() -> list[dict]:
+    return _load(FIXTURE_DIR, "tools/make-identity-fixtures.mjs")
+
+
 ALL_FIXTURES = load_fixtures()
+IDENTITY_BY_NAME = {f["name"]: f for f in ALL_FIXTURES}
+POLICY_FIXTURES = _load(POLICY_DIR, "tools/make-policy-fixtures.mjs")
 VALID_FIXTURES = [f for f in ALL_FIXTURES if f["expectedValid"]]
 INVALID_FIXTURES = [f for f in ALL_FIXTURES if not f["expectedValid"]]
 EVENT_FIXTURES = [f for f in ALL_FIXTURES if f.get("expectedEvents") is not None]

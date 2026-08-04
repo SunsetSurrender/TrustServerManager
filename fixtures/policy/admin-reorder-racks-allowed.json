@@ -1,0 +1,8 @@
+{
+  "name": "admin-reorder-racks-allowed",
+  "description": "Lo stesso riordino con ruolo admin: consentito.",
+  "role": "admin",
+  "fromIdentityFixture": "reorder-racks",
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

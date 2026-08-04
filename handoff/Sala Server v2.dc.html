@@ -2192,6 +2192,16 @@ class Component extends DCLogic {
           try {
             const parsed = JSON.parse(rd.result);
             if (!parsed.locations) throw new Error('formato non valido');
+            // Versione di schema prima di tutto: se la forma del documento non è
+            // quella corrente, gli altri controlli parlerebbero di un documento
+            // che non sappiamo interpretare (§8.13).
+            const schemaErrors = IDENT.checkSchemaVersion(parsed);
+            if (schemaErrors.length) {
+              alert('Backup rifiutato: ' + schemaErrors.map(e => e.message).join('\n')
+                  + '\n\nUn file precedente all\'introduzione di schemaVersion va migrato una '
+                  + 'volta con tools/migrate-seed-uids.mjs.');
+              return;
+            }
             // Un backup senza identità valide viene RIFIUTATO (§8.4): il percorso
             // normale non fa backfill, altrimenti ricaricare un file vecchio
             // fabbricherebbe identità sostitutive per tutto l'inventario.
@@ -2756,6 +2766,7 @@ class Component extends DCLogic {
           const azioni = [];
           let nuovi = 0, aggiornati = 0, saltati = 0;
           const usati = {};
+          const claimed = new Set();   // dispositivi già rivendicati da una riga precedente
           tab.righe.forEach((c, ri) => {
             const g = (nm) => { const k = idx(nm); return k >= 0 ? String(c[k] == null ? '' : c[k]).trim() : ''; };
             const nome = g('nome');
@@ -2775,8 +2786,12 @@ class Component extends DCLogic {
             // Solo l'_uid è identità. Senza _uid la corrispondenza è limitata al rack
             // di destinazione e non può spostare un dispositivo fra rack: `id` e `nome`
             // sono modificabili e `id` non è univoco a livello globale.
-            const m = IDENT.matchDeviceForImport(data, { _uid: g('_uid'), id: g('id'), nome }, K);
+            // `claimed` impedisce che due righe puntino allo stesso dispositivo:
+            // la seconda sovrascriverebbe la prima e l'esito dipenderebbe
+            // dall'ordine delle righe nel foglio.
+            const m = IDENT.matchDeviceForImport(data, { _uid: g('_uid'), id: g('id'), nome }, K, claimed);
             if (m.ambiguous) return skip('identità ambigua — ' + m.reason);
+            if (m.match) claimed.add(m.match.uid);
             const esistente = m.match ? m.match.obj : null;
             const altrove = !!(esistente && !K.devices.some(d => d._uid === esistente._uid));
             if (esistente && S.impMode === 'new') return skip('già presente (' + m.reason + ', modalità "solo nuovi")');

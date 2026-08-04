@@ -20,6 +20,10 @@ import {
   isUid, newUid, walkEntities, validateDocument, validateAgainstBase,
   preserveIdentity, matchDeviceForImport,
   normalizeHeaders, parseStato, parseTipo,
+  canonicalise, canonicalSort, stripUids, ENTITY_DEFAULTS,
+  checkSchemaVersion, CURRENT_SCHEMA_VERSION,
+  SCHEMA_VERSION_MISSING, SCHEMA_VERSION_TOO_OLD,
+  SCHEMA_VERSION_TOO_NEW, SCHEMA_VERSION_INVALID,
 } from '../handoff/identity.js';
 
 let pass = 0;
@@ -208,6 +212,119 @@ console.log('\n— import da foglio: intestazioni e valori —');
   ok('"Alimentazione" → alimentazione', parseTipo('Alimentazione') === 'alimentazione');
   ok('tipo ignoto → fallback', parseTipo('Sconosciuto', 'altro') === 'altro');
   ok('vuoto → fallback fornito', parseTipo('', 'rete') === 'rete');
+}
+
+console.log('\n— forma canonica (gemella di backend/app/identity/canonical.py) —');
+{
+  const doc = docWith([{ _uid: DA, id: 'srv-01', name: 'srv-01', u: 10 }], []);
+  const before = JSON.stringify(doc);
+  const out = canonicalise(doc);
+  ok('è pura: non modifica l\'input', JSON.stringify(doc) === before);
+
+  const d0 = out.locations[0].sale[0].racks[0].devices[0];
+  ok('materializza stato = attivo', d0.stato === 'attivo');
+  ok('materializza h = 1', d0.h === 1);
+  ok('materializza type = altro', d0.type === 'altro');
+  ok('materializza i campi testuali a stringa vuota', d0.model === '' && d0.note === '');
+  ok('materializza rack.seriali = []', Array.isArray(out.locations[0].sale[0].racks[0].seriali));
+
+  const twice = canonicalise(out);
+  ok('è idempotente',
+     JSON.stringify(canonicalSort(out)) === JSON.stringify(canonicalSort(twice)));
+}
+{
+  // Non deve inventare identità né versione di schema: quelle si rifiutano.
+  const senzaUid = { locations: [{ id: 's', nome: 'S', sale: [] }] };
+  const out = canonicalise(senzaUid);
+  ok('non inventa _uid', out.locations[0]._uid === undefined);
+  ok('non inventa schemaVersion', out.schemaVersion === undefined);
+  ok('non inventa notifiche/smtp', out.notifiche === undefined && out.smtp === undefined);
+}
+{
+  const doc = { schemaVersion: 1, locations: [], smtp: { host: 'mail' } };
+  const out = canonicalise(doc);
+  ok('completa i sotto-campi delle impostazioni esistenti', out.smtp.porta === 587);
+  ok('NON materializza la password SMTP', !('password' in out.smtp));
+}
+{
+  const doc = docWith([{ _uid: DA, id: 'd', name: 'd', u: 10, note: '', h: 3 }], []);
+  const d0 = canonicalise(doc).locations[0].sale[0].racks[0].devices[0];
+  ok('conserva i valori falsy espliciti', d0.note === '' && d0.h === 3);
+}
+{
+  ok('la tabella dei default copre solo le entità con identità',
+     JSON.stringify(Object.keys(ENTITY_DEFAULTS).sort()) ===
+     JSON.stringify(['device', 'location', 'manual', 'rack', 'room']));
+  ok('i vani non hanno default (non sono entità)', ENTITY_DEFAULTS.vano === undefined);
+}
+{
+  const doc = docWith([{ _uid: DA, id: 'd', name: 'd', u: 10 }], []);
+  ok('stripUids rimuove ogni _uid', !JSON.stringify(stripUids(doc)).includes('_uid'));
+}
+
+console.log('\n— versione di schema —');
+{
+  ok('versione corrente accettata',
+     checkSchemaVersion({ schemaVersion: CURRENT_SCHEMA_VERSION }).length === 0);
+  ok('assente → legacy',
+     checkSchemaVersion({}).map(e => e.code)[0] === SCHEMA_VERSION_MISSING);
+  ok('più vecchia → migrazione richiesta',
+     checkSchemaVersion({ schemaVersion: CURRENT_SCHEMA_VERSION - 1 }).map(e => e.code)[0]
+       === SCHEMA_VERSION_TOO_OLD);
+  ok('più recente → rifiutata',
+     checkSchemaVersion({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 }).map(e => e.code)[0]
+       === SCHEMA_VERSION_TOO_NEW);
+  for (const bad of ['1', 1.5, true, [], {}]) {
+    ok(`non intero rifiutato: ${JSON.stringify(bad)}`,
+       checkSchemaVersion({ schemaVersion: bad }).map(e => e.code)[0] === SCHEMA_VERSION_INVALID);
+  }
+  ok('indipendente dal campo `versione` del prototipo',
+     checkSchemaVersion({ schemaVersion: CURRENT_SCHEMA_VERSION, versione: 99 }).length === 0);
+  ok('il seed delle fixture dichiara la versione corrente',
+     fixtures.every(f => checkSchemaVersion(f.before).length === 0));
+}
+
+console.log('\n— import: righe contraddittorie e duplicate —');
+{
+  // id e nome che puntano a dispositivi DIVERSI nello stesso rack.
+  const d = docWith([dev(DA, 'srv-01'), dev(DB, 'srv-02')], []);
+  const m = matchDeviceForImport(d, { id: 'srv-01', nome: 'srv-02' }, rackOf(d, RA));
+  ok('id e nome discordanti → rifiuto', m.ambiguous && !m.match, m.reason);
+  ok('  e il motivo lo spiega', /contraddittoria|diversi/.test(m.reason), m.reason);
+}
+{
+  // id e nome concordanti sullo stesso dispositivo: nessun problema.
+  const d = docWith([dev(DA, 'srv-01')], []);
+  const m = matchDeviceForImport(d, { id: 'srv-01', nome: 'srv-01' }, rackOf(d, RA));
+  ok('id e nome concordanti → accettato', m.match && m.match.uid === DA, m.reason);
+}
+{
+  // due righe che puntano allo stesso _uid
+  const d = docWith([dev(DA, 'srv-01')], []);
+  const claimed = new Set();
+  const m1 = matchDeviceForImport(d, { _uid: DA, nome: 'srv-01' }, rackOf(d, RA), claimed);
+  ok('prima riga accettata', !!m1.match, m1.reason);
+  claimed.add(m1.match.uid);
+  const m2 = matchDeviceForImport(d, { _uid: DA, nome: 'srv-01' }, rackOf(d, RA), claimed);
+  ok('seconda riga con lo stesso _uid → rifiuto', m2.ambiguous && !m2.match, m2.reason);
+  ok('  e il motivo cita le righe duplicate', /duplicate/.test(m2.reason), m2.reason);
+}
+{
+  // due righe che risolvono allo STESSO dispositivo per vie diverse
+  const d = docWith([dev(DA, 'srv-01')], []);
+  const claimed = new Set();
+  const m1 = matchDeviceForImport(d, { nome: 'srv-01' }, rackOf(d, RA), claimed);
+  claimed.add(m1.match.uid);
+  const m2 = matchDeviceForImport(d, { _uid: DA, nome: 'altro-nome' }, rackOf(d, RA), claimed);
+  ok('stesso dispositivo risolto per vie diverse → rifiuto', m2.ambiguous, m2.reason);
+}
+{
+  // un nuovo dispositivo non "rivendica" niente: due righe nuove sono ammesse
+  const d = docWith([dev(DA, 'srv-01')], []);
+  const claimed = new Set();
+  const a = matchDeviceForImport(d, { nome: 'nuovo-1' }, rackOf(d, RB), claimed);
+  const b = matchDeviceForImport(d, { nome: 'nuovo-2' }, rackOf(d, RB), claimed);
+  ok('due righe nuove distinte sono ammesse', a.isNew && b.isNew);
 }
 
 console.log('\n— undo / redo —');

@@ -1,0 +1,15 @@
+{
+  "name": "edit-reorder-racks-forbidden",
+  "description": "REORDER dei rack: struttura, quindi vietato a edit.",
+  "role": "edit",
+  "fromIdentityFixture": "reorder-racks",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "rack",
+      "event": "reorder",
+      "requiredRole": "admin"
+    }
+  ]
+}

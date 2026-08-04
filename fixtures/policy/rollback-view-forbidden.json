@@ -1,0 +1,15 @@
+{
+  "name": "rollback-view-forbidden",
+  "description": "A maggior ragione per view.",
+  "operation": "rollback",
+  "role": "view",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "rollback_forbidden",
+      "entity": "inventory",
+      "event": "rollback",
+      "requiredRole": "admin"
+    }
+  ]
+}

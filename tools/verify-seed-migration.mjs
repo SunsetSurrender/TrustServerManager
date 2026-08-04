@@ -25,25 +25,21 @@
 // ============================================================
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { validateDocument, walkEntities, isUid } from '../handoff/identity.js';
+import {
+  validateDocument, walkEntities, isUid,
+  canonicalise, canonicalSort, stripUids, checkSchemaVersion, CURRENT_SCHEMA_VERSION,
+} from '../handoff/identity.js';
 
 const EXPECTED = 'tools/seed-migration.expected.json';
 const update = process.argv.includes('--update');
 
 const { DATI: seed } = await import(new URL('../handoff/inventario.js', import.meta.url).href);
 
-/** Forma canonica: `_uid` via, chiavi ordinate, serializzazione stabile. */
-const canonical = (v) => {
-  if (Array.isArray(v)) return v.map(canonical);
-  if (v && typeof v === 'object') {
-    const out = {};
-    for (const k of Object.keys(v).sort()) if (k !== '_uid') out[k] = canonical(v[k]);
-    return out;
-  }
-  return v;
-};
-
-const canonicalJson = JSON.stringify(canonical(seed));
+// Forma canonica per l'hash: default materializzati (§8.14), `_uid` rimossi,
+// chiavi ordinate. Canonicalizzare PRIMA di calcolare l'hash rende il controllo
+// immune all'aggiunta di default espliciti nel seed — che non è un cambiamento
+// di dati — e sensibile a tutto il resto.
+const canonicalJson = JSON.stringify(canonicalSort(stripUids(canonicalise(seed))));
 const canonicalSha256 = createHash('sha256').update(canonicalJson, 'utf8').digest('hex');
 
 const ents = walkEntities(seed);
@@ -57,8 +53,10 @@ if (update) {
     counts,
     total: ents.length,
     canonicalSha256,
-    canonicalNote: 'SHA-256 di JSON.stringify del seed con gli _uid rimossi ricorsivamente ' +
-                   'e le chiavi ordinate alfabeticamente a ogni livello.',
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    canonicalNote: 'SHA-256 di JSON.stringify del seed dopo: canonicalise() (default ' +
+                   'documentati materializzati), rimozione ricorsiva degli _uid, e ' +
+                   'ordinamento alfabetico delle chiavi a ogni livello.',
   };
   writeFileSync(EXPECTED, JSON.stringify(payload, null, 2) + '\n', 'utf8');
   console.log(`Valori attesi scritti in ${EXPECTED}:`);
@@ -81,7 +79,11 @@ for (const L of seed.locations || [])
   for (const R of L.sale || [])
     for (const V of R.vani || []) if (V._uid) vaniWithUid.push(`${L.id}/${R.id}`);
 
+const schemaErrors = checkSchemaVersion(seed);
+
 const checks = [
+  [`schemaVersion = ${CURRENT_SCHEMA_VERSION}`, schemaErrors.length === 0,
+   JSON.stringify(schemaErrors)],
   ['identità valide e univoche', idErrors.length === 0,
    JSON.stringify(idErrors.slice(0, 3))],
   ['ogni entità ha un _uid conforme', ents.every((e) => isUid(e.uid)),

@@ -1,0 +1,15 @@
+{
+  "name": "edit-vani-change-forbidden",
+  "description": "I vani non hanno identità: un cambio di geometria è un update sulla SALA, quindi struttura e quindi admin. Un operatore non ridisegna le stanze.",
+  "role": "edit",
+  "fromIdentityFixture": "update-vani-is-room-update",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "room",
+      "event": "update",
+      "requiredRole": "admin"
+    }
+  ]
+}

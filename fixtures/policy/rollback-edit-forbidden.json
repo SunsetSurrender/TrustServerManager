@@ -1,0 +1,15 @@
+{
+  "name": "rollback-edit-forbidden",
+  "description": "Il rollback sostituisce l'inventario in blocco: non si può autorizzare per ambito, perché tocca tutto. Resta di admin anche per edit.",
+  "operation": "rollback",
+  "role": "edit",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "rollback_forbidden",
+      "entity": "inventory",
+      "event": "rollback",
+      "requiredRole": "admin"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "name": "edit-multiple-violations-all-reported",
+  "description": "Più eventi vietati: si riportano TUTTI, non solo il primo. Il client deve poter dire all'utente tutto ciò che serve, in una volta.",
+  "role": "edit",
+  "events": [
+    {
+      "entity": "rack",
+      "event": "add",
+      "uid": "cccccccc-0000-4000-8000-00000000000a",
+      "scope": "structure"
+    },
+    {
+      "entity": "room",
+      "event": "update",
+      "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+      "scope": "structure"
+    },
+    {
+      "entity": "manual",
+      "event": "update",
+      "uid": "eeeeeeee-0000-4000-8000-000000000001",
+      "scope": "manuale"
+    }
+  ],
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "manual",
+      "event": "update",
+      "requiredRole": "admin"
+    },
+    {
+      "code": "forbidden_for_role",
+      "entity": "rack",
+      "event": "add",
+      "requiredRole": "admin"
+    },
+    {
+      "code": "forbidden_for_role",
+      "entity": "room",
+      "event": "update",
+      "requiredRole": "admin"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "edit-device-reorder-forbidden",
+  "description": "Il riordino non è fra gli eventi concessi a edit: riordinare una collezione è disposizione, non operatività sui dispositivi. Un operatore sposta (move), non riordina.",
+  "role": "edit",
+  "events": [
+    {
+      "entity": "device",
+      "event": "reorder",
+      "uid": null,
+      "scope": "devices"
+    }
+  ],
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "device",
+      "event": "reorder",
+      "requiredRole": "admin"
+    }
+  ]
+}

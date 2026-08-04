@@ -1,0 +1,15 @@
+{
+  "name": "edit-manual-entry-forbidden",
+  "description": "Le voci di manuale sono di admin.",
+  "role": "edit",
+  "fromIdentityFixture": "update-manual-entry",
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "manual",
+      "event": "rename",
+      "requiredRole": "admin"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "admin-cascade-delete-allowed",
+  "description": "La stessa cascata con ruolo admin: consentita.",
+  "role": "admin",
+  "fromIdentityFixture": "delete-rack-cascades-to-devices",
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

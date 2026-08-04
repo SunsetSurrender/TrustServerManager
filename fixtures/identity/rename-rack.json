@@ -2,6 +2,7 @@
   "name": "rename-rack",
   "description": "Rinomina di rack: ambito structure.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

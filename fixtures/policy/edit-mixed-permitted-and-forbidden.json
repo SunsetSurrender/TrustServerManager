@@ -1,0 +1,28 @@
+{
+  "name": "edit-mixed-permitted-and-forbidden",
+  "description": "Un evento consentito e uno vietato: l'INTERA modifica è respinta. Applicare solo la parte concessa scriverebbe un documento che l'utente non ha composto.",
+  "role": "edit",
+  "events": [
+    {
+      "entity": "device",
+      "event": "update",
+      "uid": "dddddddd-0000-4000-8000-00000000000a",
+      "scope": "devices"
+    },
+    {
+      "entity": "room",
+      "event": "rename",
+      "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+      "scope": "structure"
+    }
+  ],
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "room",
+      "event": "rename",
+      "requiredRole": "admin"
+    }
+  ]
+}

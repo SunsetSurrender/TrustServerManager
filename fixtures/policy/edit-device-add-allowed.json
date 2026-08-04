@@ -1,0 +1,15 @@
+{
+  "name": "edit-device-add-allowed",
+  "description": "edit può eseguire 'add' su un dispositivo.",
+  "role": "edit",
+  "events": [
+    {
+      "entity": "device",
+      "event": "add",
+      "uid": "dddddddd-0000-4000-8000-00000000000a",
+      "scope": "devices"
+    }
+  ],
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

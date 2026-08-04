@@ -2,6 +2,7 @@
   "name": "reject-ambiguous-replacement",
   "description": "Due dispositivi con lo stesso codice scompaiono e ne compare uno nuovo, in un rack dove quel codice non c'era: a quale dei due corrisponde? Corrispondenza ambigua, si rifiuta invece di indovinare.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -169,6 +170,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

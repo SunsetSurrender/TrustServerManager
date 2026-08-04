@@ -1,0 +1,8 @@
+{
+  "name": "rollback-admin-allowed",
+  "description": "Il rollback è di admin.",
+  "operation": "rollback",
+  "role": "admin",
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

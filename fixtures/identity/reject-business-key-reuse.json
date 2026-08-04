@@ -2,6 +2,7 @@
   "name": "reject-business-key-reuse",
   "description": "_uid nuovo su un codice ancora in uso da un'entità presente.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

@@ -1,0 +1,15 @@
+{
+  "name": "edit-device-update-allowed",
+  "description": "edit può eseguire 'update' su un dispositivo.",
+  "role": "edit",
+  "events": [
+    {
+      "entity": "device",
+      "event": "update",
+      "uid": "dddddddd-0000-4000-8000-00000000000a",
+      "scope": "devices"
+    }
+  ],
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

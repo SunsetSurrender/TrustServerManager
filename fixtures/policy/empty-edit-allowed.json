@@ -1,0 +1,8 @@
+{
+  "name": "empty-edit-allowed",
+  "description": "Insieme di eventi vuoto con ruolo edit: consentito. Non è una scrittura, e un PUT che non produce eventi non crea nemmeno una versione.",
+  "role": "edit",
+  "events": [],
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

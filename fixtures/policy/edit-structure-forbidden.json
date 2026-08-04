@@ -1,0 +1,46 @@
+{
+  "name": "edit-structure-forbidden",
+  "description": "edit non tocca la struttura: rack, sale e siti sono di admin.",
+  "role": "edit",
+  "events": [
+    {
+      "entity": "rack",
+      "event": "update",
+      "uid": "cccccccc-0000-4000-8000-00000000000a",
+      "scope": "structure"
+    },
+    {
+      "entity": "room",
+      "event": "rename",
+      "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+      "scope": "structure"
+    },
+    {
+      "entity": "location",
+      "event": "add",
+      "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+      "scope": "structure"
+    }
+  ],
+  "expectedAllowed": false,
+  "expectedViolations": [
+    {
+      "code": "forbidden_for_role",
+      "entity": "location",
+      "event": "add",
+      "requiredRole": "admin"
+    },
+    {
+      "code": "forbidden_for_role",
+      "entity": "rack",
+      "event": "update",
+      "requiredRole": "admin"
+    },
+    {
+      "code": "forbidden_for_role",
+      "entity": "room",
+      "event": "rename",
+      "requiredRole": "admin"
+    }
+  ]
+}

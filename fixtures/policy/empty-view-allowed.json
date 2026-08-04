@@ -1,0 +1,8 @@
+{
+  "name": "empty-view-allowed",
+  "description": "Insieme di eventi vuoto con ruolo view: consentito. Non è una scrittura, e un PUT che non produce eventi non crea nemmeno una versione.",
+  "role": "view",
+  "events": [],
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

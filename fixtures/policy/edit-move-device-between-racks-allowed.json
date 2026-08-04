@@ -1,0 +1,8 @@
+{
+  "name": "edit-move-device-between-racks-allowed",
+  "description": "Spostamento fra rack: ambito devices, quindi consentito a edit anche se tocca i sottoalberi di due rack. È il caso che un diff per percorso classificherebbe come structure, negandolo per errore.",
+  "role": "edit",
+  "fromIdentityFixture": "move-device-between-racks",
+  "expectedAllowed": true,
+  "expectedViolations": []
+}

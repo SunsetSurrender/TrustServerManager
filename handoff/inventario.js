@@ -10,10 +10,14 @@
 //
 // I `vani` non hanno `_uid`: sono la geometria della sala, non entità.
 //
+// `schemaVersion` è la forma del documento (§8.13), da non confondere con la
+// revisione ottimistica dell'inventario. Il campo `versione` è un residuo
+// informale del prototipo e non ha semantica.
+//
 // In produzione questo modulo è sostituito dalle chiamate all'API
 // (GET /api/inventory) e non entra nell'immagine web (§6 del piano).
 //
-// Entità con identità: 197
+// Entità con identità: 197 · schemaVersion: 1
 // ============================================================
 
 export const DATI = {
@@ -2538,5 +2542,6 @@ export const DATI = {
         }
       ]
     }
-  ]
+  ],
+  "schemaVersion": 1
 };

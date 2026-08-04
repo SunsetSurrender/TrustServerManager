@@ -2,6 +2,7 @@
   "name": "reorder-suppressed-by-add",
   "description": "Ordine cambiato MA con un add fra i fratelli: il reorder NON si emette, perché l'ordine è cambiato come conseguenza e segnalarlo è rumore.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

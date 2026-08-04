@@ -2,6 +2,7 @@
   "name": "reorder-suppressed-by-delete",
   "description": "Ordine cambiato per via di una cancellazione: solo delete, nessun reorder. Si elimina il rack VUOTO, così la fixture isola la soppressione del reorder senza le cancellazioni a cascata dei dispositivi.",
   "before": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",
@@ -143,6 +144,7 @@
     ]
   },
   "after": {
+    "schemaVersion": 1,
     "versione": 3,
     "notifiche": {
       "email": "a@b.c",

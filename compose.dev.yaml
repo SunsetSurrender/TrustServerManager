@@ -1,0 +1,29 @@
+# Override per lo SVILUPPO in HTTP. NON si distribuisce.
+#
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d --wait
+#
+# Perché esiste un file a parte invece di una variabile d'ambiente: la deroga al
+# cookie `Secure` è pericolosa e deve essere visibile. In un file separato la si
+# attiva scrivendola sulla riga di comando, e nessuno la eredita per sbaglio da un
+# `.env` dimenticato su un server.
+#
+# `TSM_ENV=development` è ciò che autorizza `TSM_COOKIE_SECURE=false`: con
+# `production` l'API rifiuta di partire (§8.29).
+
+services:
+  api:
+    environment:
+      TSM_ENV: development
+      TSM_COOKIE_SECURE: "false"
+      # In sviluppo si parla direttamente all'API su localhost, quindi le origini
+      # da accettare sono quelle del browser locale.
+      TSM_PUBLIC_ORIGIN: "http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000"
+      TSM_EXPOSE_DOCS: "true"
+
+  web:
+    # In sviluppo il TLS è inutile: nginx serve in chiaro su 8080 e non
+    # reindirizza, così si può provare senza generare certificati.
+    volumes:
+      - ./web/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/ >/dev/null || exit 1"]

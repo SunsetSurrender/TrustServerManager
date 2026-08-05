@@ -1,7 +1,10 @@
 """Rotte di autenticazione. Adattatore HTTP su `app.auth.service`.
 
-Sequenza di avvio del client (§8.1): `GET /api/auth/me` prima dell'inventario.
-Un 401 lì significa schermata di login e NESSUNA chiamata a /api/inventory.
+Sequenza di avvio del client (§8.1): `GET /api/auth/me` prima dell'inventario. Un
+401 lì significa schermata di login e NESSUNA chiamata a /api/inventory.
+
+Con una password provvisoria l'accesso **riesce** (200, `authenticated=true`,
+`mustChangePassword=true`) e la sessione è ristretta a queste tre rotte: §8.26.
 """
 from __future__ import annotations
 
@@ -9,34 +12,43 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 
-from app.api.deps import SESSION_COOKIE, current_user, get_connection
-from app.api.errors import NO_STORE, http_error_for
+from app.api.deps import NO_STORE, SESSION_COOKIE, current_user, get_connection
+from app.api.errors import http_error_for
+from app.api.request_context import client_ip
 from app.auth.service import (
-    AuthenticatedUser,
     SESSION_TTL,
+    AuthenticatedUser,
     change_own_password,
     login,
     logout,
 )
 from app.config import get_settings
-from app.util import safe_ip
 
 router = APIRouter()
 
 
 class LoginIn(BaseModel):
-    username: str = Field(max_length=200)
-    password: str = Field(max_length=1024)
+    # Dimensioni limitate: un input non attendibile non deve poter diventare un
+    # costo. Argon2 su una password enorme è lavoro regalato a chi la invia.
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=1024)
 
 
-class MeOut(BaseModel):
+class SessionOut(BaseModel):
+    """Forma unica per login e /auth/me: il client legge sempre gli stessi campi.
+
+    `authenticated` è esplicito e non implicito nello stato HTTP: un accesso con
+    password provvisoria riesce, quindi «200» da solo non direbbe al client se
+    può procedere o se deve prima cambiare la password.
+    """
+    authenticated: bool
     username: str
     role: str
     mustChangePassword: bool
 
 
 class PasswordIn(BaseModel):
-    currentPassword: str = Field(max_length=1024)
+    currentPassword: str = Field(min_length=1, max_length=1024)
     newPassword: str = Field(min_length=10, max_length=1024)
 
 
@@ -45,62 +57,72 @@ def _set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         SESSION_COOKIE, token,
         max_age=int(SESSION_TTL.total_seconds()),
-        httponly=True,          # non leggibile da JavaScript
-        secure=s.cookie_secure,  # in produzione obbligatorio: senza HTTPS non si entra
-        samesite="strict",      # niente invio da altri siti
+        httponly=True,           # non leggibile da JavaScript
+        secure=s.cookie_secure,  # in produzione obbligatorio (l'avvio lo impone)
+        samesite="strict",       # niente invio da altri siti
         path="/",
     )
 
 
-@router.post("/auth/login", response_model=MeOut, summary="Apre una sessione")
+def _clear_session_cookie(response: Response) -> None:
+    s = get_settings()
+    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True,
+                           secure=s.cookie_secure, samesite="strict")
+
+
+@router.post("/auth/login", response_model=SessionOut, summary="Apre una sessione")
 def do_login(payload: LoginIn, request: Request, response: Response,
-             conn: Connection = Depends(get_connection)) -> MeOut:
+             conn: Connection = Depends(get_connection)) -> SessionOut:
     response.headers.update(NO_STORE)
-    client = request.client
     try:
         token, user = login(conn, payload.username, payload.password,
-                            ip=safe_ip(client.host if client else None),
+                            ip=client_ip(request),
                             user_agent=request.headers.get("user-agent"))
     except Exception as exc:
         raise http_error_for(exc) from None
     _set_session_cookie(response, token)
-    return MeOut(username=user.username, role=user.role,
-                 mustChangePassword=user.must_change_pw)
+    return SessionOut(authenticated=True, username=user.username, role=user.role,
+                      mustChangePassword=user.must_change_pw)
 
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT,
              summary="Chiude la sessione")
-def do_logout(request: Request, response: Response,
+def do_logout(request: Request,
               conn: Connection = Depends(get_connection)) -> Response:
-    logout(conn, request.cookies.get(SESSION_COOKIE))
-    response.headers.update(NO_STORE)
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    return Response(status_code=status.HTTP_204_NO_CONTENT,
-                    headers={**NO_STORE,
-                             "set-cookie": response.headers.get("set-cookie", "")})
+    # Volutamente senza `current_user`: chiudere una sessione già scaduta o
+    # inesistente deve riuscire, non dare 401. Il logout è idempotente.
+    logout(conn, request.cookies.get(SESSION_COOKIE), ip=client_ip(request))
+    r = Response(status_code=status.HTTP_204_NO_CONTENT, headers=NO_STORE)
+    _clear_session_cookie(r)
+    return r
 
 
-@router.get("/auth/me", response_model=MeOut, summary="Sessione corrente")
+@router.get("/auth/me", response_model=SessionOut, summary="Sessione corrente")
 def me(response: Response,
-       user: AuthenticatedUser = Depends(current_user)) -> MeOut:
-    # Volutamente NON usa require_actor: un utente con password provvisoria deve
-    # poter leggere il proprio stato per sapere che deve cambiarla (§8.1).
+       user: AuthenticatedUser = Depends(current_user)) -> SessionOut:
+    # Volutamente NON usa require_actor: con una password provvisoria l'utente
+    # deve poter leggere il proprio stato per sapere che deve cambiarla (§8.26).
+    # I campi sono riletti dal database a ogni richiesta, non dalla sessione.
     response.headers.update(NO_STORE)
-    return MeOut(username=user.username, role=user.role,
-                 mustChangePassword=user.must_change_pw)
+    return SessionOut(authenticated=True, username=user.username, role=user.role,
+                      mustChangePassword=user.must_change_pw)
 
 
 @router.post("/auth/password", status_code=status.HTTP_204_NO_CONTENT,
              summary="Cambio della propria password")
-def change_password(payload: PasswordIn, response: Response,
+def change_password(payload: PasswordIn, request: Request,
                     conn: Connection = Depends(get_connection),
                     user: AuthenticatedUser = Depends(current_user)) -> Response:
+    # Anche questa usa `current_user` e non `require_actor`: è una delle tre cose
+    # che una sessione con password provvisoria deve poter fare.
     try:
-        change_own_password(conn, user.id, payload.currentPassword, payload.newPassword)
+        change_own_password(conn, user.id, payload.currentPassword,
+                            payload.newPassword)
     except Exception as exc:
         raise http_error_for(exc) from None
-    # Il cambio password revoca tutte le sessioni, compresa questa: il cookie va
-    # rimosso, altrimenti il client crede di essere ancora autenticato.
+    # Il cambio revoca TUTTE le sessioni, compresa questa: il cookie va rimosso e
+    # serve un accesso nuovo. Altrimenti il client crederebbe di essere ancora
+    # autenticato e riceverebbe 401 alla richiesta successiva, senza capire perché.
     r = Response(status_code=status.HTTP_204_NO_CONTENT, headers=NO_STORE)
-    r.delete_cookie(SESSION_COOKIE, path="/")
+    _clear_session_cookie(r)
     return r

@@ -5,7 +5,7 @@ Rotte attive: autenticazione, inventario (lettura e salvataggio), operative.
 NON esposto via HTTP, di proposito:
   - il bootstrap dell'inventario, che è una CLI e non ha nemmeno il privilegio di
     database per inserire la riga di testa (§8.17, §8.19);
-  - la gestione delle utenze da parte degli admin, commit successivo.
+  - la cancellazione fisica delle utenze: non esiste (§8.6, §8.30).
 
 Nessun accesso anonimo: ogni rotta dell'inventario dipende da `require_actor`,
 che risponde 401 senza una sessione valida. Non esiste un ripiego di sviluppo che
@@ -21,12 +21,17 @@ from fastapi.responses import JSONResponse
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
+from app.api.request_context import origin_is_acceptable
+from app.api.users import router as users_router
 from app.config import get_settings
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger(__name__)
 
+# get_settings() valida la configurazione e SOLLEVA se in produzione i cookie di
+# sessione non sono `Secure` (§8.29). L'errore avviene qui, all'import: il
+# processo non parte, invece di partire in modo insicuro.
 settings = get_settings()
 
 app = FastAPI(
@@ -37,6 +42,26 @@ app = FastAPI(
     docs_url="/api/docs" if settings.expose_docs else None,
     openapi_url="/api/openapi.json" if settings.expose_docs else None,
 )
+
+
+@app.middleware("http")
+async def validate_origin(request: Request, call_next):
+    """Origine stessa per le richieste che modificano stato e portano il cookie.
+
+    Non si abilita CORS con credenziali: non esiste un caso d'uso in cui un altro
+    sito debba chiamare questa API col cookie dell'utente, e abilitarlo smonterebbe
+    da solo `SameSite=strict`. Vedi §8.27.
+    """
+    ok, reason = origin_is_acceptable(request)
+    if not ok:
+        log.warning("origine rifiutata su %s %s: %s",
+                    request.method, request.url.path, reason)
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"code": "origin_not_allowed",
+                     "message": "origine della richiesta non consentita"},
+            headers={"Cache-Control": "no-store"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -88,3 +113,4 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 app.include_router(health_router, prefix="/api", tags=["operations"])
 app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(inventory_router, prefix="/api", tags=["inventory"])
+app.include_router(users_router, prefix="/api", tags=["users"])

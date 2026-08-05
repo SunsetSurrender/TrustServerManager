@@ -18,6 +18,15 @@ from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.auth.audit import (
+    LOGIN_BLOCKED,
+    LOGIN_FAILURE,
+    LOGIN_SUCCESS,
+    LOGOUT,
+    PASSWORD_CHANGED,
+    record_auth_event,
+)
+from app.auth.ratelimit import check_rate_limit, record_attempt
 from app.inventory import Actor
 from app.util import safe_ip
 
@@ -33,6 +42,37 @@ SESSION_TTL = timedelta(hours=12)
 TOKEN_BYTES = 32
 
 ROLES = ("view", "edit", "admin")
+
+def _record_out_of_band(fn) -> None:
+    """Esegue una scrittura in una transazione PROPRIA, che sopravvive al rollback.
+
+    Serve alla registrazione dei tentativi falliti e al loro audit. Un accesso
+    fallito fa sollevare l'handler, e la transazione della richiesta viene
+    annullata: se i contatori vivessero in quella transazione verrebbero cancellati
+    insieme all'errore. Risultato: il limitatore non conterebbe mai nulla e i
+    tentativi falliti non finirebbero nel registro — cioè proprio i due dati per
+    cui esistono.
+
+    Un guasto qui non deve trasformare un 401 in un 500: si registra e si tira
+    avanti. Non riuscire a scrivere una riga di audit è un problema, ma lasciare
+    entrare qualcuno perché il registro non era scrivibile sarebbe peggio.
+    """
+    from app.db import get_engine
+    try:
+        with get_engine().connect() as own:
+            with own.begin():
+                fn(own)
+    except Exception:                                  # pragma: no cover
+        import logging
+        logging.getLogger(__name__).exception(
+            "registrazione fuori banda del tentativo di accesso fallita")
+
+
+#: Hash di confronto per le utenze inesistenti. Generato all'avvio con gli stessi
+#: parametri di quelli reali, così la verifica costa lo stesso tempo: è ciò che
+#: rende l'enumerazione per tempo di risposta inutile. Non è una password valida
+#: perché il valore in chiaro non esiste da nessuna parte.
+_DUMMY_HASH = _hasher.hash(secrets.token_urlsafe(32))
 
 
 class AuthError(Exception):
@@ -58,8 +98,17 @@ class NotAuthenticated(AuthError):
 
 
 class PasswordChangeRequired(AuthError):
-    """Password provvisoria: va cambiata prima di qualunque altra cosa (§8.1)."""
-    code = "password_change_required"
+    """Password provvisoria: la sessione è valida ma può fare solo tre cose (§8.26)."""
+    code = "PASSWORD_CHANGE_REQUIRED"
+
+
+class TooManyAttempts(AuthError):
+    """Limitatore dei tentativi di accesso (§8.28)."""
+    code = "too_many_attempts"
+
+    def __init__(self, message: str, retry_after_seconds: int = 0):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 @dataclass(frozen=True)
@@ -135,17 +184,39 @@ def login(conn: Connection, username: str, password: str, *,
     Il token è l'unico momento in cui esiste in chiaro: va nel cookie e non
     viene scritto da nessuna parte.
     """
+    ip = safe_ip(ip)
+
+    # --- limitazione, prima di toccare la password ---
+    status = check_rate_limit(conn, username, ip)
+    if status.blocked:
+        _record_out_of_band(lambda c: record_auth_event(
+            c, LOGIN_BLOCKED, username=username, ip=ip,
+            detail={"reason": status.reason}))
+        raise TooManyAttempts(status.reason, status.retry_after_seconds)
+
     row = conn.execute(text("""
         SELECT id, username, role, password_hash, must_change_pw, disabled_at
           FROM users WHERE username = :u
     """), {"u": username}).first()
 
-    # Si verifica una password anche quando l'utenza non esiste, per non rendere
-    # l'esistenza di un'utenza deducibile dal tempo di risposta.
-    stored = row[3] if row else "$argon2id$v=19$m=65536,t=3,p=4$" + "A" * 22 + "$" + "A" * 43
+    # Verifica Argon2 anche quando l'utenza NON esiste, contro l'enumerazione:
+    # senza, un'utenza inesistente risponderebbe in microsecondi e una esistente
+    # in decine di millisecondi, e la differenza è misurabile da remoto.
+    stored = row[3] if row else _DUMMY_HASH
     ok = verify_password(stored, password)
 
     if row is None or not ok or row[5] is not None:
+        uid = row[0] if row else None
+        urole = row[2] if row else None
+
+        def _log_failure(c):
+            record_attempt(c, username, ip, success=False)
+            record_auth_event(c, LOGIN_FAILURE, username=username, ip=ip,
+                              user_id=uid, role=urole)
+
+        _record_out_of_band(_log_failure)
+        # Un solo errore per utenza inesistente, password errata e utenza
+        # disabilitata: distinguerli direbbe a chi prova quali utenze esistono.
         raise InvalidCredentials()
 
     token = secrets.token_urlsafe(TOKEN_BYTES)
@@ -156,6 +227,10 @@ def login(conn: Connection, username: str, password: str, *,
            "exp": _now() + SESSION_TTL, "ip": safe_ip(ip), "ua": user_agent})
     conn.execute(text("UPDATE users SET last_login_at = now() WHERE id = :uid"),
                  {"uid": row[0]})
+    record_attempt(conn, username, ip, success=True)
+    record_auth_event(conn, LOGIN_SUCCESS, username=str(row[1]), user_id=row[0],
+                      role=row[2], ip=ip,
+                      detail={"mustChangePassword": bool(row[4])})
 
     return token, AuthenticatedUser(id=row[0], username=str(row[1]), role=row[2],
                                     must_change_pw=bool(row[4]))
@@ -189,13 +264,21 @@ def resolve_session(conn: Connection, token: str | None) -> AuthenticatedUser:
                              must_change_pw=bool(row[4]))
 
 
-def logout(conn: Connection, token: str | None) -> None:
+def logout(conn: Connection, token: str | None, *, ip: str | None = None) -> None:
     if not token:
         return
+    row = conn.execute(text("""
+        SELECT u.id, u.username, u.role FROM sessions s
+          JOIN users u ON u.id = s.user_id
+         WHERE s.token_hash = :th AND s.revoked_at IS NULL
+    """), {"th": _token_hash(token)}).first()
     conn.execute(text("""
         UPDATE sessions SET revoked_at = now()
          WHERE token_hash = :th AND revoked_at IS NULL
     """), {"th": _token_hash(token)})
+    if row is not None:
+        record_auth_event(conn, LOGOUT, username=str(row[1]), user_id=row[0],
+                          role=row[2], ip=safe_ip(ip))
 
 
 def revoke_all_sessions(conn: Connection, user_id: Any) -> int:
@@ -225,7 +308,16 @@ def change_own_password(conn: Connection, user_id: Any,
         UPDATE users SET password_hash = :pw, must_change_pw = FALSE, updated_at = now()
          WHERE id = :uid
     """), {"pw": hash_password(new_password), "uid": user_id})
-    revoke_all_sessions(conn, user_id)
+    # TUTTE le sessioni, compresa quella che sta facendo il cambio: chi cambia
+    # password si aspetta che le altre sessioni cadano, e la propria ripartirà da
+    # un accesso nuovo. Non si registra nulla della password (§8.25).
+    revoked = revoke_all_sessions(conn, user_id)
+    who = conn.execute(text("SELECT username, role FROM users WHERE id = :uid"),
+                       {"uid": user_id}).first()
+    record_auth_event(conn, PASSWORD_CHANGED,
+                      username=str(who[0]) if who else None, user_id=user_id,
+                      role=who[1] if who else None,
+                      detail={"revokedSessions": revoked})
 
 
 def disable_user(conn: Connection, user_id: Any) -> None:

@@ -111,7 +111,17 @@ services:
       #     TSM_COOKIE_SECURE=false docker compose up -d
       # Il default resta `true`: dimenticarsi di impostarlo in produzione non
       # apre un buco.
+      # `production` per default. Con TSM_ENV=production e cookie non Secure
+      # l'API RIFIUTA DI PARTIRE (§8.29): la deroga per lo sviluppo in HTTP sta
+      # in compose.dev.yaml, che non si distribuisce.
+      TSM_ENV: ${TSM_ENV:-production}
       TSM_COOKIE_SECURE: ${TSM_COOKIE_SECURE:-true}
+      # Origine pubblica, per la validazione di `Origin` sulle richieste che
+      # modificano stato (§8.27).
+      TSM_PUBLIC_ORIGIN: ${TSM_PUBLIC_ORIGIN:-}
+      # Solo la rete interna di Compose: `X-Forwarded-For` si crede unicamente se
+      # il peer è il nostro nginx (§8.28).
+      TSM_TRUSTED_PROXIES: ${TSM_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1}
     healthcheck:
       # LIVENESS, non readiness. L'healthcheck di Docker decide riavvii e ordine
       # di avvio: legarlo a /api/ready significherebbe che un'installazione nuova
@@ -151,14 +161,21 @@ services:
     image: tsm-web:0.2.0
     networks: [internal, edge]
     ports:
-      # Solo loopback anche qui: davanti va il TLS dell'infrastruttura, che è il
-      # passo che resta prima della produzione (il cookie di sessione è Secure).
+      # 8080 reindirizza a HTTPS; 8443 è il servizio. Solo loopback: davanti c'è
+      # l'ingress dell'infrastruttura.
       - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8443:8443"
+    volumes:
+      # Certificato e chiave. In produzione qui va il certificato aziendale; per
+      # lo sviluppo `tools/make-dev-tls.ps1` ne genera uno autofirmato.
+      - ./secrets/tls:/etc/nginx/tls:ro
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      # --no-check-certificate: in sviluppo il certificato è autofirmato, e
+      # l'healthcheck deve dire se nginx serve, non se il certificato è fidato.
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O- https://127.0.0.1:8443/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

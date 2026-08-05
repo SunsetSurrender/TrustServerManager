@@ -32,6 +32,7 @@ Uso:
 """
 import json
 import socket
+import ssl
 import subprocess
 import sys
 import urllib.error
@@ -232,18 +233,42 @@ check("api: NON ha la password del proprietario dello schema",
 r = exec_in("api", "sh", "-c", "touch /app/prova 2>&1 && echo WRITABLE || echo READONLY")
 check("api: filesystem read-only", "READONLY" in r.stdout, r.stdout.strip()[:120])
 
-# ---- 8. web: allowlist dei file statici (§6) ----------------------------
-WEB = "http://127.0.0.1:8080"
+# ---- 8. web: TLS e allowlist dei file statici (§6, §8.29) ---------------
+WEB = "https://127.0.0.1:8443"
+WEB_HTTP = "http://127.0.0.1:8080"
+
+# Il certificato di sviluppo è autofirmato: qui interessa che TLS TERMINI, non che
+# la catena sia fidata. In produzione il certificato è quello aziendale e questa
+# verifica la fa il browser.
+_TLS = ssl.create_default_context()
+_TLS.check_hostname = False
+_TLS.verify_mode = ssl.CERT_NONE
 
 
-def web_get(path: str) -> int:
+def web_get(path: str, base: str = WEB, redirect: bool = True) -> int:
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+
+    handlers = [urllib.request.HTTPSHandler(context=_TLS)]
+    if not redirect:
+        handlers.append(NoRedirect())
+    opener = urllib.request.build_opener(*handlers)
     try:
-        with urllib.request.urlopen(f"{WEB}{path}", timeout=10) as r:
+        with opener.open(f"{base}{path}", timeout=10) as r:
             return r.status
     except urllib.error.HTTPError as e:
         return e.code
     except Exception:
         return 0
+
+
+# TLS attivo e HTTP che reindirizza: il cookie di sessione è Secure, quindi un
+# servizio raggiungibile in chiaro sarebbe un servizio in cui non si può entrare.
+check("web: TLS termina su 8443", web_get("/") == 200, str(web_get("/")))
+check("web: HTTP reindirizza a HTTPS",
+      web_get("/", base=WEB_HTTP, redirect=False) == 301,
+      str(web_get("/", base=WEB_HTTP, redirect=False)))
 
 
 check("web: la pagina applicativa è servita", web_get("/") == 200, str(web_get("/")))
@@ -261,14 +286,23 @@ for blocked in ("/inventario.js", "/README.md", "/vendor/SHA256SUMS",
 check("web: proxy dell'API attivo", web_get("/api/health") == 200)
 
 # L'inventario non finisce in cache da nessuna parte.
+opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=_TLS))
 try:
-    urllib.request.urlopen(f"{WEB}/api/inventory", timeout=10)
-    cc = ""
+    with opener.open(f"{WEB}/api/inventory", timeout=10) as r:
+        cc = r.headers.get("Cache-Control", "")
 except urllib.error.HTTPError as e:
     cc = e.headers.get("Cache-Control", "")
 except Exception:
     cc = ""
 check("web: no-store propagato sull'inventario", cc == "no-store", f"Cache-Control={cc!r}")
+
+# HSTS: solo sulla risposta HTTPS.
+try:
+    with opener.open(f"{WEB}/", timeout=10) as r:
+        hsts = r.headers.get("Strict-Transport-Security", "")
+except Exception:
+    hsts = ""
+check("web: HSTS presente su HTTPS", "max-age=" in hsts, f"HSTS={hsts!r}")
 
 # ---- report ------------------------------------------------------------
 print("=" * 74)

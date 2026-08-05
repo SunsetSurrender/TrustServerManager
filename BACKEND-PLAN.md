@@ -1496,7 +1496,165 @@ separato. La readiness è per il bilanciatore e per lo smoke test.
 documento (§8.16), che risponde `413` per un documento oltre soglia anche in `chunked`, dove
 `Content-Length` non c'è.
 
+### 8.25 Audit degli eventi di autenticazione
+
+Azioni registrate: `auth.login.success`, `auth.login.failure`, `auth.login.blocked`,
+`auth.logout`, `auth.password.changed`, più `users.*` (§8.30).
+
+Non si registra **nessuna credenziale**: né la password, né la sua lunghezza, né un suo hash.
+Un hash in un registro consultabile è attaccabile offline, e la lunghezza restringe comunque il
+campo. Un test raccoglie tutto l'audit dopo accessi riusciti, falliti e un cambio password, e
+verifica che nessuna delle password usate compaia e che non ci sia nessun `$argon2`.
+
+Per un tentativo fallito si registra l'utenza **tentata**: non è una credenziale, ed è
+l'informazione che dice a chi legge se qualcuno prova nomi a caso o insiste su una persona
+precisa. `audit.actor_role` è diventata nullable (migrazione `0005`) perché un accesso fallito
+non ha un ruolo, e inventarne uno in un registro di audit è peggio di lasciare il campo vuoto.
+
+#### ⚠ La registrazione dei fallimenti deve stare fuori dalla transazione
+
+Difetto trovato dai test, e non ovvio. Un accesso fallito fa sollevare l'handler, quindi la
+transazione della richiesta viene **annullata**: contatore del limitatore e riga di audit
+sparivano insieme all'errore. Il limitatore non avrebbe mai contato nulla e i tentativi falliti
+non sarebbero mai finiti nel registro — cioè esattamente i due dati per cui esistono.
+
+Quelle scritture vanno in una transazione propria, che sopravvive al rollback. Un guasto nella
+registrazione non deve trasformare un 401 in un 500: si logga e si prosegue. Non riuscire a
+scrivere una riga di audit è un problema; lasciare entrare qualcuno perché il registro non era
+scrivibile sarebbe peggio.
+
+### 8.26 Password provvisoria: sessione valida ma ristretta
+
+L'accesso con password provvisoria **riesce**: `200` con `authenticated=true` e
+`mustChangePassword=true`. Non è un 403, perché la sessione esiste davvero e serve a fare una
+cosa. `authenticated` è esplicito e non implicito nello stato HTTP: «200» da solo non direbbe
+al client se può procedere o se deve prima cambiare la password.
+
+Con quella sessione sono raggiungibili **tre** endpoint: `/auth/me`, `/auth/password`,
+`/auth/logout`. Tutto il resto risponde `403 PASSWORD_CHANGE_REQUIRED`.
+
+La restrizione è **strutturale, non un elenco di percorsi**: gli unici endpoint raggiungibili
+sono quelli che non dipendono da `require_actor`. Un endpoint nuovo è ristretto per
+costruzione, perché per fare qualcosa gli serve un attore. Un elenco si dimentica di
+aggiornare; una dipendenza no.
+
+Il cambio password revoca **tutte** le sessioni — compresa quella che lo sta facendo — pulisce
+il cookie e obbliga a un accesso nuovo. Senza pulire il cookie il client crederebbe di essere
+ancora autenticato e riceverebbe 401 alla richiesta successiva senza capire perché.
+
+#### Stato mutabile riletto a ogni richiesta
+
+La sessione dice **chi** è l'utente; non dice cosa può fare. Ruolo, disattivazione e obbligo di
+cambio password si rileggono dal database a ogni richiesta. Conseguenze verificate dai test,
+tutte senza un nuovo accesso: una promozione ha effetto subito, una retrocessione anche, una
+disattivazione chiude la sessione, e impostare `must_change_pw` restringe una sessione già
+aperta.
+
+### 8.27 Validazione dell'origine, non CORS permissivo
+
+Le richieste che **modificano stato** e **portano il cookie di sessione** devono avere un
+`Origin` (o, in mancanza, un `Referer`) fra quelli configurati. Le letture no: pretendere
+`Origin` su una GET romperebbe la navigazione senza guadagnare nulla. Le richieste senza cookie
+no: senza cookie non c'è autorità da abusare, e pretenderlo romperebbe i client non-browser
+senza proteggere niente.
+
+Il cookie è già `SameSite=strict`, quindi un browser non lo invia da un altro sito. Questo è il
+secondo livello: copre il caso stesso-sito ma origine diversa, e un eventuale difetto nella
+gestione di SameSite.
+
+**Non si abilita CORS con credenziali.** Non esiste un caso d'uso in cui un altro sito debba
+chiamare questa API col cookie dell'utente, e abilitarlo smonterebbe da solo tutto il resto. Un
+test verifica che non compaia nessun header `Access-Control-Allow-*`.
+
+### 8.28 Limitazione degli accessi e resistenza all'enumerazione
+
+Contatore **durevole** (`login_attempts`), non in memoria: in memoria si azzera a ogni riavvio
+— che è precisamente il momento in cui chi insiste ne approfitta — e non sopravvive a più
+repliche.
+
+Due finestre, perché rispondono a due attacchi diversi:
+
+| Finestra | Attacco che intercetta |
+|---|---|
+| per utenza (5 in 15 min) | molte password su UNA persona |
+| per IP (20 in 15 min) | una password su MOLTE utenze, che il contatore per utenza non vedrebbe |
+
+Si contano i soli tentativi **falliti**: un accesso riuscito non deve avvicinare al blocco,
+altrimenti chi lavora normalmente verrebbe punito. Oltre soglia: `429` con `Retry-After`, e
+anche la password giusta viene bloccata — il limitatore protegge l'utenza, non l'utente.
+
+Resistenza all'enumerazione:
+
+- **verifica Argon2 anche per utenze inesistenti**, con un hash finto generato all'avvio con
+  gli stessi parametri. Senza, un'utenza inesistente risponderebbe in microsecondi e una
+  esistente in decine di millisecondi: differenza misurabile da remoto;
+- **un solo errore** per utenza inesistente, password errata e utenza disabilitata — i test
+  confrontano le risposte e pretendono che siano identiche;
+- **dimensioni limitate** su username e password: Argon2 su un input enorme è lavoro regalato a
+  chi lo invia.
+
+`X-Forwarded-For` si crede **solo se il peer è il proxy configurato**. Fidarsi dell'header da
+chiunque significa lasciare che il client dichiari il proprio indirizzo, e con esso aggiri il
+limitatore per IP cambiando una stringa a ogni tentativo. Un test invia un `X-Forwarded-For`
+falsificato da un peer non fidato e verifica che non venga registrato.
+
+### 8.29 TLS e rifiuto di partire in modo insicuro
+
+nginx termina TLS su 8443; 8080 risponde solo `301`. Un servizio raggiungibile in chiaro
+sarebbe un servizio in cui non si può entrare, dato che il cookie è `Secure`.
+
+**In produzione un cookie di sessione non `Secure` fa fallire l'avvio.** Non è un avviso nei
+log, che nessuno legge fino al giorno dopo: `TSM_ENV=production` con `TSM_COOKIE_SECURE=false`
+solleva all'import e il processo non parte. Meglio un servizio che non parte di uno che parte in
+modo insicuro, perché il primo si nota subito.
+
+La deroga per lo sviluppo in HTTP sta in `compose.dev.yaml`, che dichiara
+`TSM_ENV=development`. Un file separato invece di una variabile: la deroga si attiva
+scrivendola sulla riga di comando, e nessuno la eredita da un `.env` dimenticato su un server.
+`web/nginx.dev.conf` è **generato** da quello di produzione, con
+`tools/sync-nginx-dev.py --check` a fare da guardia, così le due configurazioni differiscono
+solo nel TLS e non divergono su allowlist, proxy e limiti.
+
+⚠ Inciampo operativo, uguale a quello dei secret: la chiave privata arriva nel container coi
+permessi che ha sull'host, e nginx gira come **uid 101**. Una chiave `0640 root:root` dà
+`Permission denied` all'avvio. `tools/make-dev-tls.ps1` genera il certificato di sviluppo con
+`chown 101:101`; in produzione va fatto lo stesso col certificato aziendale.
+
+### 8.30 Gestione delle utenze: nessuna cancellazione
+
+```
+GET   /api/users?includeDisabled=       elenco
+POST  /api/users                        crea con password provvisoria
+PATCH /api/users/{id}                   ruolo e profilo
+POST  /api/users/{id}/disable           disattivazione logica + revoca sessioni
+POST  /api/users/{id}/enable            riattivazione
+POST  /api/users/{id}/reset-password    password provvisoria + revoca sessioni
+```
+
+Solo `admin`, col ruolo **riletto adesso** (§8.26): una revoca di privilegi ha effetto dalla
+richiesta successiva.
+
+**Non esiste `DELETE`**, su nessuna rotta dell'API — un test lo verifica sull'intero schema
+OpenAPI. `audit.actor_user_id` punta a `users`, quindi cancellare romperebbe la tracciabilità
+(§8.6), e il ruolo di runtime non ha nemmeno il privilegio (§8.19): anche una rotta scritta per
+errore in futuro non riuscirebbe a cancellare niente.
+
+Regole difese dentro la transazione, con `FOR UPDATE`:
+
+- **l'ultimo amministratore attivo non si può togliere**, né disattivandolo né retrocedendolo.
+  Sono due modi di ottenere lo stesso danno — un sistema che nessuno può amministrare — e il
+  secondo è quello che si dimentica;
+- **non si disattiva la propria utenza**;
+- **username unico anche fra i disabilitati**: riusare il nome di un disattivato è una
+  riattivazione esplicita, e il messaggio lo dice invece di restituire un errore di vincolo;
+- **disable e reset revocano le sessioni**: senza, chi era collegato continuerebbe a operare, e
+  un reset chiesto perché la password è compromessa non servirebbe a nulla.
+
+La password provvisoria torna **una volta sola** nella risposta e non viene registrata da
+nessuna parte. `PATCH` usa `exclude_unset`: una modifica del solo ruolo non azzera il profilo.
+
 ## 9. Ordine di lavoro proposto
+
 
 1. ~~Vendorizzare React → l'app parte in rete chiusa~~ ✔ **fatto** (§5)
 2. ~~Scheletro backend: Compose (reti, volumi, secret), Postgres, Alembic, FastAPI,
@@ -1524,10 +1682,13 @@ documento (§8.16), che risponde `413` per un documento oltre soglia anche in `c
    attore obbligatorio (§8.20), no-store e limiti di dimensione (§8.24), readiness a tre
    condizioni (§8.23), append-only dai privilegi (§8.19), bootstrap come CLI~~
    ✔ **fatto** — `backend/app/api/`, `backend/scripts/`, `web/`, `0003_runtime_role`
-6-bis. Rimozione del bypass client in `_doLogin` e aggancio del frontend all'API: è il passo
-   che rende i dati durevoli per l'utente.
-6-ter. **TLS davanti a nginx.** Il cookie di sessione è `Secure`, quindi senza HTTPS non si
-   entra: è l'ultimo pezzo mancante prima di un uso reale.
+6-bis. ~~Hardening: sessione ristretta con password provvisoria (§8.26), stato mutabile
+   riletto, validazione dell'origine (§8.27), limitazione e anti-enumerazione (§8.28), TLS e
+   rifiuto di partire in modo insicuro (§8.29), audit dell'autenticazione (§8.25)~~ ✔ **fatto**
+6-ter. ~~Gestione delle utenze da parte degli admin (§8.30)~~ ✔ **fatto** —
+   `backend/app/api/users.py`, `backend/app/auth/users.py`
+6-quater. Rimozione del bypass client in `_doLogin` e aggancio del frontend all'API: è il
+   passo che rende i dati durevoli per l'utente. **Prossimo commit.**
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

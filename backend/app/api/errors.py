@@ -16,7 +16,19 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from app.auth.service import AuthError, InvalidCredentials, NotAuthenticated
+from app.auth.service import (
+    AuthError,
+    InvalidCredentials,
+    NotAuthenticated,
+    PasswordChangeRequired,
+    TooManyAttempts,
+)
+from app.auth.users import (
+    LastAdminProtected,
+    UserNotFound,
+    UsernameTaken,
+    UserError,
+)
 from app.inventory import (
     AlreadyBootstrappedError,
     DocumentRejectedError,
@@ -59,7 +71,39 @@ def http_error_for(exc: Exception) -> HTTPException:
                                      "message": "autenticazione richiesta"},
                              headers=NO_STORE)
 
+    # --- 429: limitatore dei tentativi di accesso (§8.28) ---
+    if isinstance(exc, TooManyAttempts):
+        headers = dict(NO_STORE)
+        if exc.retry_after_seconds:
+            headers["Retry-After"] = str(exc.retry_after_seconds)
+        return HTTPException(429,
+                             detail={"code": exc.code,
+                                     "message": "troppi tentativi di accesso, riprovare più tardi"},
+                             headers=headers)
+
     # --- 403 ---
+    if isinstance(exc, PasswordChangeRequired):
+        return HTTPException(status.HTTP_403_FORBIDDEN,
+                             detail={"code": exc.code,
+                                     "message": "cambiare la password provvisoria prima di procedere"},
+                             headers=NO_STORE)
+    if isinstance(exc, LastAdminProtected):
+        return HTTPException(status.HTTP_409_CONFLICT,
+                             detail={"code": exc.code, "message": exc.message},
+                             headers=NO_STORE)
+    if isinstance(exc, UsernameTaken):
+        return HTTPException(status.HTTP_409_CONFLICT,
+                             detail={"code": exc.code, "message": exc.message},
+                             headers=NO_STORE)
+    if isinstance(exc, UserNotFound):
+        return HTTPException(status.HTTP_404_NOT_FOUND,
+                             detail={"code": exc.code, "message": "utenza inesistente"},
+                             headers=NO_STORE)
+    if isinstance(exc, UserError):
+        return HTTPException(422,
+                             detail={"code": exc.code, "message": exc.message},
+                             headers=NO_STORE)
+
     if isinstance(exc, NotAuthorizedError):
         return HTTPException(status.HTTP_403_FORBIDDEN,
                              detail={"code": exc.code,

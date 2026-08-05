@@ -27,6 +27,9 @@ DEV = "dddddddd-0000-4000-8000-00000000000a"
 
 ADMIN = Actor(username="admin", role="admin")
 
+#: Le richieste che modificano stato con cookie richiedono un Origin nostro (§8.27).
+ORIGIN = {"Origin": "http://testserver"}
+
 
 def base_doc() -> dict:
     return {
@@ -111,7 +114,7 @@ def test_get_inventory_requires_authentication(client, head_version):
 
 
 def test_put_inventory_requires_authentication(client, head_version):
-    r = client.put("/api/inventory",
+    r = client.put("/api/inventory", headers=ORIGIN,
                    json={"baseVersion": head_version, "doc": base_doc()})
     assert r.status_code == 401
 
@@ -155,7 +158,7 @@ def test_get_returns_the_frozen_shape(as_editor, head_version):
 def test_put_change_returns_changed_true(as_editor, head_version):
     doc = clone(base_doc())
     doc["locations"][0]["sale"][0]["racks"][0]["devices"][0]["model"] = "Dell R760"
-    r = as_editor.put("/api/inventory",
+    r = as_editor.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": doc,
                             "action": "Modificato srv-01"})
     assert r.status_code == 200
@@ -167,7 +170,7 @@ def test_put_change_returns_changed_true(as_editor, head_version):
 
 
 def test_put_noop_returns_changed_false(as_editor, head_version):
-    r = as_editor.put("/api/inventory",
+    r = as_editor.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": base_doc()})
     assert r.status_code == 200
     assert r.json()["changed"] is False
@@ -177,10 +180,10 @@ def test_put_noop_returns_changed_false(as_editor, head_version):
 def test_put_idempotent_replay_returns_changed_false(as_editor, head_version):
     doc = clone(base_doc())
     doc["locations"][0]["sale"][0]["racks"][0]["devices"][0]["model"] = "M"
-    first = as_editor.put("/api/inventory",
+    first = as_editor.put("/api/inventory", headers=ORIGIN,
                           json={"baseVersion": head_version, "doc": clone(doc)}).json()
     # stesso baseVersion (ormai superato) e stesso documento
-    again = as_editor.put("/api/inventory",
+    again = as_editor.put("/api/inventory", headers=ORIGIN,
                           json={"baseVersion": head_version, "doc": clone(doc)})
     assert again.status_code == 200
     assert again.json()["changed"] is False
@@ -190,12 +193,12 @@ def test_put_idempotent_replay_returns_changed_false(as_editor, head_version):
 def test_put_conflict_shape(as_editor, head_version):
     a = clone(base_doc())
     a["locations"][0]["sale"][0]["racks"][0]["devices"][0]["model"] = "A"
-    first = as_editor.put("/api/inventory",
+    first = as_editor.put("/api/inventory", headers=ORIGIN,
                           json={"baseVersion": head_version, "doc": a}).json()
 
     b = clone(base_doc())
     b["locations"][0]["sale"][0]["racks"][0]["devices"][0]["model"] = "B"
-    r = as_editor.put("/api/inventory", json={"baseVersion": head_version, "doc": b})
+    r = as_editor.put("/api/inventory", headers=ORIGIN, json={"baseVersion": head_version, "doc": b})
     assert r.status_code == 409
     detail = r.json()["detail"]
     assert detail["code"] == "version_conflict"
@@ -207,7 +210,7 @@ def test_put_conflict_shape(as_editor, head_version):
 def test_action_label_is_length_limited_by_the_contract(as_editor, head_version):
     doc = clone(base_doc())
     doc["locations"][0]["sale"][0]["racks"][0]["devices"][0]["model"] = "M"
-    r = as_editor.put("/api/inventory",
+    r = as_editor.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": doc,
                             "action": "x" * 5000})
     assert r.status_code == 422        # rifiutato dal contratto, non troncato in silenzio
@@ -220,7 +223,7 @@ def test_action_label_is_length_limited_by_the_contract(as_editor, head_version)
 def test_forbidden_for_role_maps_to_403(as_viewer, head_version):
     doc = clone(base_doc())
     doc["locations"][0]["sale"][0]["racks"][0]["devices"][0]["model"] = "M"
-    r = as_viewer.put("/api/inventory",
+    r = as_viewer.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": doc})
     assert r.status_code == 403
     detail = r.json()["detail"]
@@ -231,7 +234,7 @@ def test_forbidden_for_role_maps_to_403(as_viewer, head_version):
 def test_forbidden_root_key_maps_to_422(as_editor, head_version):
     doc = clone(base_doc())
     doc["utenti"] = [{"email": "x", "password": "y"}]
-    r = as_editor.put("/api/inventory",
+    r = as_editor.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": doc})
     assert r.status_code == 422
     problems = r.json()["detail"]["problems"]
@@ -253,7 +256,7 @@ def test_identity_rejection_maps_to_422(as_editor, head_version):
     rack = doc["locations"][0]["sale"][0]["racks"][0]
     rack["devices"] = [{"_uid": str(uuid.uuid4()), "id": "srv-01",
                         "name": "srv-01", "u": 10}]
-    r = as_editor.put("/api/inventory",
+    r = as_editor.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": doc})
     assert r.status_code == 422
     assert r.json()["detail"]["code"] == "identity_rejected"
@@ -262,7 +265,7 @@ def test_identity_rejection_maps_to_422(as_editor, head_version):
 def test_oversized_document_maps_to_413(as_editor, head_version):
     doc = clone(base_doc())
     doc["locations"][0]["sale"][0]["racks"][0]["devices"][0]["note"] = "x" * (4 * 1024 * 1024 + 10)
-    r = as_editor.put("/api/inventory",
+    r = as_editor.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": doc})
     assert r.status_code == 413
     assert r.json()["detail"]["code"] == "document_too_large"
@@ -273,7 +276,7 @@ def test_request_size_limit_at_application_level(as_editor):
     direttamente all'API (§8.24)."""
     huge = "x" * (6 * 1024 * 1024)
     r = as_editor.put("/api/inventory", content=huge,
-                      headers={"content-type": "application/json"})
+                      headers={**ORIGIN, "content-type": "application/json"})
     assert r.status_code == 413
     assert r.json()["code"] == "request_too_large"
 
@@ -290,7 +293,7 @@ def test_not_bootstrapped_maps_to_503(as_editor, engine):
 def test_errors_never_leak_sql_or_tracebacks(as_editor, head_version):
     doc = clone(base_doc())
     doc["schemaVersion"] = 99
-    r = as_editor.put("/api/inventory",
+    r = as_editor.put("/api/inventory", headers=ORIGIN,
                       json={"baseVersion": head_version, "doc": doc})
     body = r.text.lower()
     for leak in ("traceback", "psycopg", "select ", "insert into", "sqlalchemy",
@@ -324,6 +327,9 @@ def test_api_surface_is_the_expected_set():
         "/api/health", "/api/ready",
         "/api/auth/login", "/api/auth/logout", "/api/auth/me", "/api/auth/password",
         "/api/inventory",
+        "/api/users", "/api/users/{user_id}",
+        "/api/users/{user_id}/disable", "/api/users/{user_id}/enable",
+        "/api/users/{user_id}/reset-password",
     }
 
 
@@ -363,16 +369,22 @@ def test_health_stays_ok_without_inventory(client, engine):
 @pytest.fixture
 def real_auth_client(conn_override, engine):
     """Client senza override dell'attore: l'autenticazione è quella vera."""
-    with engine.begin() as c:
+    # Ordine obbligato: `audit.actor_user_id` ha una FK verso `users` (0004),
+    # quindi le utenze non si possono togliere prima delle righe che le citano.
+    def _reset(c):
+        c.execute(text("DELETE FROM login_attempts"))
         c.execute(text("DELETE FROM sessions"))
+        c.execute(text("DELETE FROM audit"))
         c.execute(text("DELETE FROM users WHERE username LIKE 'test-%'"))
+
+    with engine.begin() as c:
+        _reset(c)
         create_user(c, "test-editor", "password-lunga-1", "edit", must_change_pw=False)
         create_user(c, "test-temp", "password-lunga-2", "admin", must_change_pw=True)
     with TestClient(app) as c:
         yield c
     with engine.begin() as c:
-        c.execute(text("DELETE FROM sessions"))
-        c.execute(text("DELETE FROM users WHERE username LIKE 'test-%'"))
+        _reset(c)
 
 
 def test_login_then_read_inventory(real_auth_client, head_version):
@@ -380,8 +392,8 @@ def test_login_then_read_inventory(real_auth_client, head_version):
                               json={"username": "test-editor",
                                     "password": "password-lunga-1"})
     assert r.status_code == 200
-    assert r.json() == {"username": "test-editor", "role": "edit",
-                        "mustChangePassword": False}
+    assert r.json() == {"authenticated": True, "username": "test-editor",
+                        "role": "edit", "mustChangePassword": False}
 
     r = real_auth_client.get("/api/inventory")
     assert r.status_code == 200
@@ -404,6 +416,7 @@ def test_me_requires_session(real_auth_client):
 
 
 def test_temporary_password_blocks_writes_but_allows_me(real_auth_client, head_version):
+    # forma dettagliata in tests/test_hardening_pg.py (§8.26)
     r = real_auth_client.post("/api/auth/login",
                               json={"username": "test-temp", "password": "password-lunga-2"})
     assert r.status_code == 200
@@ -414,14 +427,15 @@ def test_temporary_password_blocks_writes_but_allows_me(real_auth_client, head_v
     # l'inventario no
     r = real_auth_client.get("/api/inventory")
     assert r.status_code == 403
-    assert r.json()["detail"]["code"] == "password_change_required"
+    assert r.json()["detail"]["code"] == "PASSWORD_CHANGE_REQUIRED"
 
 
 def test_logout_revokes_the_session(real_auth_client, head_version):
     real_auth_client.post("/api/auth/login",
                           json={"username": "test-editor", "password": "password-lunga-1"})
     assert real_auth_client.get("/api/inventory").status_code == 200
-    assert real_auth_client.post("/api/auth/logout").status_code == 204
+    assert real_auth_client.post(
+        "/api/auth/logout", headers={"Origin": "http://testserver"}).status_code == 204
     assert real_auth_client.get("/api/inventory").status_code == 401
 
 
@@ -429,6 +443,7 @@ def test_password_change_revokes_sessions(real_auth_client):
     real_auth_client.post("/api/auth/login",
                           json={"username": "test-editor", "password": "password-lunga-1"})
     r = real_auth_client.post("/api/auth/password",
+                              headers={"Origin": "http://testserver"},
                               json={"currentPassword": "password-lunga-1",
                                     "newPassword": "password-nuova-lunga"})
     assert r.status_code == 204

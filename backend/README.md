@@ -131,6 +131,30 @@ La stringa di connessione non è in `alembic.ini`: `migrations/env.py` la prende
 `app.config`, che legge la password dal secret. In un file di configurazione finirebbe
 nell'immagine e nel repository.
 
+## Test
+
+```powershell
+.\tools\run-backend-tests.ps1          # suite completa, avvia un Postgres dedicato
+.\tools\run-backend-tests.ps1 -KeepDb  # lascia il database in piedi fra le esecuzioni
+```
+
+Senza `TSM_DB_URL` i test di integrazione si saltano e resta la suite pura (identità, diff,
+canonicalizzazione, schema, politica, schema congelato del documento). Per puntarli a un
+database qualsiasi:
+
+```
+TSM_DB_URL=postgresql+psycopg://utente:password@host:5432/dbname
+```
+
+`TSM_DB_URL` scavalca host/porta/nome/utente e la lettura del secret: è pensata per i test e
+per un Postgres gestito con credenziali fornite dall'infrastruttura. In produzione resta
+vuota e la password arriva dal secret montato.
+
+I test dell'inventario girano su **PostgreSQL reale**, senza doppi: quello che verificano —
+`SELECT … FOR UPDATE`, identity bigint, atomicità del rollback — è comportamento del
+database, e un finto non lo dimostrerebbe. Sono anche il motivo per cui è stato trovato un
+difetto di concorrenza reale: vedi §8.17 del piano, «Il lock non deve contenere una JOIN».
+
 ## Dipendenze
 
 `requirements.txt` è il runtime; `requirements-dev.txt` aggiunge Playwright e pytest e

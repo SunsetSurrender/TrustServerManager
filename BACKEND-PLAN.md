@@ -1195,6 +1195,140 @@ violazioni), cascata negata a `edit` e concessa a `admin`, `reorder` di rack e d
 soppressione del `reorder` che non deve generare violazioni fantasma, `vani` come update di
 sala, voci di manuale, impostazioni, ruolo ignoto e i tre casi di rollback.
 
+### 8.16 Schema congelato del documento per il percorso normale
+
+Il `PUT` normale accetta **soltanto** la forma corrente. Allowlist alla radice —
+`schemaVersion`, `locations`, `manuale` — e nient'altro. Una chiave nuova va aggiunta di
+proposito, insieme al codice che la gestisce.
+
+| Rifiutato | Perché |
+|---|---|
+| `users`, `utenti` | vivono nella tabella `users` (§8.6) |
+| `audit`, `registro` | l'audit è lato server (§8.9) |
+| `settings`, `notifiche`, `smtp` | vivono nella tabella `settings` (§8.7) |
+| `versione` | contatore informale del prototipo, sostituito da `schemaVersion` (§8.13) |
+| qualunque chiave `*password*`, a ogni profondità | nessuna credenziale in un JSONB versionato, servito ai client e conservato per sempre |
+| `foto` con un `data:` URL | le foto stanno nella tabella `photos` (§8.5); nel documento va il loro id |
+| `foto` che non è un UUID | riferimento non valido |
+| `_uid` mancanti | §8.4 |
+| `schemaVersion` diverso da quello in testa | un salvataggio non fa evolvere lo schema (§8.13) |
+| documento oltre il limite di dimensione | ogni versione è una riga append-only: un documento gonfio si moltiplica per il numero di salvataggi |
+
+**Rifiutare, non ripulire in silenzio.** Uno scarto silenzioso nasconde un client vecchio,
+una migrazione dimenticata o un tentativo — e in tutti e tre i casi si vuole saperlo. E
+ripulire vorrebbe dire salvare un documento *diverso* da quello inviato, facendo divergere
+ciò che il client crede di avere salvato da ciò che c'è nel database.
+
+Le chiavi ignote hanno un codice a parte (`unknown_root_key`) da quelle estratte
+(`forbidden_root_key`): le cause sono diverse — un client sperimentale contro una migrazione
+non fatta — e il messaggio deve dirlo.
+
+La ricerca di password e foto **non si fida della struttura**: percorre tutto il documento a
+qualsiasi profondità, perché una credenziale nascosta in un ramo che lo schema non prevede è
+esattamente il caso che conta.
+
+`strip_legacy_fields()` consuma e toglie quelle radici, e **solo la migrazione la chiama**.
+Per un documento legacy contenere quei campi è normale: rimuoverli è il lavoro previsto.
+
+Implementazione: `backend/app/inventory/document.py`.
+
+### 8.17 Repository dell'inventario: la transazione
+
+`backend/app/inventory/repository.py`. Nessun endpoint HTTP, nessuna autenticazione: chi è
+l'attore lo dichiara il chiamante (`Actor`). Il chiamante possiede anche la transazione, così
+il repository si compone con altre scritture senza aprire transazioni annidate di nascosto.
+
+Ordine, che è la sostanza e non una preferenza:
+
+| # | Passo | Nota |
+|---|---|---|
+| 1 | schema del documento e limite di dimensione | **prima** del database: un documento malformato non deve prendere un lock |
+| 2 | canonicalizzazione del candidato | §8.14 |
+| 3 | lock e caricamento della testa | `SELECT … FOR UPDATE` |
+| 4 | confronto con `baseVersion` | race-free grazie al lock |
+| 5 | validazione della transizione di identità | §8.4 |
+| 6 | generazione degli eventi | §8.10 |
+| 7 | autorizzazione dell'insieme **completo** | §8.15 |
+| 8 | inserimento di versione e audit | stessa transazione |
+| 9 | aggiornamento della testa | stessa transazione |
+| 10 | commit | del chiamante |
+
+Fra il 4 e il 7 si inserisce il **no-op canonico**: se lo SHA della forma canonica del
+candidato è identico a quello della testa, si restituisce la versione corrente e non si
+scrive nulla — né versione né audit. Un salvataggio che non cambia niente non deve gonfiare
+lo storico, e con la canonicalizzazione questo copre anche il client che scrive
+esplicitamente i default.
+
+#### Modifica rispetto a §8.11: la versione la genera il database
+
+§8.11 prevedeva `inventory_head.version + 1` calcolato in applicazione, per evitare i buchi.
+La scelta è cambiata: `inventory_versions.version` è una **identity bigint**. Motivo: il
+numero è unico per costruzione anche se qualcuno aggirasse il lock, e non richiede un
+read-modify-write. I buchi (una transazione annullata consuma un valore) sono irrilevanti,
+perché il client confronta la versione per **uguaglianza** con la testa: non conta gli
+incrementi né presume che siano contigui.
+
+#### ⚠ Il lock non deve contenere una JOIN
+
+Trovato dal test di concorrenza su Postgres reale, e vale la pena scriverlo perché sarebbe
+stato un guasto intermittente in produzione.
+
+La prima implementazione bloccava la testa e leggeva il documento in un'unica query:
+
+```sql
+SELECT h.version, v.doc FROM inventory_head h
+  JOIN inventory_versions v ON v.version = h.version
+ WHERE h.id IS TRUE FOR UPDATE OF h;
+```
+
+Sotto `READ COMMITTED`, quando un `SELECT … FOR UPDATE` aspetta una transazione concorrente,
+al risveglio Postgres rivaluta la qualificazione della riga **bloccata** sulla sua versione
+aggiornata (EvalPlanQual), ma **le altre tabelle del join restano lette con lo snapshot
+originale**. Il perdente non vedeva la versione appena inserita dal vincitore, il join non
+trovava nulla, e il risultato era «inventario non inizializzato» invece di un conflitto.
+
+Rimedio: bloccare la sola riga di testa, poi leggere il documento con una query separata, che
+parte da uno snapshot di comando nuovo e vede quanto il vincitore ha committato.
+
+#### Attore: istantanea, non riferimento
+
+`actor_username` e `actor_role` vengono **copiati** nella versione e nell'audit.
+`actor_user_id` è un uuid opzionale — nullable e per ora senza foreign key, perché la tabella
+`users` arriva con l'autenticazione; la FK va aggiunta in quella migrazione.
+
+Sono istantanee perché l'audit deve raccontare chi era quella persona *allora*: deve
+sopravvivere alla disattivazione dell'utenza (§8.6) e a un cambio di ruolo.
+
+#### Il testo del client è solo testo
+
+`client_hint` è troncato (500 caratteri) e non descrive nulla di autorevole: ciò che è
+cambiato lo dice `audit.events`, calcolato dal server (§8.9). È una stringa non attendibile
+che finisce in una colonna, e non deve poter diventare un vettore di volume.
+
+#### Bootstrap
+
+Percorso dedicato una-volta-sola, che fallisce se la testa esiste già — separato dal
+salvataggio per la stessa ragione per cui il backfill degli `_uid` è uno script a parte
+(§8.4): la differenza fra «popolo un database vuoto» e «accetto una scrittura» non va
+affidata a un booleano che qualcuno può passare per sbaglio in una richiesta. È l'unico posto
+dove `from_legacy=True` può consumare e togliere le radici estratte.
+
+#### Test di integrazione su PostgreSQL reale
+
+Nessun doppio: il comportamento che conta — `FOR UPDATE`, identity bigint, atomicità del
+rollback — è comportamento del database. `tools/run-backend-tests.ps1` avvia un Postgres
+dedicato; senza `TSM_DB_URL` i test PG si saltano e resta la suite pura.
+
+Coperti: bootstrap e sua unicità (anche il vincolo singleton nel database), append-only,
+versioni generate dal database e crescenti, `baseVersion` superata, no-op canonico e no-op da
+soli default, no-op consentito a `view`, autorizzazione (`view` che non scrive, `edit` sulla
+struttura, cascata negata a `edit` e concessa a `admin`), identità sostituita, radici vietate,
+`schemaVersion` cambiato dal client, audit nella stessa transazione con eventi del server,
+troncamento del `client_hint`, istantanea dell'attore, **guasti iniettati all'inserimento
+dell'audit e all'aggiornamento della testa** (nessuno stato parziale sopravvive),
+**scritture concorrenti con lo stesso `baseVersion`**, e la lettura corrente che usa la testa
+anche quando esiste una versione più alta inserita fuori banda.
+
 ## 9. Ordine di lavoro proposto
 
 1. ~~Vendorizzare React → l'app parte in rete chiusa~~ ✔ **fatto** (§5)
@@ -1213,8 +1347,13 @@ sala, voci di manuale, impostazioni, ruolo ignoto e i tre casi di rollback.
    `backend/app/identity/{canonical,schema}.py`, `backend/app/authz/`, `fixtures/policy/`
 5. Auth: users con `disabled_at` (§8.6), sessioni, login, cambio password provvisoria,
    rimozione del bypass client
-6. `GET`/`PUT /api/inventory` con commit atomico (§8.11), validazione degli `_uid` (§8.4),
-   autorizzazione per ambito (§8.3) e audit dagli eventi (§8.9) + importer da `inventario.js`
+5-bis. ~~**Schema congelato del documento** (§8.16), **eventi non supportati** distinti da
+   quelli ristretti (§8.15), **repository atomico** e migrazione Alembic (§8.17), con test di
+   integrazione su Postgres reale~~ ✔ **fatto** — `backend/app/inventory/`,
+   `migrations/versions/0002_inventory.py`, `backend/tests/test_repository_pg.py`.
+   Senza rotte HTTP: le espone il punto 6.
+6. `GET`/`PUT /api/inventory` sopra il repository: rotte, serializzazione degli errori
+   (409/403/422), e importer da `inventario.js` verso `bootstrap(from_legacy=True)`
    (l'unico percorso autorizzato a fare backfill, §8.4)
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**

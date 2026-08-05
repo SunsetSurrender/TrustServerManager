@@ -113,14 +113,28 @@ def test_violations_are_deterministic():
     assert a == b
 
 
-def test_unknown_entity_defaults_to_admin():
-    """Un tipo di entità non previsto nasce ristretto: si concede solo ciò che è
-    esplicitamente permesso, così una struttura nuova non diventa scrivibile per
-    distrazione."""
+def test_known_but_ungranted_combination_defaults_to_admin():
+    """Fra gli eventi NOTI, ciò che non è esplicitamente concesso richiede admin:
+    si concede solo il previsto, così una combinazione nuova nasce ristretta
+    invece di diventare scrivibile per distrazione."""
+    for ev in ([{"entity": "settings", "event": "update", "scope": "settings"}],
+               [{"entity": "location", "event": "add", "scope": "structure"}],
+               [{"entity": "manual", "event": "reorder", "scope": "manuale"}]):
+        assert not authorize_events("edit", ev).allowed, ev
+        assert not authorize_events("view", ev).allowed, ev
+        assert authorize_events("admin", ev).allowed, ev
+        assert authorize_events("edit", ev).violations[0].code == FORBIDDEN_FOR_ROLE
+
+
+def test_unknown_entity_is_unsupported_not_merely_restricted():
+    """Un'entità che il server non conosce NON è «serve admin»: non è
+    interpretabile, e nessun privilegio la rende tale (§8.15)."""
+    from app.authz import UNSUPPORTED_DOMAIN_EVENT
     ev = [{"entity": "qualcosa_di_nuovo", "event": "update", "scope": "?"}]
-    assert not authorize_events("edit", ev).allowed
-    assert not authorize_events("view", ev).allowed
-    assert authorize_events("admin", ev).allowed
+    for role in ("view", "edit", "admin"):
+        d = authorize_events(role, ev)
+        assert not d.allowed, role
+        assert d.violations[0].code == UNSUPPORTED_DOMAIN_EVENT
 
 
 @pytest.mark.parametrize("role", ["", "Admin", "ADMIN", "superuser", None, "editor"])

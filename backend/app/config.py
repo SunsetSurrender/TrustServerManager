@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     db_name: str = "tsm"
     db_user: str = "tsm"
 
+    # DSN completo, che scavalca i campi sopra e la lettura del secret.
+    # Serve ai test di integrazione (TSM_DB_URL) e a un eventuale Postgres
+    # gestito con credenziali fornite dall'infrastruttura. In produzione resta
+    # vuoto: la password arriva dal secret montato.
+    db_url: str | None = None
+
     # percorso del secret, non il valore
     db_password_file: Path = Path("/run/secrets/postgres_password")
 
@@ -49,6 +55,8 @@ class Settings(BaseSettings):
             ) from exc
 
     def sqlalchemy_url(self) -> str:
+        if self.db_url:
+            return self.db_url
         return (
             f"postgresql+psycopg://{self.db_user}:{self.db_password()}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"

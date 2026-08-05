@@ -86,9 +86,28 @@ for svc in ("db", "api"):
           f"State={row.get('State', 'assente')} Health={health or '(nessuno)'}")
 
 # ---- 2. migrazione Alembic ----------------------------------------------
+# La revisione attesa si ricava dai file, non è scritta a mano: altrimenti ogni
+# nuova migrazione farebbe fallire lo smoke test per un motivo che non è un guasto.
+versions_dir = ROOT / "backend" / "migrations" / "versions"
+migration_files = sorted(versions_dir.glob("[0-9]*.py"))
+expected_rev = ""
+if migration_files:
+    for line in migration_files[-1].read_text(encoding="utf-8").splitlines():
+        if line.startswith("revision:"):
+            expected_rev = line.split("=", 1)[1].strip().strip("\"'")
+            break
+
 rev = exec_in("db", "psql", "-U", "tsm", "-d", "tsm", "-tAc",
               "SELECT version_num FROM alembic_version").stdout.strip()
-check("alembic: revisione applicata", rev == "0001_baseline", f"version_num={rev!r}")
+check(f"alembic: revisione applicata = {expected_rev or '(nessuna)'}",
+      bool(expected_rev) and rev == expected_rev,
+      f"version_num={rev!r}, atteso {expected_rev!r} da {migration_files[-1].name if migration_files else '-'}")
+
+# Le tabelle della migrazione dell'inventario devono esserci davvero.
+tables = exec_in("db", "psql", "-U", "tsm", "-d", "tsm", "-tAc",
+                 "SELECT tablename FROM pg_tables WHERE schemaname='public'").stdout.split()
+for t in ("inventory_versions", "inventory_head", "audit"):
+    check(f"tabella {t} presente", t in tables, f"trovate: {sorted(tables)}")
 
 # ---- 3-4. endpoint operativi -------------------------------------------
 code, body = http_get("/api/health")

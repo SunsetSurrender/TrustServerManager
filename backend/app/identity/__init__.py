@@ -16,7 +16,7 @@ from .canonical import (
     strip_uids,
 )
 from .diff import Event, diff_as_dicts, diff_documents, scopes_touched
-from .model import KINDS, SCOPE_BY_KIND, Entity, is_uid, walk
+from .model import KINDS, SCOPE_BY_KIND, UUID_RE, Entity, is_uid, walk
 from .schema import (
     CURRENT_SCHEMA_VERSION,
     SCHEMA_VERSION_INVALID,
@@ -41,7 +41,7 @@ from .validator import (
 
 __all__ = [
     "Entity", "Event", "IdentityError", "SchemaError",
-    "KINDS", "SCOPE_BY_KIND",
+    "KINDS", "SCOPE_BY_KIND", "UUID_RE",
     "is_uid", "walk",
     "validate_document", "validate_against_base",
     "diff_documents", "diff_as_dicts", "scopes_touched",

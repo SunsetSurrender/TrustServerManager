@@ -7,9 +7,12 @@ BACKEND-PLAN.md §9.
 from .policy import (
     EDIT_DEVICE_EVENTS,
     FORBIDDEN_FOR_ROLE,
+    KNOWN_ENTITIES,
+    KNOWN_EVENTS,
     ROLES,
     ROLLBACK_FORBIDDEN,
     UNKNOWN_ROLE,
+    UNSUPPORTED_DOMAIN_EVENT,
     Decision,
     Violation,
     authorize_events,
@@ -17,8 +20,9 @@ from .policy import (
 )
 
 __all__ = [
-    "ROLES", "EDIT_DEVICE_EVENTS",
+    "ROLES", "EDIT_DEVICE_EVENTS", "KNOWN_ENTITIES", "KNOWN_EVENTS",
     "Decision", "Violation",
     "authorize_events", "authorize_rollback",
     "FORBIDDEN_FOR_ROLE", "ROLLBACK_FORBIDDEN", "UNKNOWN_ROLE",
+    "UNSUPPORTED_DOMAIN_EVENT",
 ]

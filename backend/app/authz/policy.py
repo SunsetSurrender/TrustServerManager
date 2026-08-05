@@ -30,9 +30,23 @@ ROLES = ("view", "edit", "admin")
 #: non riordina la collezione.
 EDIT_DEVICE_EVENTS = frozenset({"add", "update", "rename", "move", "delete"})
 
+#: Vocabolario CHIUSO degli eventi. Serve a distinguere due situazioni diverse
+#: che non vanno confuse:
+#:
+#:   - evento NOTO ma non concesso al ruolo   → forbidden_for_role, e un admin passa
+#:   - evento NON SUPPORTATO                  → unsupported_domain_event, e NESSUNO passa
+#:
+#: Trattare il secondo caso come «serve admin» sarebbe sbagliato in modo
+#: pericoloso: un evento che il server non sa interpretare non diventa
+#: interpretabile perché chi lo invia ha più privilegi. Non è una questione di
+#: permessi, è una questione di significato.
+KNOWN_ENTITIES = frozenset({"location", "room", "rack", "device", "manual", "settings"})
+KNOWN_EVENTS = frozenset({"add", "delete", "update", "rename", "move", "reorder"})
+
 FORBIDDEN_FOR_ROLE = "forbidden_for_role"
 UNKNOWN_ROLE = "unknown_role"
 ROLLBACK_FORBIDDEN = "rollback_forbidden"
+UNSUPPORTED_DOMAIN_EVENT = "unsupported_domain_event"
 
 
 @dataclass(frozen=True)
@@ -41,6 +55,10 @@ class Violation:
 
     `required_role` è il ruolo minimo che avrebbe permesso quell'evento: serve
     al client per dire «serve un amministratore» invece di un generico rifiuto.
+
+    Per `unsupported_domain_event` è la **stringa vuota**, e vuol dire una cosa
+    precisa: nessun ruolo rende accettabile quell'evento. Chiedere privilegi più
+    alti non aiuta, perché il problema non è il permesso ma il significato.
     """
 
     code: str
@@ -76,9 +94,10 @@ class Decision:
 
 
 def _required_role(entity: str, event: str) -> str:
-    """Ruolo minimo per un evento. `admin` è il predefinito: si concede solo ciò
-    che è esplicitamente previsto, così un tipo di entità nuovo nasce ristretto
-    invece di essere permesso per distrazione."""
+    """Ruolo minimo per un evento NOTO. `admin` è il predefinito: fra gli eventi
+    supportati si concede solo ciò che è esplicitamente previsto, così un tipo di
+    entità nuovo ma riconosciuto nasce ristretto invece di essere permesso per
+    distrazione."""
     if entity == "device" and event in EDIT_DEVICE_EVENTS:
         return "edit"
     return "admin"
@@ -90,6 +109,23 @@ def _permits(role: str, entity: str, event: str) -> bool:
     if role == "edit":
         return entity == "device" and event in EDIT_DEVICE_EVENTS
     return False        # view: nessuna scrittura sull'inventario
+
+
+def _unsupported_reason(ev: Any, entity: Any, event: Any) -> str | None:
+    """Perché questo evento non è interpretabile? None se lo è."""
+    if not isinstance(ev, dict) and not hasattr(ev, "event"):
+        return f"evento non è né un dizionario né un oggetto evento: {type(ev).__name__}"
+    if not isinstance(entity, str) or not entity:
+        return f"campo 'entity' assente o non stringa: {entity!r}"
+    if not isinstance(event, str) or not event:
+        return f"campo 'event' assente o non stringa: {event!r}"
+    if entity not in KNOWN_ENTITIES:
+        return (f"tipo di entità non supportato: {entity!r} "
+                f"(noti: {', '.join(sorted(KNOWN_ENTITIES))})")
+    if event not in KNOWN_EVENTS:
+        return (f"tipo di evento non supportato: {event!r} "
+                f"(noti: {', '.join(sorted(KNOWN_EVENTS))})")
+    return None
 
 
 def authorize_events(role: str, events: Iterable[Any]) -> Decision:
@@ -110,6 +146,20 @@ def authorize_events(role: str, events: Iterable[Any]) -> Decision:
     violations: list[Violation] = []
     for ev in events:
         entity, event, scope, uid = _fields(ev)
+
+        # Prima: è un evento che sappiamo interpretare? Se no, nessun ruolo lo
+        # rende accettabile — nemmeno admin.
+        reason = _unsupported_reason(ev, entity, event)
+        if reason is not None:
+            violations.append(Violation(
+                UNSUPPORTED_DOMAIN_EVENT, role,
+                entity if isinstance(entity, str) else "",
+                event if isinstance(event, str) else "",
+                scope if isinstance(scope, str) else "",
+                required_role="", uid=uid,
+                message=f"evento di dominio non supportato: {reason}"))
+            continue
+
         if _permits(role, entity, event):
             continue
         need = _required_role(entity, event)

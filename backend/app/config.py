@@ -31,7 +31,20 @@ class Settings(BaseSettings):
     # altrimenti l'healthcheck di Compose va in timeout invece di dire "not ready".
     db_connect_timeout: int = 3
 
-    app_version: str = "0.1.0-skeleton"
+    app_version: str = "0.2.0"
+
+    # Il cookie di sessione è `Secure` per default: senza HTTPS non si entra.
+    # Si disattiva SOLO in sviluppo su localhost e nei test. Il default sicuro sta
+    # dalla parte giusta: dimenticarsi di impostarlo in produzione non apre un buco.
+    cookie_secure: bool = True
+
+    # Limite della richiesta a livello applicativo. Nginx ha il proprio
+    # (client_max_body_size): due livelli, perché uno solo salta quando qualcuno
+    # raggiunge l'API senza passare dal proxy.
+    max_request_bytes: int = 5 * 1024 * 1024
+
+    # La documentazione OpenAPI elenca l'intera superficie dell'API.
+    expose_docs: bool = False
 
     def db_password(self) -> str:
         """Legge il secret a ogni chiamata: la rotazione non richiede un rebuild.

@@ -9,13 +9,15 @@ preferenza (BACKEND-PLAN.md §8.11):
   1. validazione dello schema del documento e del limite di dimensione
   2. canonicalizzazione del candidato
   3. lock e caricamento della testa corrente
-  4. confronto con baseVersion
-  5. validazione della transizione di identità
-  6. generazione degli eventi
-  7. autorizzazione dell'insieme COMPLETO
-  8. inserimento della versione e dell'audit
-  9. aggiornamento della testa
- 10. commit
+  4. no-op canonico: hash del candidato == hash della testa → si risponde
+     changed=False, QUALUNQUE sia il baseVersion (idempotenza, §8.18)
+  5. confronto con baseVersion → conflitto solo se il contenuto è diverso
+  6. validazione della transizione di identità
+  7. generazione degli eventi
+  8. autorizzazione dell'insieme COMPLETO
+  9. inserimento della versione e dell'audit
+ 10. aggiornamento della testa
+ 11. commit
 
 I passi 1-2 non toccano il database: rifiutare un documento malformato non deve
 prendere un lock. Dal passo 3 in avanti si è dentro una sola transazione, e se
@@ -42,7 +44,6 @@ from app.identity import (
     diff_as_dicts,
     diff_documents,
     scopes_touched,
-    strip_uids,
     validate_against_base,
 )
 from app.inventory.document import (
@@ -98,18 +99,30 @@ class InventorySnapshot:
 
 
 def canonical_sha256(doc: Any) -> str:
-    """SHA-256 deterministico della forma canonica.
+    """SHA-256 deterministico della forma canonica, **identità inclusa**.
 
-    Canonicalizzare (default materializzati, §8.14), togliere gli `_uid` e
-    ordinare le chiavi: due documenti che l'applicazione considera equivalenti
-    danno lo stesso digest. È così che si riconosce un salvataggio a vuoto senza
-    confrontare interi alberi.
+    Canonicalizzare (default materializzati, §8.14) e ordinare le chiavi: due
+    documenti che l'applicazione considera equivalenti danno lo stesso digest. È
+    così che si riconosce un salvataggio a vuoto senza confrontare interi alberi.
 
-    Nota: gli `_uid` sono fuori dal digest di proposito. Un cambio di identità
-    NON è un no-op, ma non serve che lo dica l'hash: lo intercetta prima la
-    validazione della transizione (§8.4), che lo rifiuta.
+    Gli `_uid` fanno parte del digest, e la ragione è precisa. Da quando il
+    confronto di hash precede quello del `baseVersion` (§8.18), l'hash è ciò che
+    decide se una richiesta è già stata soddisfatta. Se ignorasse l'identità, un
+    documento che sostituisce l'`_uid` di un dispositivo lasciando invariato tutto
+    il resto avrebbe lo stesso digest della testa e verrebbe accettato come
+    no-op: la sostituzione di identità che §8.4 esiste per rifiutare passerebbe
+    in silenzio, con un 200 e changed=False.
+
+    L'identità è parte del significato del documento, quindi è parte del suo
+    digest. Il caso «solo gli _uid sono diversi» resta contenuto diverso, e
+    prosegue verso la validazione della transizione che lo rifiuta.
+
+    NB: la verifica del seed usa un digest DIVERSO, che gli `_uid` li toglie
+    (`tools/verify-seed-migration.mjs`). Là lo scopo è confrontare i dati fra
+    rigenerazioni con identità casuali; qui è riconoscere una richiesta ripetuta.
+    Due scopi diversi, due digest diversi, e vale la pena non confonderli.
     """
-    payload = json.dumps(canonical_sort(strip_uids(canonicalise(doc))),
+    payload = json.dumps(canonical_sort(canonicalise(doc)),
                          ensure_ascii=False, separators=(",", ":"), sort_keys=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -249,13 +262,6 @@ class InventoryRepository:
                 f"la testa punta alla versione {current_version}, che non esiste")
         current_doc = current_row[0]
 
-        # --- 4. confronto con baseVersion ---
-        # Con il lock preso, questo confronto è race-free: chi arriva secondo ha
-        # aspettato qui e rilegge la testa aggiornata, quindi ottiene un conflitto
-        # corretto invece di una violazione di chiave primaria travestita.
-        if int(base_version) != current_version:
-            raise VersionConflictError(base_version, current_version)
-
         # Lo schema del candidato deve combaciare con quello in testa: un
         # salvataggio non fa evolvere lo schema (§8.13).
         schema_errors = validate_normal_document(
@@ -266,26 +272,47 @@ class InventoryRepository:
                 [e.as_dict() for e in schema_errors])
 
         current_canonical = canonicalise(current_doc)
-
-        # --- no-op canonico: si risponde con la versione corrente e non si
-        # scrive storia. Un salvataggio che non cambia nulla non deve gonfiare
-        # né le versioni né l'audit (§8.10).
+        current_sha = canonical_sha256(current_canonical)
         candidate_sha = canonical_sha256(candidate)
-        if candidate_sha == canonical_sha256(current_canonical):
+
+        # --- 4. no-op canonico, PRIMA del confronto con baseVersion ---
+        #
+        # L'ordine conta e non è un dettaglio (§8.18). Se il contenuto in testa è
+        # già identico a quello che il client vuole scrivere, la richiesta è già
+        # stata soddisfatta: si risponde con la versione corrente e changed=False,
+        # qualunque sia il `baseVersion` dichiarato.
+        #
+        # È ciò che rende il PUT idempotente nel caso reale: il commit è andato a
+        # buon fine ma la risposta si è persa (rete, timeout, tab chiusa), il
+        # client riprova con il vecchio baseVersion e con lo stesso documento.
+        # Confrontando prima il baseVersion gli si restituirebbe un conflitto per
+        # una scrittura che è già la sua, e l'utente vedrebbe «modificato da un
+        # altro utente» a fronte della propria modifica andata a buon fine.
+        #
+        # Un `baseVersion` superato con contenuto DIVERSO resta un conflitto: lì
+        # il client sta davvero sovrascrivendo il lavoro di qualcun altro.
+        if candidate_sha == current_sha:
             return SaveResult(version=current_version, created=False)
 
-        # --- 5. transizione di identità ---
+        # --- 5. confronto con baseVersion ---
+        # Con il lock preso, questo confronto è race-free: chi arriva secondo ha
+        # aspettato qui e rilegge la testa aggiornata, quindi ottiene un conflitto
+        # corretto invece di una violazione di chiave primaria travestita.
+        if int(base_version) != current_version:
+            raise VersionConflictError(base_version, current_version, current_sha)
+
+        # --- 6. transizione di identità ---
         id_errors = validate_against_base(current_canonical, candidate)
         if id_errors:
             raise IdentityRejectedError(
                 f"transizione di identità rifiutata ({len(id_errors)} problemi)",
                 [e.as_dict() for e in id_errors])
 
-        # --- 6. eventi di dominio ---
+        # --- 7. eventi di dominio ---
         events = diff_documents(current_canonical, candidate)
         event_dicts = diff_as_dicts(current_canonical, candidate)
 
-        # --- 7. autorizzazione dell'insieme COMPLETO ---
+        # --- 8. autorizzazione dell'insieme COMPLETO ---
         decision = authorize_events(actor.role, events)
         if not decision.allowed:
             raise NotAuthorizedError(
@@ -293,16 +320,16 @@ class InventoryRepository:
                 f"({len(decision.violations)} violazioni)",
                 [v.as_dict() for v in decision.violations])
 
-        # --- 8. versione e audit, nella stessa transazione ---
+        # --- 9. versione e audit, nella stessa transazione ---
         scopes = scopes_touched(events)
         version = self._insert_version(candidate, actor, sha=candidate_sha)
         self._insert_audit(version, actor, action="inventory.save", scopes=scopes,
                            events=event_dicts, client_hint=client_hint)
 
-        # --- 9. testa ---
+        # --- 10. testa ---
         self._update_head(version)
 
-        # --- 10. il commit è del chiamante, che possiede la transazione ---
+        # --- 11. il commit è del chiamante, che possiede la transazione ---
         return SaveResult(version=version, created=True,
                           events=tuple(event_dicts), scopes=tuple(scopes))
 

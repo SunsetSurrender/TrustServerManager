@@ -1329,6 +1329,173 @@ dell'audit e all'aggiornamento della testa** (nessuno stato parziale sopravvive)
 **scritture concorrenti con lo stesso `baseVersion`**, e la lettura corrente che usa la testa
 anche quando esiste una versione più alta inserita fuori banda.
 
+### 8.18 Il no-op precede il conflitto: PUT idempotente
+
+L'ordine fra confronto di hash e confronto di `baseVersion` è una scelta di
+semantica, non di stile.
+
+Il caso reale: il commit va a buon fine, ma la risposta non arriva al client — rete, timeout,
+scheda chiusa. Il client riprova con il **vecchio** `baseVersion` e lo **stesso** documento.
+Confrontando prima il `baseVersion` gli si restituirebbe un conflitto per una scrittura che è
+già la sua, e l'utente leggerebbe «modificato da un altro utente» a fronte della propria
+modifica riuscita.
+
+| Situazione | Esito |
+|---|---|
+| hash candidato == hash in testa | `200`, `changed=false`, versione corrente — **qualunque** `baseVersion` |
+| hash diverso, `baseVersion` superato | `409` con `currentVersion` e `currentSha256` |
+| hash diverso, `baseVersion` corrente | salvataggio normale |
+
+Il 409 porta `currentSha256` così il client può decidere senza un secondo giro: confrontando
+l'hash con il documento che ha in mano capisce se la testa è già quello che voleva scrivere.
+
+#### ⚠ Conseguenza scoperta dai test: l'hash deve includere l'identità
+
+Il digest canonico originariamente **rimuoveva** gli `_uid`. Era corretto quando la
+validazione dell'identità precedeva il controllo di no-op. Invertito l'ordine, non lo è più:
+un documento che sostituisce l'`_uid` di un dispositivo lasciando invariato tutto il resto
+avrebbe lo stesso digest della testa, e sarebbe accettato come no-op — con un `200` e
+`changed=false`. La sostituzione di identità che §8.4 esiste per rifiutare passerebbe in
+silenzio.
+
+L'identità è parte del significato del documento, quindi è parte del suo digest. Il caso
+«solo gli `_uid` sono diversi» resta contenuto diverso e prosegue verso la validazione della
+transizione, che lo rifiuta.
+
+Restano **due digest diversi per due scopi diversi**, e non vanno confusi:
+
+| Digest | `_uid` | Scopo |
+|---|---|---|
+| `canonical_sha256` (repository) | **inclusi** | riconoscere una richiesta ripetuta |
+| `tools/verify-seed-migration.mjs` | **rimossi** | confrontare i dati fra rigenerazioni con identità casuali |
+
+### 8.19 Append-only imposto dai privilegi, non dal codice
+
+Finché l'API si collegava come proprietario dello schema, «append-only» era una promessa del
+codice applicativo: un difetto, un `UPDATE` scritto per sbaglio o un'iniezione l'avrebbero
+smentita senza che il database obiettasse. Ora sono due ruoli.
+
+| | Ruolo | Cosa può |
+|---|---|---|
+| migrazioni, DDL, bootstrap | proprietario (`tsm`) | tutto |
+| servire richieste | runtime (`tsm_api`) | vedi sotto |
+
+| Tabella | Privilegi del runtime |
+|---|---|
+| `inventory_versions` | `SELECT`, `INSERT` — mai `UPDATE`, mai `DELETE` |
+| `audit` | `SELECT`, `INSERT` — mai `UPDATE`, mai `DELETE` |
+| `inventory_head` | `SELECT`, `UPDATE` — mai `INSERT`, mai `DELETE` |
+| `users`, `sessions` | `SELECT`, `INSERT`, `UPDATE` — mai `DELETE` (§8.6) |
+| `alembic_version` | `SELECT` (serve alla readiness) |
+
+`INSERT` sulla testa è escluso di proposito: la riga nasce una volta sola, nel bootstrap, che
+gira come proprietario. Così **«il bootstrap non passa da HTTP» non è una convenzione ma un
+privilegio che l'API non ha.** Lo smoke test lo verifica con `has_table_privilege` sul database
+in esecuzione, e i test di integrazione provano che ogni riscrittura della storia riceve
+`permission denied`.
+
+La password del ruolo non sta in una migrazione — finirebbe nel repository e nell'immagine. La
+migrazione crea il ruolo senza password; `scripts/migrate.py` gliela imposta a ogni avvio
+leggendola da un secret, così la rotazione è sostituire il file e riavviare. `ALTER ROLE …
+PASSWORD` è un comando di utilità e non accetta parametri associati: si passa il valore con
+`set_config` (una funzione, quindi parametrizzabile) e si cita con `format('%L')`, invece di
+concatenare un segreto nel testo SQL.
+
+Il container dell'API **non monta** la password del proprietario: non averla è metà della
+difesa.
+
+### 8.20 Nessun accesso anonimo, nessun ripiego di sviluppo
+
+`require_actor` pretende una sessione valida e risponde `401`. Non esiste una variabile
+d'ambiente, un header o un parametro che conceda `admin` senza autenticazione.
+
+Il ripiego di sviluppo è pericoloso proprio perché **funziona**: sopravvive ai refactoring,
+non fa fallire nessun test, e il giorno in cui una variabile è impostata male diventa un
+accesso amministrativo anonimo. Il prototipo aveva già un difetto della stessa forma —
+`_doLogin` concedeva `admin` quando l'elenco utenze era vuoto — e va rimosso, non riprodotto
+sul server.
+
+Nei test la dipendenza si sostituisce con `app.dependency_overrides`: esplicito, locale al
+test, e impossibile da attivare per errore in produzione. Un test prova che header e parametri
+plausibili (`X-Debug-Role`, `Authorization: Bearer admin`, `?role=admin&dev=1`) restano `401`.
+
+Sessioni: token da 32 byte di CSPRNG, nel database **solo l'hash** — se il database venisse
+letto da chi non deve, le sessioni attive non sarebbero dirottabili. `disabled_at` si
+ricontrolla a ogni richiesta, così una disattivazione ha effetto subito e non alla scadenza
+del cookie. Il cookie è `HttpOnly`, `SameSite=strict` e `Secure` per default: **senza HTTPS
+non si entra**, che è il comportamento voluto. Per provare in locale su HTTP serve
+`TSM_COOKIE_SECURE=false` — il default sicuro sta dalla parte giusta.
+
+Password provvisoria: `/api/auth/me` risponde (il client deve poter sapere che serve il
+cambio), tutto il resto risponde `403 password_change_required` (§8.1).
+
+### 8.21 Mappa degli errori
+
+| Errore di dominio | HTTP |
+|---|---|
+| sessione assente o non valida, credenziali errate | `401` |
+| politica: evento non consentito al ruolo; password provvisoria | `403` |
+| `baseVersion` superato con contenuto diverso; già inizializzato | `409` |
+| documento oltre il limite; richiesta oltre il limite | `413` |
+| schema del documento, identità, contratto | `422` |
+| inventario non inizializzato, guasto non previsto | `503` |
+
+Nessuna risposta contiene traceback, testo di errori SQL o il **contenuto** del documento
+rifiutato: il documento può portare l'inventario di un cliente. Dei dettagli esce solo la
+parte strutturale — codice, percorso, entità, evento, ambito, ruolo richiesto — e il resto
+resta nei log, dove serve a chi opera e non a chi sonda. Un test verifica che le risposte non
+contengano `traceback`, `psycopg`, `select `, `sqlalchemy` o percorsi del filesystem.
+
+Credenziali errate e utenza inesistente danno lo **stesso** codice: distinguerli direbbe a chi
+prova quali utenze esistono. Si verifica una password anche quando l'utenza non esiste, per
+non rendere l'esistenza deducibile dal tempo di risposta.
+
+### 8.22 Contratto HTTP congelato
+
+```
+GET  /api/inventory  → { version, schemaVersion, sha256, doc }
+PUT  /api/inventory  ← { baseVersion, doc, action? }        action: ≤ 500 caratteri
+                     → { version, schemaVersion, sha256, changed }
+                       409 → { code: "version_conflict", currentVersion, currentSha256 }
+```
+
+`changed=true` per una modifica applicata, `changed=false` per un no-op canonico o per un
+replay idempotente (§8.18). `action` è testo di visualizzazione non attendibile: il contratto
+lo rifiuta oltre la lunghezza invece di troncarlo in silenzio, e ciò che è cambiato lo dice
+`audit.events`, calcolato dal server (§8.9).
+
+`Cache-Control: no-store` su tutte le risposte dell'inventario, comprese quelle di errore.
+
+Un test asserisce l'**intera** superficie dell'API — sette percorsi — così una rotta comparsa
+per distrazione fa fallire la suite. Nota di implementazione: in questa versione di FastAPI
+`app.routes` contiene wrapper dei router inclusi e non espone `path`; la superficie stabile su
+cui asserire è `app.openapi()`, che è anche quella che descrive il contratto.
+
+### 8.23 Readiness: tre condizioni
+
+Da quando le rotte dell'inventario esistono, «pronto» vuol dire tre cose insieme: database
+raggiungibile, migrazioni **alla revisione attesa**, e testa dell'inventario presente. Una
+istanza che rispondesse `200` con lo schema vecchio o senza inventario manderebbe in errore
+ogni richiesta, e sarebbe un guasto molto più difficile da diagnosticare di un `503` sincero.
+La risposta dice quale delle tre manca.
+
+La revisione attesa si ricava dai file di migrazione, non da una costante scritta a mano: una
+costante si dimentica di aggiornare, e allora la readiness direbbe «pronto» con lo schema
+sbagliato — cioè esattamente il caso che deve segnalare.
+
+⚠ **L'healthcheck di Compose usa `/api/health`, non `/api/ready`.** L'healthcheck di Docker
+decide riavvii e ordine di avvio: legarlo alla readiness significherebbe che un'installazione
+nuova resta `unhealthy` — e il web non parte — fino al bootstrap, che è un passo operativo
+separato. La readiness è per il bilanciatore e per lo smoke test.
+
+### 8.24 Limiti di dimensione a due livelli
+
+`client_max_body_size 5m` in nginx e un middleware nell'applicazione che rifiuta su
+`Content-Length`. Due livelli perché il primo vale solo per chi passa dal proxy, e il secondo
+è proprio lo scenario in cui il primo non aiuta. Il terzo controllo è la validazione del
+documento (§8.16), che risponde `413` per un documento oltre soglia anche in `chunked`, dove
+`Content-Length` non c'è.
+
 ## 9. Ordine di lavoro proposto
 
 1. ~~Vendorizzare React → l'app parte in rete chiusa~~ ✔ **fatto** (§5)
@@ -1345,16 +1512,22 @@ anche quando esiste una versione più alta inserita fuori banda.
 4-bis. ~~**Default canonici** (§8.14), **`schemaVersion`** (§8.13) e **politica di
    autorizzazione** pura sugli eventi (§8.15), con fixture e test~~ ✔ **fatto** —
    `backend/app/identity/{canonical,schema}.py`, `backend/app/authz/`, `fixtures/policy/`
-5. Auth: users con `disabled_at` (§8.6), sessioni, login, cambio password provvisoria,
-   rimozione del bypass client
+5. ~~Auth: users con `disabled_at` (§8.6), sessioni, login, cambio password provvisoria~~
+   ✔ **fatto** — `backend/app/auth/`, migrazione `0004_users_sessions`. Resta la gestione
+   utenze da parte degli admin (creazione, disattivazione, riattivazione via API).
 5-bis. ~~**Schema congelato del documento** (§8.16), **eventi non supportati** distinti da
    quelli ristretti (§8.15), **repository atomico** e migrazione Alembic (§8.17), con test di
    integrazione su Postgres reale~~ ✔ **fatto** — `backend/app/inventory/`,
    `migrations/versions/0002_inventory.py`, `backend/tests/test_repository_pg.py`.
    Senza rotte HTTP: le espone il punto 6.
-6. `GET`/`PUT /api/inventory` sopra il repository: rotte, serializzazione degli errori
-   (409/403/422), e importer da `inventario.js` verso `bootstrap(from_legacy=True)`
-   (l'unico percorso autorizzato a fare backfill, §8.4)
+6. ~~`GET`/`PUT /api/inventory`: contratto congelato (§8.22), mappa degli errori (§8.21),
+   attore obbligatorio (§8.20), no-store e limiti di dimensione (§8.24), readiness a tre
+   condizioni (§8.23), append-only dai privilegi (§8.19), bootstrap come CLI~~
+   ✔ **fatto** — `backend/app/api/`, `backend/scripts/`, `web/`, `0003_runtime_role`
+6-bis. Rimozione del bypass client in `_doLogin` e aggancio del frontend all'API: è il passo
+   che rende i dati durevoli per l'utente.
+6-ter. **TLS davanti a nginx.** Il cookie di sessione è `Secure`, quindi senza HTTPS non si
+   entra: è l'ultimo pezzo mancante prima di un uso reale.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

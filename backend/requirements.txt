@@ -1,8 +1,5 @@
-# Runtime dell'API. Versioni pinnate: in rete chiusa il build deve essere riproducibile
+﻿# Runtime dell'API. Versioni pinnate: in rete chiusa il build deve essere riproducibile
 # e non c'è modo di recuperare "quella che funzionava" (BACKEND-PLAN.md §6).
-#
-# Scheletro: solo quello che serve a stare in piedi e a rispondere a /api/health e
-# /api/ready. Niente auth, niente diff, niente persistenza dell'inventario.
 #
 # Verificate su PyPI il 2026-08-04. Da rigenerare con hash (`pip-compile --generate-hashes`)
 # prima del primo deploy in rete chiusa: il pinning per versione non protegge da una
@@ -13,3 +10,4 @@ sqlalchemy==2.0.51
 psycopg[binary]==3.3.4
 alembic==1.18.5
 pydantic-settings==2.14.2
+argon2-cffi==25.1.0

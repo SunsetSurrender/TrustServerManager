@@ -21,8 +21,13 @@ volumes:
   pgdata: {}
 
 secrets:
+  # Proprietario dello schema: migrazioni, DDL, bootstrap.
   postgres_password:
     file: ./secrets/postgres_password
+  # Ruolo di runtime `tsm_api`: solo SELECT/INSERT sulla storia, SELECT/UPDATE
+  # sulla testa. L'append-only è imposto dai privilegi, non dal codice (§8.19).
+  api_db_password:
+    file: ./secrets/api_db_password
 
 services:
   db:
@@ -57,14 +62,18 @@ services:
   migrate:
     build:
       context: ./backend
-    image: tsm-api:0.1.0
-    command: ["alembic", "upgrade", "head"]
+    image: tsm-api:0.2.0
+    # Applica le migrazioni E imposta la password del ruolo di runtime leggendola
+    # dal secret: una password non può stare in una migrazione, che finisce nel
+    # repository e nell'immagine.
+    command: ["python", "scripts/migrate.py"]
     networks: [internal]
     depends_on:
       db:
         condition: service_healthy
     secrets:
       - postgres_password
+      - api_db_password
     environment:
       TSM_DB_HOST: db
     read_only: true
@@ -76,10 +85,10 @@ services:
   api:
     build:
       context: ./backend
-    image: tsm-api:0.1.0
+    image: tsm-api:0.2.0
     networks: [internal, edge]
     ports:
-      # Solo loopback: in produzione ci parlerà nginx, non l'esterno.
+      # Solo loopback: in produzione ci parla nginx, non l'esterno.
       - "127.0.0.1:8000:8000"
     depends_on:
       db:
@@ -87,12 +96,34 @@ services:
       migrate:
         condition: service_completed_successfully
     secrets:
-      - postgres_password
+      # NON `postgres_password`: l'API non ha bisogno del proprietario dello
+      # schema, e non averne la password è metà della difesa.
+      - api_db_password
     environment:
       TSM_DB_HOST: db
+      # Ruolo di runtime, non proprietario: non può aggiornare o cancellare la
+      # storia, né inserire la riga di testa (§8.19).
+      TSM_DB_USER: tsm_api
+      TSM_DB_PASSWORD_FILE: /run/secrets/api_db_password
+      # Il cookie di sessione è Secure per default: su HTTP il browser non lo
+      # invia, quindi senza TLS non si entra — che è il comportamento voluto.
+      # Per provare in locale su http://localhost:8080:
+      #     TSM_COOKIE_SECURE=false docker compose up -d
+      # Il default resta `true`: dimenticarsi di impostarlo in produzione non
+      # apre un buco.
+      TSM_COOKIE_SECURE: ${TSM_COOKIE_SECURE:-true}
     healthcheck:
-      # urllib solleva su 503, quindi exit != 0 => unhealthy. Nessun curl:
-      # non è presente in python:slim e non vale la pena aggiungerlo.
+      # LIVENESS, non readiness. L'healthcheck di Docker decide riavvii e ordine
+      # di avvio: legarlo a /api/ready significherebbe che un'installazione nuova
+      # resta "unhealthy" — e il web non parte — fino al bootstrap dell'inventario,
+      # che è un passo operativo separato (§8.17).
+      #
+      # /api/ready resta l'endpoint per il bilanciatore e per lo smoke test: è
+      # quello che pretende database, migrazioni al livello atteso e testa
+      # dell'inventario presente (§8.23).
+      #
+      # urllib solleva su stato != 200, quindi exit != 0 => unhealthy. Nessun
+      # curl: non è in python:slim e non vale la pena aggiungerlo.
       test:
         - CMD
         - python
@@ -100,7 +131,7 @@ services:
         - |
           import sys, urllib.request
           try:
-              sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8000/api/ready", timeout=3).status == 200 else 1)
+              sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=3).status == 200 else 1)
           except Exception:
               sys.exit(1)
       interval: 10s
@@ -109,6 +140,31 @@ services:
       start_period: 20s
     read_only: true
     tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: ./web/Dockerfile
+    image: tsm-web:0.2.0
+    networks: [internal, edge]
+    ports:
+      # Solo loopback anche qui: davanti va il TLS dell'infrastruttura, che è il
+      # passo che resta prima della produzione (il cookie di sessione è Secure).
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    tmpfs: ["/tmp", "/var/cache/nginx"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped

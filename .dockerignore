@@ -1,0 +1,33 @@
+# Il contesto di build dell'immagine web è la radice del repository (serve
+# handoff/). Senza questo file il daemon riceverebbe anche i SECRET, che non
+# devono nemmeno entrare nel contesto — non solo non finire nell'immagine.
+secrets/
+!secrets/*.example
+
+.git/
+.gitignore
+.dockerignore
+
+# Non servono all'immagine web
+backend/
+tools/
+fixtures/
+BACKEND-PLAN.md
+compose.yaml
+
+# Artefatti locali
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.identity-ui-tmp/
+.xlsx-roundtrip-tmp/
+
+# Esclusi dall'allowlist dei file statici (§6): elencati qui perché non
+# raggiungano nemmeno il contesto di build.
+handoff/Sale Server Pomezia (standalone).html
+handoff/inventario.js
+handoff/README.md
+handoff/vendor/README.md
+handoff/vendor/SHA256SUMS

@@ -362,8 +362,14 @@ def test_client_hint_is_length_limited(repo, conn, bootstrapped):
 
 def test_actor_snapshot_is_stored_not_referenced(repo, conn, bootstrapped):
     """username e ruolo sono istantanee: l'audit deve dire chi era quella persona
-    allora, anche dopo una disattivazione o un cambio di ruolo (§8.6)."""
-    uid = uuid.uuid4()
+    allora, anche dopo una disattivazione o un cambio di ruolo (§8.6).
+
+    L'utenza va creata davvero: da 0004 `audit.actor_user_id` ha una foreign key
+    verso `users`, che è il punto — l'identificativo è un riferimento reale,
+    mentre username e ruolo sono copie."""
+    from app.auth.service import create_user
+    uid = create_user(conn, "mario.rossi", "password-lunga-x", "admin",
+                      must_change_pw=False)
     actor = Actor(username="mario.rossi", role="admin", user_id=uid)
     doc = clone(base_doc())
     doc["locations"][0]["sale"][0]["racks"][0]["id"] = "R01-bis"
@@ -536,15 +542,29 @@ def test_current_read_uses_head_not_max_version(engine):
         assert c.execute(text("SELECT max(version) FROM inventory_versions")).scalar() > v1
 
 
-def test_canonical_sha_is_stable_and_ignores_uids():
+def test_canonical_sha_includes_identity():
+    """L'hash DEVE distinguere una sostituzione di identità.
+
+    Da quando il confronto di hash precede quello del baseVersion (§8.18), è
+    l'hash a decidere se una richiesta è già stata soddisfatta. Se ignorasse gli
+    `_uid`, sostituire l'identità di un dispositivo lasciando il resto invariato
+    darebbe lo stesso digest della testa e verrebbe accettato come no-op — cioè
+    esattamente ciò che §8.4 esiste per rifiutare.
+    """
     a = base_doc()
     b = clone(a)
     b["locations"][0]["sale"][0]["racks"][0]["devices"][0]["_uid"] = str(uuid.uuid4())
-    assert canonical_sha256(a) == canonical_sha256(b)
+    assert canonical_sha256(a) != canonical_sha256(b)
 
     c = clone(a)
     c["locations"][0]["sale"][0]["racks"][0]["devices"][0]["model"] = "M"
     assert canonical_sha256(a) != canonical_sha256(c)
+
+    # ...ma resta insensibile ai default espliciti e all'ordine delle chiavi
+    d = clone(a)
+    for dev in d["locations"][0]["sale"][0]["racks"][0]["devices"]:
+        dev.update({"stato": "attivo", "h": 1, "type": "altro"})
+    assert canonical_sha256(a) == canonical_sha256(d)
 
 
 def test_canonical_sha_recorded_matches_recomputed(repo, conn, bootstrapped):

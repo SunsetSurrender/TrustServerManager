@@ -30,6 +30,9 @@ COPY --from=builder /install /usr/local
 WORKDIR /app
 COPY --chown=root:root app ./app
 COPY --chown=root:root migrations ./migrations
+# scripts/: migrazioni + provisioning del ruolo di runtime, e il bootstrap
+# dell'inventario, che è una CLI e NON una rotta (§8.17).
+COPY --chown=root:root scripts ./scripts
 COPY --chown=root:root alembic.ini ./alembic.ini
 
 # Il codice resta di root e in sola lettura per l'utente che esegue: il processo non

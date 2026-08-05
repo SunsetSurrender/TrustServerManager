@@ -79,7 +79,7 @@ for line in compose("ps", "--format", "json").stdout.strip().splitlines():
         except json.JSONDecodeError:
             pass
 
-for svc in ("db", "api"):
+for svc in ("db", "api", "web"):
     row = services.get(svc, {})
     health = row.get("Health") or ""
     check(f"{svc}: healthcheck Compose = healthy", health == "healthy",
@@ -181,6 +181,28 @@ if listener:
 else:
     notes.append(f"127.0.0.1:{PG_PORT} non è in ascolto sull'host.")
 
+# ---- 5-bis. append-only imposto dai privilegi (§8.19) -------------------
+priv = exec_in("db", "psql", "-U", "tsm", "-d", "tsm", "-tAc", """
+    SELECT
+      has_table_privilege('tsm_api','inventory_versions','INSERT'),
+      has_table_privilege('tsm_api','inventory_versions','UPDATE'),
+      has_table_privilege('tsm_api','inventory_versions','DELETE'),
+      has_table_privilege('tsm_api','audit','INSERT'),
+      has_table_privilege('tsm_api','audit','UPDATE'),
+      has_table_privilege('tsm_api','audit','DELETE'),
+      has_table_privilege('tsm_api','inventory_head','UPDATE'),
+      has_table_privilege('tsm_api','inventory_head','INSERT')
+""").stdout.strip()
+flags = priv.split("|") if priv else []
+expected = [("versions INSERT", "t"), ("versions UPDATE", "f"), ("versions DELETE", "f"),
+            ("audit INSERT", "t"), ("audit UPDATE", "f"), ("audit DELETE", "f"),
+            ("head UPDATE", "t"), ("head INSERT", "f")]
+if len(flags) != len(expected):
+    check("privilegi del ruolo di runtime leggibili", False, f"psql: {priv!r}")
+else:
+    for (name, want), got in zip(expected, flags):
+        check(f"tsm_api: {name} = {want}", got == want, f"trovato {got!r}")
+
 # ---- 6. non-root --------------------------------------------------------
 uid = exec_in("api", "id", "-u").stdout.strip()
 check("api: gira non-root", uid.isdigit() and uid != "0", f"uid={uid!r}")
@@ -194,15 +216,59 @@ check("db: il processo del server è non-root", pg_user not in ("", "root"),
 
 # ---- 7. secret e filesystem --------------------------------------------
 r = exec_in("api", "sh", "-c",
-            "test -r /run/secrets/postgres_password && echo READABLE || echo UNREADABLE")
-check("api: il secret è leggibile", "READABLE" in r.stdout, r.stdout.strip())
+            "test -r /run/secrets/api_db_password && echo READABLE || echo UNREADABLE")
+check("api: il secret del ruolo di runtime è leggibile", "READABLE" in r.stdout, r.stdout.strip())
 
 r = exec_in("api", "sh", "-c",
-            "echo x >> /run/secrets/postgres_password 2>&1 && echo WRITABLE || echo READONLY")
+            "echo x >> /run/secrets/api_db_password 2>&1 && echo WRITABLE || echo READONLY")
 check("api: il secret NON è scrivibile", "READONLY" in r.stdout, r.stdout.strip()[:120])
+
+# Least privilege: l'API non deve nemmeno avere la password del proprietario.
+r = exec_in("api", "sh", "-c",
+            "test -e /run/secrets/postgres_password && echo PRESENTE || echo ASSENTE")
+check("api: NON ha la password del proprietario dello schema",
+      "ASSENTE" in r.stdout, r.stdout.strip())
 
 r = exec_in("api", "sh", "-c", "touch /app/prova 2>&1 && echo WRITABLE || echo READONLY")
 check("api: filesystem read-only", "READONLY" in r.stdout, r.stdout.strip()[:120])
+
+# ---- 8. web: allowlist dei file statici (§6) ----------------------------
+WEB = "http://127.0.0.1:8080"
+
+
+def web_get(path: str) -> int:
+    try:
+        with urllib.request.urlopen(f"{WEB}{path}", timeout=10) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
+
+
+check("web: la pagina applicativa è servita", web_get("/") == 200, str(web_get("/")))
+check("web: React vendorizzato servito",
+      web_get("/vendor/react.production.min.js") == 200)
+check("web: note di licenza servite",
+      web_get("/vendor/THIRD-PARTY-NOTICES.md") == 200)
+# Ciò che conta è che NON venga servito: nginx risponde 404 per un percorso fuori
+# allowlist e 400 per un path traversal malformato, che è un rifiuto più netto.
+for blocked in ("/inventario.js", "/README.md", "/vendor/SHA256SUMS",
+                "/Sale%20Server%20Pomezia%20(standalone).html", "/../compose.yaml"):
+    code = web_get(blocked)
+    check(f"web: {blocked} NON servito", code not in (200, 301, 302), f"HTTP {code}")
+
+check("web: proxy dell'API attivo", web_get("/api/health") == 200)
+
+# L'inventario non finisce in cache da nessuna parte.
+try:
+    urllib.request.urlopen(f"{WEB}/api/inventory", timeout=10)
+    cc = ""
+except urllib.error.HTTPError as e:
+    cc = e.headers.get("Cache-Control", "")
+except Exception:
+    cc = ""
+check("web: no-store propagato sull'inventario", cc == "no-store", f"Cache-Control={cc!r}")
 
 # ---- report ------------------------------------------------------------
 print("=" * 74)

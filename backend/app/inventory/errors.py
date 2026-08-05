@@ -34,15 +34,23 @@ class AlreadyBootstrappedError(InventoryError):
 
 
 class VersionConflictError(InventoryError):
-    """`baseVersion` non è più la testa: qualcun altro ha scritto (§8.11)."""
+    """`baseVersion` non è più la testa E il contenuto è diverso (§8.11, §8.18).
+
+    Porta `currentSha256` perché il client possa decidere senza un secondo giro:
+    confrontando l'hash con quello del documento che ha in mano capisce se la
+    versione in testa è già quella che voleva scrivere.
+    """
     code = "version_conflict"
 
-    def __init__(self, base_version: Any, current_version: Any):
+    def __init__(self, base_version: Any, current_version: Any,
+                 current_sha256: str | None = None):
         super().__init__(
             f"baseVersion {base_version} non è più la versione corrente ({current_version})",
-            {"baseVersion": base_version, "currentVersion": current_version})
+            {"baseVersion": base_version, "currentVersion": current_version,
+             "currentSha256": current_sha256})
         self.base_version = base_version
         self.current_version = current_version
+        self.current_sha256 = current_sha256
 
 
 class DocumentRejectedError(InventoryError):

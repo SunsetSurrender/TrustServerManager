@@ -161,10 +161,18 @@ services:
     image: tsm-web:0.2.0
     networks: [internal, edge]
     ports:
-      # 8080 reindirizza a HTTPS; 8443 è il servizio. Solo loopback: davanti c'è
-      # l'ingress dell'infrastruttura.
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8443:8443"
+      # PORTE STANDARD sull'host: 80 e 443. Non è estetica (§8.31).
+      #
+      # HSTS si applica all'HOST e conserva la porta esplicita della richiesta.
+      # Esponendo http://host:8080, un browser che ha già visto HSTS
+      # trasformerebbe quella URL in https://host:8080 — dove nginx parla in
+      # chiaro: il reindirizzamento verrebbe scavalcato e la richiesta fallirebbe
+      # in modo incomprensibile.
+      #
+      # Dentro il container nginx resta su 8080/8443 perché gira come uid 101 e un
+      # processo non-root non può aprire porte sotto 1024. Il mapping fa il resto.
+      - "80:8080"
+      - "443:8443"
     volumes:
       # Certificato e chiave. In produzione qui va il certificato aziendale; per
       # lo sviluppo `tools/make-dev-tls.ps1` ne genera uno autofirmato.

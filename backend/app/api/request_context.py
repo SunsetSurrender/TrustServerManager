@@ -63,6 +63,32 @@ def client_ip(request: Request) -> str | None:
     return safe_ip(peer)
 
 
+def _self_origin(request: Request) -> str:
+    """L'origine con cui il CLIENT ci ha raggiunti, non quella dell'ultimo salto.
+
+    Dietro un proxy che termina TLS, `request.url.scheme` è `http`: è lo schema
+    della connessione fra nginx e l'API, non quello del browser. Confrontare
+    `Origin: https://host` con quello produce un rifiuto su ogni richiesta che
+    modifica stato — bug reale, trovato dal test end-to-end attraverso nginx e
+    invisibile chiamando l'API direttamente.
+
+    Lo schema vero lo dichiara `X-Forwarded-Proto`, ma **solo se il peer è il
+    nostro proxy**: altrimenti sarebbe il client a decidere da quale origine
+    sembra arrivare, e il controllo non varrebbe niente.
+    """
+    scheme = request.url.scheme
+    host = request.headers.get("host", "")
+    peer = request.client.host if request.client else None
+    if _peer_is_trusted(peer):
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        if forwarded_proto:
+            scheme = forwarded_proto.split(",")[0].strip()
+        forwarded_host = request.headers.get("x-forwarded-host")
+        if forwarded_host:
+            host = forwarded_host.split(",")[0].strip()
+    return f"{scheme}://{host}".rstrip("/")
+
+
 def origin_is_acceptable(request: Request) -> tuple[bool, str]:
     """L'origine della richiesta è la nostra? Restituisce (ok, motivo).
 
@@ -90,11 +116,10 @@ def origin_is_acceptable(request: Request) -> tuple[bool, str]:
 
     if origin:
         if not allowed:
-            # Nessuna origine configurata: si accetta solo l'origine che il
-            # servizio stesso ha visto nella richiesta (Host), invece di
-            # accettare qualsiasi cosa.
-            expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
-            return (origin.rstrip("/") == expected.rstrip("/"),
+            # Nessuna origine configurata: si accetta solo l'origine con cui il
+            # client ci ha raggiunti, invece di accettare qualsiasi cosa.
+            expected = _self_origin(request)
+            return (origin.rstrip("/") == expected,
                     f"Origin {origin!r} non combacia con {expected!r}")
         return (origin.rstrip("/") in allowed,
                 f"Origin {origin!r} non è fra le origini consentite")
@@ -107,7 +132,7 @@ def origin_is_acceptable(request: Request) -> tuple[bool, str]:
             if referer.startswith(candidate + "/") or referer.rstrip("/") == candidate:
                 return True, ""
         if not allowed:
-            expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
+            expected = _self_origin(request)
             return (referer.startswith(expected),
                     f"Referer {referer!r} non combacia con {expected!r}")
         return False, f"Referer {referer!r} non è fra le origini consentite"

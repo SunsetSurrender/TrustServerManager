@@ -427,7 +427,7 @@ def test_temporary_password_blocks_writes_but_allows_me(real_auth_client, head_v
     # l'inventario no
     r = real_auth_client.get("/api/inventory")
     assert r.status_code == 403
-    assert r.json()["detail"]["code"] == "PASSWORD_CHANGE_REQUIRED"
+    assert r.json()["detail"]["code"] == "password_change_required"
 
 
 def test_logout_revokes_the_session(real_auth_client, head_version):

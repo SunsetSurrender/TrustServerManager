@@ -33,8 +33,9 @@ SESSION_COOKIE = "tsm_session"
 
 NO_STORE = {"Cache-Control": "no-store"}
 
-#: Codice sul filo, in maiuscolo come da contratto (§8.26).
-PASSWORD_CHANGE_REQUIRED = "PASSWORD_CHANGE_REQUIRED"
+#: Codice sul filo. Tutti i codici di errore sono snake_case minuscolo:
+#: un vocabolario con due convenzioni si sbaglia a scrivere (§8.21).
+PASSWORD_CHANGE_REQUIRED = "password_change_required"
 
 
 def get_connection() -> Iterator[Connection]:

@@ -117,7 +117,7 @@ def test_restricted_session_can_reach_exactly_three_endpoints(client):
         fn = getattr(client, method)
         r = fn(path, headers=ORIGIN, **({"json": payload} if payload else {}))
         assert r.status_code == 403, (path, r.status_code)
-        assert r.json()["detail"]["code"] == "PASSWORD_CHANGE_REQUIRED", path
+        assert r.json()["detail"]["code"] == "password_change_required", path
 
 
 def test_restricted_session_can_change_password_and_logout(client):
@@ -211,7 +211,7 @@ def test_setting_must_change_pw_restricts_an_open_session(client, engine):
         c.execute(text("UPDATE users SET must_change_pw = TRUE WHERE username = 'op'"))
     r = client.get("/api/inventory")
     assert r.status_code == 403
-    assert r.json()["detail"]["code"] == "PASSWORD_CHANGE_REQUIRED"
+    assert r.json()["detail"]["code"] == "password_change_required"
     assert client.get("/api/auth/me").json()["mustChangePassword"] is True
 
 

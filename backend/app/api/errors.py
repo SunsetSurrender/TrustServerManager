@@ -21,6 +21,7 @@ from app.auth.service import (
     InvalidCredentials,
     NotAuthenticated,
     PasswordChangeRequired,
+    RateLimiterUnavailable,
     TooManyAttempts,
 )
 from app.auth.users import (
@@ -69,6 +70,15 @@ def http_error_for(exc: Exception) -> HTTPException:
         return HTTPException(status.HTTP_401_UNAUTHORIZED,
                              detail={"code": exc.code,
                                      "message": "autenticazione richiesta"},
+                             headers=NO_STORE)
+
+    # --- 503: limitatore non utilizzabile → si fallisce CHIUSO (§8.32) ---
+    if isinstance(exc, RateLimiterUnavailable):
+        log.error("limitatore dei tentativi non utilizzabile: accesso negato")
+        return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                             detail={"code": exc.code,
+                                     "message": "servizio di autenticazione "
+                                                "temporaneamente non disponibile"},
                              headers=NO_STORE)
 
     # --- 429: limitatore dei tentativi di accesso (§8.28) ---

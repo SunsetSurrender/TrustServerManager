@@ -23,6 +23,12 @@ services:
   web:
     # In sviluppo il TLS è inutile: nginx serve in chiaro su 8080 e non
     # reindirizza, così si può provare senza generare certificati.
+    #
+    # Porte NON standard, e va bene: la configurazione di sviluppo non manda HSTS,
+    # quindi non c'è il problema di §8.31. Sono anche le porte che si possono
+    # aprire senza privilegi su una macchina di sviluppo.
+    ports: !override
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./web/nginx.dev.conf:/etc/nginx/nginx.conf:ro
     healthcheck:

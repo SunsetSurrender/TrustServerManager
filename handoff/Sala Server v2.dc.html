@@ -47,6 +47,29 @@
 <div class="{{ themeClass }}" style="display:flex; flex-direction:column; height:100vh; font-family:'Public Sans',Helvetica,sans-serif; color:var(--dd7dde4); background:var(--d0c0f13); overflow:hidden">
 
   <!-- Login -->
+  <!-- Avvio: si interroga /api/auth/me prima di qualunque dato (§8.1) -->
+  <sc-if value="{{ booting }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed; inset:0; z-index:210; background:#0c0f13; display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif; color:#8a94a2; font-size:13px">Verifica della sessione…</div>
+  </sc-if>
+
+  <!-- Password provvisoria: la sessione è valida ma ristretta (§8.26) -->
+  <sc-if value="{{ mustChangePw }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed; inset:0; z-index:205; background:linear-gradient(150deg, #0c0f13 0%, #10141a 55%, #1a0e0e 100%); display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif">
+      <div style="width:380px; background:#12161c; border:1px solid #2b333d; border-radius:14px; padding:34px 32px; display:flex; flex-direction:column; gap:12px; box-shadow:0 24px 64px rgba(0,0,0,0.6)">
+        <img src="trust-logo-dark.png" alt="Trust Technologies" style="height:24px; align-self:center; display:block">
+        <div style="text-align:center; font-size:14.5px; font-weight:700; color:#e6ecf2">Imposta una password personale</div>
+        <div style="font-size:12px; color:#8a94a2; line-height:1.5">La password attuale è provvisoria. Fino al cambio, la sessione può fare solo questo.</div>
+        <input placeholder="password attuale" type="password" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <input placeholder="nuova password (min. 10 caratteri)" type="password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <sc-if value="{{ hasPwMsg }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:12px; color:#ffb020">{{ pwMsg }}</div>
+        </sc-if>
+        <button onClick="{{ savePw }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit">Cambia password</button>
+        <button onClick="{{ logout }}" style="background:transparent; color:#8a94a2; border:1px solid #2b333d; border-radius:6px; padding:9px 0; font-size:12.5px; cursor:pointer; font-family:inherit">Esci</button>
+      </div>
+    </div>
+  </sc-if>
+
   <sc-if value="{{ loggedOut }}" hint-placeholder-val="{{ false }}">
     <div style="position:fixed; inset:0; z-index:200; background:linear-gradient(150deg, #0c0f13 0%, #10141a 55%, #1a0e0e 100%); display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif">
       <div style="width:360px; background:#12161c; border:1px solid #2b333d; border-radius:14px; padding:36px 32px; display:flex; flex-direction:column; gap:14px; box-shadow:0 24px 64px rgba(0,0,0,0.6)">
@@ -60,8 +83,11 @@
         <sc-if value="{{ hasLoginErr }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:12px; color:#ff5c5c">{{ loginErr }}</div>
         </sc-if>
+        <sc-if value="{{ hasBootError }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:12px; color:#ffb020; line-height:1.5">{{ bootError }}</div>
+        </sc-if>
         <button onClick="{{ doLogin }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit; letter-spacing:0.02em" style-hover="filter:brightness(1.12)">Accedi</button>
-        <div style="font-size:10.5px; color:#57626f; text-align:center; line-height:1.5">Prototipo: il privilegio è assegnato in base all'elenco utenze (menu Profilo). L'autenticazione reale arriverà con il backend.</div>
+        <div style="font-size:10.5px; color:#57626f; text-align:center; line-height:1.5">Il privilegio è assegnato dal server in base all'utenza. Le credenziali non vengono mai verificate nel browser.</div>
       </div>
     </div>
   </sc-if>
@@ -188,6 +214,15 @@
         </div>
         <button onClick="{{ toggleProfile }}" title="{{ profileTip }}" style="{{ profileBtnStyle }}" style-hover="filter:brightness(1.15)">{{ userInitials }}</button>
         <div style="position:relative; flex-shrink:0">
+          <!-- Stato del salvataggio: "salvato" appare SOLO dopo la conferma del
+               server. Prima di quella non si può affermare che i dati esistano. -->
+          <sc-if value="{{ saving }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size:11px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace; white-space:nowrap; flex-shrink:0">salvataggio…</span>
+          </sc-if>
+          <sc-if value="{{ hasSaveError }}" hint-placeholder-val="{{ false }}">
+            <span title="{{ saveError }}" style="font-size:11px; color:#ff5c5c; font-family:'Roboto Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:320px; flex-shrink:1">{{ saveError }}</span>
+          </sc-if>
+          <span style="font-size:10.5px; color:var(--d57626f); font-family:'Roboto Mono',monospace; white-space:nowrap; flex-shrink:0">{{ serverVersionLabel }}</span>
           <button onClick="{{ toggleAccount }}" style="background:var(--d161b22); color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:8px; padding:7px 14px; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0" style-hover="color:var(--accent); border-color:var(--d2c4a45)">⚙ Impostazioni</button>
           <sc-if value="{{ accountOpen }}" hint-placeholder-val="{{ false }}">
             <div class="pop-in" style="position:absolute; top:calc(100% + 6px); right:0; width:300px; max-height:calc(100vh - 240px); overflow-y:auto; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; box-shadow:0 12px 32px var(--sh55); z-index:60; padding:14px 16px; display:flex; flex-direction:column; gap:16px">
@@ -1006,6 +1041,10 @@
 // costruiti da zero, altrimenti si perde l'_uid. Vedi BACKEND-PLAN.md §8.4.
 let IDENT = null;
 
+// Client HTTP (handoff/api.js). URL sempre relative: l'app è servita dallo stesso
+// nginx che fa da proxy all'API (§8.33).
+let API = null;
+
 /** Identità per una entità nuova. Solleva se il modulo non è pronto: meglio un
  *  errore visibile che un'entità senza identità salvata di nascosto. */
 const newUid = () => {
@@ -1021,7 +1060,7 @@ const preserveIdentity = (original, patch) => {
 };
 
 class Component extends DCLogic {
-  state = { data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
+  state = { booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
 
   static ipToNum(ip) {
     const m = String(ip || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -1139,33 +1178,148 @@ class Component extends DCLogic {
 
   componentDidUpdate() { this._syncTheme(); }
 
-  componentDidMount() {
-    this._syncTheme();
-    // identity.js prima dei dati: i percorsi di creazione/modifica ne dipendono e
-    // l'app non deve poter accettare un documento senza identità (§8.4 del piano).
-    Promise.all([import('./identity.js'), import('./inventario.js')]).then(([ident, mod]) => {
-      IDENT = ident;
-      const data = JSON.parse(JSON.stringify(mod.DATI));
-      // Il seed è già migrato (tools/migrate-seed-uids.mjs). Se qui mancano identità
-      // il file è vecchio: si segnala e NON si genera nulla a runtime — il backfill
-      // è solo dello script di migrazione.
-      const seedErrors = ident.validateDocument(data);
-      if (seedErrors.length) {
-        console.error('[identity] seed senza identità valide:', seedErrors);
-        alert('Dati di partenza senza identità valide (' + seedErrors.length + ' problemi).\n'
-            + 'Eseguire tools/migrate-seed-uids.mjs. Nessuna identità viene generata a runtime.');
+  // ---- avvio: /api/auth/me PRIMA dell'inventario (§8.1) ----
+  //
+  // L'ordine è la sostanza. Nel prototipo il login era un cancello disegnato
+  // sopra dati già caricati: qui l'inventario si chiede solo dopo aver saputo
+  // di essere autenticati senza restrizioni, altrimenti si chiederebbe al
+  // server qualcosa che ci rifiuterà — e per un istante l'interfaccia
+  // mostrerebbe una schermata vuota invece del login.
+  async _boot() {
+    const [ident, api] = await Promise.all([
+      import('./identity.js'),
+      import('./api.js'),
+    ]);
+    IDENT = ident;
+    API = api;
+    this._writer = new api.InventoryWriter({
+      onSaved: (version, sha, changed) => this._onSaved(version, sha, changed),
+      onConflict: (currentVersion) => this._onConflict(currentVersion),
+      onError: (err) => this._onSaveError(err),
+      onPendingChange: (pending) => this.setState({ saving: pending }),
+    });
+
+    // Avvisa se si chiude con modifiche non confermate dal server.
+    this._onBeforeUnload = (e) => {
+      if (this._writer && this._writer.hasWorkOutstanding()) {
+        e.preventDefault();
+        e.returnValue = '';
       }
+    };
+    window.addEventListener('beforeunload', this._onBeforeUnload);
+
+    await this._refreshSession();
+  }
+
+  /** Chiede chi siamo e decide cosa mostrare. Nessun dato prima di saperlo. */
+  async _refreshSession() {
+    try {
+      const me = await API.getMe();
+      if (me.mustChangePassword) {
+        // Sessione valida ma ristretta: si mostra SOLO il cambio password.
+        this.setState({ session: me, mustChangePw: true, data: null,
+                        bootError: '', booted: true });
+        return;
+      }
+      this.setState({ session: me, mustChangePw: false, bootError: '' });
+      await this._loadInventory();
+    } catch (err) {
+      if (err instanceof API.ApiError && err.status === 401) {
+        this.setState({ session: null, mustChangePw: false, data: null,
+                        bootError: '', booted: true });
+        return;
+      }
+      const d = API.describeError(err);
+      this.setState({ session: null, data: null, booted: true,
+                      bootError: d.titolo + ' — ' + d.testo });
+    }
+  }
+
+  /** Carica l'inventario. Solo per una sessione autenticata e non ristretta. */
+  async _loadInventory() {
+    try {
+      const out = await API.getInventory();
+      const data = out.doc;
+      const errs = IDENT.validateDocument(data);
+      if (errs.length) {
+        // Il server rifiuterebbe un documento così: si dice subito, invece di
+        // lasciare che il primo salvataggio fallisca senza spiegazioni.
+        console.error('[identity] documento dal server senza identità valide:', errs);
+      }
+      this._writer.reset(out.version);
       const loc = data.locations[0];
-      let st = { data, locId: loc.id, roomId: loc.sale[0].id };
+      let st = {
+        data, booted: true, bootError: '',
+        serverVersion: out.version, serverSha: out.sha256,
+        locId: loc ? loc.id : null, roomId: loc && loc.sale[0] ? loc.sale[0].id : null,
+      };
       const m = (window.location.hash || '').match(/rack=([^/]+)\/([^/]+)\/(.+)/);
-      if (m) {
+      if (m && loc) {
         const L = data.locations.find(l => l.id === decodeURIComponent(m[1]));
         const R = L && L.sale.find(r => r.id === decodeURIComponent(m[2]));
         const K = R && R.racks.find(r => r.id === decodeURIComponent(m[3]));
-        if (K) st = { data, locId: L.id, roomId: R.id, selRack: K.id };
+        if (K) st = { ...st, locId: L.id, roomId: R.id, selRack: K.id };
       }
       this.setState(st);
+    } catch (err) {
+      const d = API.describeError(err);
+      if (err instanceof API.ApiError && err.status === 401) {
+        this.setState({ session: null, data: null, booted: true });
+        return;
+      }
+      if (err instanceof API.ApiError && err.status === 403
+          && err.code === 'password_change_required') {
+        this.setState({ mustChangePw: true, data: null, booted: true });
+        return;
+      }
+      this.setState({ data: null, booted: true,
+                      bootError: d.titolo + ' — ' + d.testo });
+    }
+  }
+
+  // ---- esiti del salvataggio ----
+
+  _onSaved(version, sha, changed) {
+    // `baseVersion` la aggiorna il writer; qui si aggiorna solo ciò che si mostra.
+    // "Salvato" si scrive SOLO adesso: prima della conferma del server non si
+    // può affermare che i dati esistano da qualche parte.
+    this.setState({
+      serverVersion: version, serverSha: sha,
+      saveState: changed ? 'salvato' : 'nessuna-modifica',
+      saveError: '', dirty: false,
     });
+  }
+
+  async _onConflict(currentVersion) {
+    // 409: qualcun altro ha scritto. Si RICARICA esplicitamente, invece di
+    // insistere: continuare significherebbe sovrascrivere il suo lavoro.
+    this.setState({
+      saveState: 'conflitto', dirty: false,
+      saveError: 'Un\'altra sessione ha salvato (versione ' + currentVersion
+               + '). Ricarico i dati aggiornati: le modifiche non salvate vanno riapplicate.',
+    });
+    await this._loadInventory();
+  }
+
+  _onSaveError(err) {
+    const d = API.describeError(err);
+    if (err instanceof API.ApiError && err.status === 401) {
+      this.setState({ session: null, data: null, saveState: 'errore',
+                      saveError: d.titolo + ' — ' + d.testo });
+      return;
+    }
+    if (err instanceof API.ApiError && err.status === 403
+        && err.code === 'password_change_required') {
+      this.setState({ mustChangePw: true, saveState: 'errore',
+                      saveError: d.titolo + ' — ' + d.testo });
+      return;
+    }
+    this.setState({ saveState: 'errore', saveError: d.titolo + ' — ' + d.testo });
+  }
+
+  componentDidMount() {
+    this._syncTheme();
+    this._boot();
     this._onKey = (e) => {
       const ae = document.activeElement;
       // Ctrl/Cmd+Z = annulla, Ctrl+Y o Ctrl/Cmd+Shift+Z = ripristina (non dentro i campi di testo)
@@ -1175,7 +1329,7 @@ class Component extends DCLogic {
         if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); this._doRedo(); return; }
         if (k === 'e') {
           e.preventDefault();
-          const priv = this.state.user ? this.state.user.ruolo : 'view';
+          const priv = this.state.session ? this.state.session.role : 'view';
           if (priv === 'view') return;
           this.setState(s => ({ role: s.role === 'view' ? priv : 'view', editing: false, selDev: null, rackEditing: null, rackError: '' }));
           return;
@@ -1286,7 +1440,7 @@ class Component extends DCLogic {
     const custom = (((S.data || {}).manuale) || []).map(x => ({ ...x, custom: true }));
     const sections = Component.manual().concat(custom);
     const cur = sections.find(s => s.id === S.manualSec) || sections[0];
-    const isAdmin = !!(S.user && S.user.ruolo === 'admin');
+    const isAdmin = (S.session ? S.session.role : 'view') === 'admin';
     const draft = S.manDraft || { id: '', titolo: '', testo: '' };
     return {
       manualNav: sections.map(sec => ({
@@ -1381,28 +1535,66 @@ class Component extends DCLogic {
   }
 
   _profOf() {
-    const em = ((this.state.user && this.state.user.email) || '').toLowerCase();
+    const em = ((this.state.session && this.state.session.username) || '').toLowerCase();
     const u = (((this.state.data || {}).utenti) || []).find(x => (x.email || '').toLowerCase() === em) || {};
     return { nome: u.nome || '', cognome: u.cognome || '', telefono: u.telefono || '', team: u.team || '' };
   }
 
-  _doLogin() {
-    const email = (this.state.loginEmail || '').trim().toLowerCase();
-    const pw = this.state.loginPw || '';
-    if (!email) { this.setState({ loginErr: 'Inserisci le credenziali.' }); return; }
-    if (!pw) { this.setState({ loginErr: 'Inserisci la password.' }); return; }
-    const utenti = (this.state.data && this.state.data.utenti) || [];
-    let ruolo;
-    if (!utenti.length) ruolo = 'admin'; // bootstrap: nessuna utenza registrata
-    else {
-      const u = utenti.find(x => (x.email || '').toLowerCase() === email);
-      if (!u) { this.setState({ loginErr: 'Utenza non registrata. Contatta un amministratore.' }); return; }
-      if (u.password && pw !== u.password) { this.setState({ loginErr: 'Password errata.' }); return; }
-      ruolo = u.ruolo;
+  // Nessun confronto di password lato client, e nessun ripiego che concede
+  // `admin` quando l'elenco utenze è vuoto: l'autorità è del server (§8.20).
+  // L'elenco `utenti` non esiste più nel documento.
+  async _doLogin() {
+    const username = (this.state.loginEmail || '').trim();
+    const password = this.state.loginPw || '';
+    if (!username) { this.setState({ loginErr: 'Inserisci le credenziali.' }); return; }
+    if (!password) { this.setState({ loginErr: 'Inserisci la password.' }); return; }
+
+    this.setState({ loginBusy: true, loginErr: '' });
+    try {
+      const me = await API.doLogin(username, password);
+      this.setState({ loginBusy: false, loginPw: '', loginErr: '',
+                      session: me, mustChangePw: !!me.mustChangePassword });
+      if (me.mustChangePassword) {
+        this.setState({ data: null, pwMsg: 'Password provvisoria: impostane una personale per continuare.' });
+        return;
+      }
+      await this._loadInventory();
+    } catch (err) {
+      const d = API.describeError(err);
+      // Il server non dice se l'utenza esiste: si riporta il suo messaggio.
+      this.setState({ loginBusy: false, loginPw: '',
+                      loginErr: err.status === 401
+                        ? 'Credenziali non valide.'
+                        : d.titolo + ' — ' + d.testo });
     }
-    const rec = utenti.find(x => (x.email || '').toLowerCase() === email);
-    const temp = !!(rec && rec.pwTemp);
-    this.setState({ user: { email, ruolo }, role: 'view', loginPw: '', loginErr: '', profDraft: null, profileOpen: temp, pwMsg: temp ? 'Password provvisoria: impostane una personale per continuare.' : '' });
+  }
+
+  async _doLogout() {
+    try { await API.doLogout(); } catch { /* la sessione cade comunque */ }
+    if (this._writer) this._writer.reset(null);
+    this.setState({ session: null, mustChangePw: false, data: null, role: 'view',
+                    loginEmail: '', loginPw: '', loginErr: '', accountOpen: false,
+                    profileOpen: false, editing: false, selDev: null });
+  }
+
+  /** Cambio password proprio. Il server revoca tutte le sessioni: si torna al login. */
+  async _doChangePassword() {
+    const cur = this.state.pwCur || '';
+    const nuova = this.state.pwNew || '';
+    if (nuova.length < 10) {
+      this.setState({ pwMsg: 'La nuova password deve avere almeno 10 caratteri.' });
+      return;
+    }
+    try {
+      await API.changePassword(cur, nuova);
+      this.setState({ pwCur: '', pwNew: '', session: null, mustChangePw: false,
+                      data: null, profileOpen: false,
+                      pwMsg: 'Password aggiornata. Accedi di nuovo.' });
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ pwMsg: err.status === 401 || err.code === 'invalid_credentials'
+                        ? 'Password attuale errata.' : d.titolo + ' — ' + d.testo });
+    }
   }
 
   _doUndo() {
@@ -1425,7 +1617,7 @@ class Component extends DCLogic {
     this.setState({ data: rstack[rstack.length - 1], redoStack: rstack.slice(0, -1), undoStack, dirty: true, selDev: null, editing: false, rackEditing: null, rackDrag: null, rackResize: null, devDrag: null });
   }
 
-  // ---- livello persistenza: qui andrà la chiamata API/DB in produzione ----
+  // ---- livello persistenza: PUT serializzate e coalescate (§8.2, §8.33) ----
   persist(data, azione) {
     // snapshot per undo (dello stato PRIMA della modifica)
     if (this.state.data) {
@@ -1433,21 +1625,26 @@ class Component extends DCLogic {
       const stack = [...(this.state.undoStack || []), JSON.parse(JSON.stringify(this.state.data))].slice(-depth);
       this.setState({ undoStack: stack, redoStack: [] }); // una nuova modifica invalida il redo
     }
-    if (azione) {
-      if (!Array.isArray(data.registro)) data.registro = [];
-      data.registro.push({ ts: new Date().toISOString(), ruolo: this.state.role, azione });
-      if (data.registro.length > 500) data.registro = data.registro.slice(-500);
-    }
-    this.setState({ data, dirty: true });
+    // Il registro NON si scrive più nel documento: l'audit è del server e lo
+    // calcola dal diff (§8.9). `azione` resta come etichetta di comodo.
+    this.setState({ data, dirty: true, saveState: 'in-corso', saveError: '' });
+    if (this._writer) this._writer.queue(data, azione);
   }
 
+  // Notifiche e SMTP vivono nella tabella `settings`, non nel documento (§8.16):
+  // il server rifiuta un documento che li contenga. Restano come punto d'aggancio
+  // per quando arriverà /api/settings.
   _setNotifiche(patch) {
+    this.setState({ profMsg: 'Le impostazioni di notifica sono gestite dal server.' });
+    return;
     const next = JSON.parse(JSON.stringify(this.state.data));
     next.notifiche = { email: '', giorni: 30, attive: false, ...(next.notifiche || {}), ...patch };
     this.setState({ data: next, dirty: true });
   }
 
   _setSmtp(patch) {
+    this.setState({ profMsg: 'La configurazione SMTP è lato server; la password sta in un secret.' });
+    return;
     const next = JSON.parse(JSON.stringify(this.state.data));
     next.smtp = { host: '', porta: 587, utente: '', password: '', mittente: '', tls: true, ...(next.smtp || {}), ...patch };
     this.setState({ data: next, dirty: true });
@@ -1479,6 +1676,10 @@ class Component extends DCLogic {
     const UPX = 13;
     const S = this.state;
     const data = S.data;
+    // La sessione arriva dal server (/api/auth/me) e il ruolo è quello RILETTO a
+    // ogni richiesta: l'app non se lo tiene (§8.26). Adattatore verso la forma
+    // che il markup già usava, per non riscrivere ogni riferimento.
+    const S_user = S.session ? { email: S.session.username, ruolo: S.session.role } : null;
     const accent = S.theme === 'tim' ? '#2f6bd8' : (S.theme === 'light' ? '#2f6fd0' : (this.props.coloreAccento ?? '#3d7bea'));
     const accentSoft = S.theme === 'tim' ? '#122a4d' : (S.theme === 'light' ? '#dce8f8' : '#1a2a3d');
     const showQuote = this.props.mostraQuote ?? true;
@@ -2256,7 +2457,18 @@ class Component extends DCLogic {
       // pannello
       hasSel: !!sel, noSel: !sel && !!data && !S.rackEditing,
       // --- login / modalità ---
-      loggedOut: !S.user,
+      // Il login si mostra solo dopo /api/auth/me: prima non si sa se serve, e
+      // mostrarlo subito lo farebbe lampeggiare a chi è già autenticato.
+      loggedOut: S.booted && !S_user && !S.mustChangePw,
+      booting: !S.booted,
+      hasBootError: !!S.bootError,
+      bootError: S.bootError,
+      loginBusy: !!S.loginBusy,
+      mustChangePw: !!S.mustChangePw,
+      saving: !!S.saving,
+      hasSaveError: !!S.saveError,
+      saveError: S.saveError,
+      serverVersionLabel: S.serverVersion == null ? '' : ('v' + S.serverVersion),
       loginEmail: S.loginEmail || '', loginPw: S.loginPw || '',
       onLoginEmail: (e) => this.setState({ loginEmail: e.target.value, loginErr: '' }),
       onLoginPw: (e) => this.setState({ loginPw: e.target.value, loginErr: '' }),
@@ -2265,11 +2477,11 @@ class Component extends DCLogic {
       loginErr: S.loginErr || '', hasLoginErr: !!S.loginErr,
       setModeView: () => this.setState({ role: 'view', editing: false, selDev: null, rackEditing: null, rackError: '' }),
       setModeEdit: () => {
-        const priv = S.user ? S.user.ruolo : 'view';
+        const priv = S_user ? S_user.ruolo : 'view';
         if (priv === 'view') { alert('La tua utenza ha privilegio di sola visualizzazione.'); return; }
         this.setState({ role: priv });
       },
-      modeEditTip: S.user && S.user.ruolo === 'admin' ? 'Editing con privilegio Admin' : 'Editing contenuti rack',
+      modeEditTip: S_user && S_user.ruolo === 'admin' ? 'Editing con privilegio Admin' : 'Editing contenuti rack',
       modeViewStyle: {
         background: S.role === 'view' ? accentSoft : 'transparent',
         color: S.role === 'view' ? accent : 'var(--d8a94a2)',
@@ -2282,7 +2494,7 @@ class Component extends DCLogic {
         border: 'none', borderLeft: '1px solid var(--d2b333d)', padding: '7px 13px', fontSize: 12,
         fontWeight: S.role !== 'view' ? 700 : 500,
         cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
-        opacity: S.user && S.user.ruolo === 'view' ? 0.5 : 1
+        opacity: S_user && S_user.ruolo === 'view' ? 0.5 : 1
       },
       role: S.role,
       roleStyle: {
@@ -2292,10 +2504,10 @@ class Component extends DCLogic {
         borderRadius: 8, padding: '7px 8px', fontFamily: 'inherit', fontSize: 13
       },
       canEdit, canAdmin,
-      isAdminUser: !!(S.user && S.user.ruolo === 'admin'),
-      userEmail: S.user ? S.user.email : '',
-      userRuoloLabel: S.user ? (S.user.ruolo === 'admin' ? 'Privilegio: Admin' : (S.user.ruolo === 'edit' ? 'Privilegio: Operatore' : 'Privilegio: Visualizzazione')) : '',
-      logout: () => this.setState({ user: null, role: 'view', accountOpen: false, profileOpen: false, editing: false, selDev: null, rackEditing: null, loginEmail: '', loginPw: '' }),
+      isAdminUser: !!(S_user && S_user.ruolo === 'admin'),
+      userEmail: S_user ? S_user.email : '',
+      userRuoloLabel: S_user ? (S_user.ruolo === 'admin' ? 'Privilegio: Admin' : (S_user.ruolo === 'edit' ? 'Privilegio: Operatore' : 'Privilegio: Visualizzazione')) : '',
+      logout: () => { this._doLogout(); },
       // --- undo ---
       undoCount: (S.undoStack || []).length ? ' (' + S.undoStack.length + ')' : '',
       undoBtnStyle: {
@@ -2333,19 +2545,22 @@ class Component extends DCLogic {
       toggleProfile: () => this.setState(s => ({ profileOpen: !s.profileOpen, accountOpen: false, expOpen: false, regOpen: false, invOpen: false, capOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profDraft: s.profDraft || this._profOf(), profMsg: '' })),
       closeProfile: () => this.setState({ profileOpen: false }),
       profDraft: S.profDraft || this._profOf(),
-      profNomeCompleto: (() => { const p = S.profDraft || this._profOf(); return [p.nome, p.cognome].filter(Boolean).join(' ') || (S.user ? S.user.email : ''); })(),
+      profNomeCompleto: (() => { const p = S.profDraft || this._profOf(); return [p.nome, p.cognome].filter(Boolean).join(' ') || (S_user ? S_user.email : ''); })(),
       onProfChange: (e) => { const { name, value } = e.target; this.setState(s => ({ profDraft: { ...(s.profDraft || this._profOf()), [name]: value }, profMsg: '' })); },
       saveProf: () => {
         const p = this.state.profDraft || {};
         const next = JSON.parse(JSON.stringify(data));
-        next.utenti = (next.utenti || []).map(u => (u.email || '').toLowerCase() === (S.user ? S.user.email : '') ? { ...u, ...p } : u);
-        this.persist(next, 'Aggiornati dati profilo ' + (S.user ? S.user.email : ''));
+        // I dati personali NON vivono più nel documento: stanno nella tabella
+        // `users`. La modifica dal profilo arriverà con PATCH /api/users/{id};
+        // per ora non si fa credere che salvi.
+        this.setState({ profMsg: 'I dati personali sono gestiti dagli amministratori.' });
+        return;
         this.setState({ profMsg: 'Dati salvati.' });
       },
       profMsg: S.profMsg || '', hasProfMsg: !!S.profMsg,
-      profileTip: S.user ? S.user.email + ' — ' + (S.user.ruolo === 'admin' ? 'Admin' : (S.user.ruolo === 'edit' ? 'Operatore' : 'Visualizzazione')) : 'Profilo',
+      profileTip: S_user ? S_user.email + ' — ' + (S_user.ruolo === 'admin' ? 'Admin' : (S_user.ruolo === 'edit' ? 'Operatore' : 'Visualizzazione')) : 'Profilo',
       userInitials: (() => {
-        const em = (S.user && S.user.email) || '';
+        const em = (S_user && S_user.email) || '';
         const base = em.split('@')[0].replace(/[._-]+/g, ' ').trim();
         const parts = base.split(/\s+/).filter(Boolean);
         return ((parts[0] || '?')[0] + (parts[1] ? parts[1][0] : (parts[0] || '')[1] || '')).toUpperCase();
@@ -2371,58 +2586,17 @@ class Component extends DCLogic {
       pwCur: S.pwCur, pwNew: S.pwNew,
       onPwCur: (e) => this.setState({ pwCur: e.target.value, pwMsg: '' }),
       onPwNew: (e) => this.setState({ pwNew: e.target.value, pwMsg: '' }),
-      savePw: () => {
-        const em = ((S.user && S.user.email) || '').toLowerCase();
-        const rec = ((data && data.utenti) || []).find(x => (x.email || '').toLowerCase() === em);
-        if (!this.state.pwCur) { this.setState({ pwMsg: 'Inserisci la password attuale.' }); return; }
-        if (rec && rec.password && this.state.pwCur !== rec.password) { this.setState({ pwMsg: 'La password attuale non è corretta.' }); return; }
-        if ((this.state.pwNew || '').length < 8) { this.setState({ pwMsg: 'La nuova password deve avere almeno 8 caratteri.' }); return; }
-        const next = JSON.parse(JSON.stringify(data));
-        next.utenti = (next.utenti || []).map(u => (u.email || '').toLowerCase() === em ? { ...u, password: this.state.pwNew, pwTemp: false } : u);
-        this.persist(next, 'Cambio password ' + em);
-        this.setState({ pwMsg: 'Password aggiornata.', pwCur: '', pwNew: '' });
-      },
+      savePw: () => { this._doChangePassword(); },
       resetPw: () => this.setState({ pwMsg: 'Email di reset inviata (demo — sarà attiva con il backend).' }),
       pwMsg: S.pwMsg, hasPwMsg: !!S.pwMsg,
-      // --- utenze (solo admin) ---
-      userRows: ((data && data.utenti) || []).map(u => ({
-        email: u.email,
-        ruolo: (u.ruolo === 'admin' ? 'Admin' : (u.ruolo === 'edit' ? 'Operatore' : 'Visualizzazione')) + (u.pwTemp ? ' · pw provvisoria' : ''),
-        rimuovi: () => {
-          if (!window.confirm('Confermi di voler eliminare l\'utenza ' + u.email + '?')) return;
-          const next = JSON.parse(JSON.stringify(data));
-          next.utenti = (next.utenti || []).filter(x => x.email !== u.email);
-          this.persist(next, 'Rimossa utenza ' + u.email);
-        }
-      })),
-      nuovoUtente: S.nuovoUtente || '',
-      nuovoRuolo: S.nuovoRuolo || 'view',
-      onNuovoUtente: (e) => this.setState({ nuovoUtente: e.target.value }),
-      onNuovoRuolo: (e) => this.setState({ nuovoRuolo: e.target.value }),
-      nuovaPw: S.nuovaPw || '',
-      onNuovaPw: (e) => this.setState({ nuovaPw: e.target.value }),
-      generaPw: () => {
-        const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        let p = '';
-        for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
-        this.setState({ nuovaPw: p });
-      },
-      aggiungiUtente: () => {
-        const utenza = (this.state.nuovoUtente || '').trim();
-        const pw = (this.state.nuovaPw || '').trim();
-        if (!utenza) { alert('Inserisci il nome utenza.'); return; }
-        if (pw.length < 6) { alert('Imposta una password provvisoria di almeno 6 caratteri (o premi Genera).'); return; }
-        const next = JSON.parse(JSON.stringify(data));
-        next.utenti = (next.utenti || []).filter(x => (x.email || '').toLowerCase() !== utenza.toLowerCase());
-        next.utenti.push({ email: utenza, ruolo: this.state.nuovoRuolo || 'view', password: pw, pwTemp: true });
-        this.persist(next, 'Aggiunta utenza ' + utenza + ' (' + (this.state.nuovoRuolo || 'view') + ')');
-        this.setState({ nuovoUtente: '', nuovaPw: '' });
-        alert('Utenza creata.\n\nUtenza: ' + utenza + '\nPassword provvisoria: ' + pw + '\n\nComunicala all\'utente: dovrà cambiarla al primo accesso dal proprio profilo.');
-      },
-      // --- notifiche scadenze ---
-      notAttive: !!notCfg.attive,
-      notEmail: notCfg.email || '',
-      notGiorni: notCfg.giorni || 30,
+      // --- utenze: nella tabella `users`, via /api/users (solo admin) ---
+      // Non sono più nel documento dell'inventario, che il server rifiuterebbe
+      // se le contenesse (§8.16). L'interfaccia di amministrazione userà l'API.
+      userRows: [],
+      usersManagedByApi: true,
+      nuovaUtenza: '', onNuovaUtenza: () => {},
+      nuovoRuolo: 'view', onNuovoRuolo: () => {},
+      aggiungiUtenza: () => {},
       onNotAttive: (e) => this._setNotifiche({ attive: e.target.checked }),
       onNotEmail: (e) => this._setNotifiche({ email: e.target.value }),
       onNotGiorni: (e) => this._setNotifiche({ giorni: Math.max(1, Math.min(365, parseInt(e.target.value, 10) || 30)) }),
@@ -2851,8 +3025,10 @@ class Component extends DCLogic {
       },
       regOpen: S.regOpen,
       toggleReg: () => this.setState(s => ({ regOpen: !s.regOpen, accountOpen: false })),
-      regRows: (data && data.registro ? [...data.registro].reverse().slice(0, 60) : []).map(r => ({ txt: r.ts.slice(0, 16).replace('T', ' ') + ' · ' + (r.ruolo || '') + ' · ' + r.azione })),
-      regEmpty: !(data && data.registro && data.registro.length),
+      // Il registro è lato server (tabella `audit`, §8.9): non è più nel
+      // documento. La vista su GET /api/audit arriverà separatamente.
+      regRows: [],
+      regEmpty: true,
 
       occBarStyle: { width: (occPct * 100) + '%', height: '100%', background: occPct > 0.85 ? '#ff5c5c' : accent, borderRadius: 3, transition: 'width 0.3s' },
       occLabel: usedU + '/' + (sel ? sel.u : 0) + ' U',

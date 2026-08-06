@@ -43,29 +43,36 @@ TOKEN_BYTES = 32
 
 ROLES = ("view", "edit", "admin")
 
-def _record_out_of_band(fn) -> None:
+def _out_of_band(fn) -> None:
     """Esegue una scrittura in una transazione PROPRIA, che sopravvive al rollback.
 
     Serve alla registrazione dei tentativi falliti e al loro audit. Un accesso
-    fallito fa sollevare l'handler, e la transazione della richiesta viene
-    annullata: se i contatori vivessero in quella transazione verrebbero cancellati
-    insieme all'errore. Risultato: il limitatore non conterebbe mai nulla e i
-    tentativi falliti non finirebbero nel registro — cioè proprio i due dati per
-    cui esistono.
+    fallito fa sollevare l'handler e la transazione della richiesta viene
+    annullata: se quei dati vivessero in quella transazione verrebbero cancellati
+    insieme all'errore, e il limitatore non conterebbe mai nulla.
 
-    Un guasto qui non deve trasformare un 401 in un 500: si registra e si tira
-    avanti. Non riuscire a scrivere una riga di audit è un problema, ma lasciare
-    entrare qualcuno perché il registro non era scrivibile sarebbe peggio.
+    Gli errori PROPAGANO. Chi chiama decide se sono fatali (§8.32).
     """
     from app.db import get_engine
+    with get_engine().connect() as own:
+        with own.begin():
+            fn(own)
+
+
+def _out_of_band_best_effort(fn, what: str) -> None:
+    """Come sopra, ma un guasto si registra nei log e non cambia la risposta.
+
+    Usata SOLO per l'audit di un tentativo fallito: non riuscire a scrivere una
+    riga di registro è un problema, ma trasformare «credenziali errate» in
+    «errore del server» è peggio — nasconde al client l'informazione vera e fa
+    scattare i suoi ripristini automatici.
+    """
+    import logging
     try:
-        with get_engine().connect() as own:
-            with own.begin():
-                fn(own)
+        _out_of_band(fn)
     except Exception:                                  # pragma: no cover
-        import logging
         logging.getLogger(__name__).exception(
-            "registrazione fuori banda del tentativo di accesso fallita")
+            "scrittura fuori banda fallita: %s", what)
 
 
 #: Hash di confronto per le utenze inesistenti. Generato all'avvio con gli stessi
@@ -99,7 +106,18 @@ class NotAuthenticated(AuthError):
 
 class PasswordChangeRequired(AuthError):
     """Password provvisoria: la sessione è valida ma può fare solo tre cose (§8.26)."""
-    code = "PASSWORD_CHANGE_REQUIRED"
+    code = "password_change_required"
+
+
+class RateLimiterUnavailable(AuthError):
+    """Il contatore dei tentativi non è utilizzabile: si nega l'accesso.
+
+    Non è pignoleria. Se i tentativi non si possono contare il limitatore non
+    esiste, e non esistere IN SILENZIO significa tentativi illimitati mentre le
+    risposte continuano a dire «credenziali errate, riprova». Meglio un errore di
+    servizio, che è visibile e conservativo (§8.32).
+    """
+    code = "rate_limiter_unavailable"
 
 
 class TooManyAttempts(AuthError):
@@ -189,9 +207,10 @@ def login(conn: Connection, username: str, password: str, *,
     # --- limitazione, prima di toccare la password ---
     status = check_rate_limit(conn, username, ip)
     if status.blocked:
-        _record_out_of_band(lambda c: record_auth_event(
-            c, LOGIN_BLOCKED, username=username, ip=ip,
-            detail={"reason": status.reason}))
+        _out_of_band_best_effort(
+            lambda c: record_auth_event(c, LOGIN_BLOCKED, username=username, ip=ip,
+                                       detail={"reason": status.reason}),
+            "audit del blocco")
         raise TooManyAttempts(status.reason, status.retry_after_seconds)
 
     row = conn.execute(text("""
@@ -209,12 +228,19 @@ def login(conn: Connection, username: str, password: str, *,
         uid = row[0] if row else None
         urole = row[2] if row else None
 
-        def _log_failure(c):
-            record_attempt(c, username, ip, success=False)
-            record_auth_event(c, LOGIN_FAILURE, username=username, ip=ip,
-                              user_id=uid, role=urole)
+        # 1. Il contatore DEVE persistere: senza, il limitatore è disattivato e
+        #    nessuno se ne accorge. Se non si scrive, si nega l'accesso.
+        try:
+            _out_of_band(lambda c: record_attempt(c, username, ip, success=False))
+        except Exception as exc:
+            raise RateLimiterUnavailable(
+                "impossibile registrare il tentativo di accesso") from exc
 
-        _record_out_of_band(_log_failure)
+        # 2. L'audit è importante ma non deve poter peggiorare la risposta.
+        _out_of_band_best_effort(
+            lambda c: record_auth_event(c, LOGIN_FAILURE, username=username, ip=ip,
+                                        user_id=uid, role=urole),
+            "audit del tentativo fallito")
         # Un solo errore per utenza inesistente, password errata e utenza
         # disabilitata: distinguerli direbbe a chi prova quali utenze esistono.
         raise InvalidCredentials()
@@ -227,7 +253,14 @@ def login(conn: Connection, username: str, password: str, *,
            "exp": _now() + SESSION_TTL, "ip": safe_ip(ip), "ua": user_agent})
     conn.execute(text("UPDATE users SET last_login_at = now() WHERE id = :uid"),
                  {"uid": row[0]})
-    record_attempt(conn, username, ip, success=True)
+    try:
+        record_attempt(conn, username, ip, success=True)
+    except Exception as exc:
+        # Anche qui si fallisce chiuso: un limitatore che non registra i successi
+        # non è affidabile, e non si distingue dall'esterno da uno guasto sui
+        # fallimenti. La transazione porta via anche la sessione appena creata.
+        raise RateLimiterUnavailable(
+            "impossibile registrare il tentativo di accesso") from exc
     record_auth_event(conn, LOGIN_SUCCESS, username=str(row[1]), user_id=row[0],
                       role=row[2], ip=ip,
                       detail={"mustChangePassword": bool(row[4])})

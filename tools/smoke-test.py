@@ -234,8 +234,12 @@ r = exec_in("api", "sh", "-c", "touch /app/prova 2>&1 && echo WRITABLE || echo R
 check("api: filesystem read-only", "READONLY" in r.stdout, r.stdout.strip()[:120])
 
 # ---- 8. web: TLS e allowlist dei file statici (§6, §8.29) ---------------
-WEB = "https://127.0.0.1:8443"
-WEB_HTTP = "http://127.0.0.1:8080"
+# PORTE STANDARD: in produzione l'host pubblica 80 e 443, e nell'URL non compare
+# nessuna porta esplicita. È la condizione perché HSTS non scavalchi il
+# reindirizzamento (§8.31); usare 8443 qui proverebbe una configurazione diversa
+# da quella che si distribuisce.
+WEB = "https://127.0.0.1"
+WEB_HTTP = "http://127.0.0.1"
 
 # Il certificato di sviluppo è autofirmato: qui interessa che TLS TERMINI, non che
 # la catena sia fidata. In produzione il certificato è quello aziendale e questa

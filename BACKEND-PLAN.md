@@ -1653,7 +1653,151 @@ Regole difese dentro la transazione, con `FOR UPDATE`:
 La password provvisoria torna **una volta sola** nella risposta e non viene registrata da
 nessuna parte. `PATCH` usa `exclude_unset`: una modifica del solo ruolo non azzera il profilo.
 
+### 8.31 Porte standard, altrimenti HSTS scavalca il reindirizzamento
+
+In produzione l'host pubblica **80 e 443**. Dentro il container nginx resta su
+8080/8443, perché gira come uid 101 e un processo non-root non può aprire porte sotto
+1024: il mapping di Docker fa il resto.
+
+Non è estetica. **HSTS si applica all'host e conserva la porta esplicita della
+richiesta.** Con il servizio esposto su `http://host:8080`, un browser che ha già visto
+HSTS trasforma quella URL in `https://host:8080` — dove nginx parla in chiaro. Il
+reindirizzamento non viene mai raggiunto e la richiesta fallisce in modo
+incomprensibile: l'utente vede un errore TLS su un indirizzo che «funzionava ieri».
+
+Conseguenze applicate:
+
+- il reindirizzamento usa `$host` e **non** `$http_host`, così non fabbrica una porta
+  esplicita;
+- HSTS sta **solo** sul listener HTTPS di produzione;
+- la configurazione di sviluppo, che usa porte non standard, **non manda HSTS** — e
+  l'assenza è documentata come deliberata, altrimenti qualcuno la aggiunge «per
+  coerenza» e blocca l'accesso in chiaro su `localhost` per tutti quelli che l'hanno
+  visitato una volta;
+- `web/nginx.dev.conf` è generato da quello di produzione con marcatori nel file, non
+  copiando un blocco di venti righe: la copia era già divergente al primo commento
+  modificato. `tools/sync-nginx-dev.py --check` fa da guardia.
+
+### 8.32 Semantica transazionale dell'autenticazione
+
+Cinque proprietà, ognuna verificata iniettando un guasto nel punto dove conterebbe
+(`backend/tests/test_transactions_pg.py`):
+
+| Operazione | Regola |
+|---|---|
+| sessione + audit del login riuscito | **atomici** |
+| password + revoca sessioni + audit | **atomici** |
+| mutazione utenza + revoca + audit | **atomici** |
+| audit del login **fallito** | indipendente, e non trasforma un 401 in 500 |
+| persistenza del limitatore | se non scrive, il login **fallisce chiuso** |
+
+Le prime tre stanno nella transazione della richiesta e cadono insieme: una sessione
+senza la sua riga di audit è un accesso non tracciato, e una password cambiata senza
+revoca lascia aperte le sessioni che il cambio doveva chiudere.
+
+Le ultime due si distinguono, e la distinzione è il punto:
+
+- **L'audit di un tentativo fallito è "best effort".** Deve sopravvivere al rollback
+  (§8.25), ma se non si scrive la risposta resta 401. Non riuscire a scrivere una riga
+  di registro è un problema; trasformare «credenziali errate» in «errore del server»
+  è peggio, perché nasconde al client l'informazione vera.
+- **Il contatore del limitatore no: quello deve persistere.** Se i tentativi non si
+  possono contare il limitatore non esiste, e non esistere *in silenzio* significa
+  tentativi illimitati mentre le risposte continuano a dire «riprova». Si risponde
+  `503` (`rate_limiter_unavailable`) e non si entra — nemmeno con la password giusta,
+  così l'errore non diventa un oracolo su quali credenziali erano valide.
+
+### 8.33 Frontend: integrazione con l'API
+
+`handoff/api.js` — client con URL **sempre relative** (`/api/...`). L'app è servita
+dallo stesso nginx che fa da proxy, quindi non esiste un host da configurare; un URL
+assoluto sarebbe un valore da tenere allineato fra ambienti e, con `SameSite=strict`,
+farebbe anche cadere il cookie. `credentials: 'same-origin'`, mai `'include'`.
+
+#### Avvio
+
+`GET /api/auth/me` **prima di qualunque dato**. Sul 401 si mostra il login e non si
+chiede nulla d'altro; con `mustChangePassword` si mostra solo il cambio password;
+l'inventario si carica **solo** dopo un'autenticazione senza restrizioni. Nel prototipo
+il login era un cancello disegnato sopra dati già caricati: ora l'ordine è invertito.
+
+Finché `/auth/me` non ha risposto si mostra «Verifica della sessione…»: mostrare subito
+il login lo farebbe lampeggiare a chi è già autenticato.
+
+#### Cosa è stato tolto
+
+- **il confronto delle password nel browser** e il ripiego che concedeva `admin` con
+  l'elenco utenze vuoto: l'autorità è del server (§8.20);
+- **`utenti`** dal documento — stanno in `users`, si gestiscono con `/api/users`;
+- **`registro`** — l'audit è del server e lo calcola dal diff (§8.9);
+- **`notifiche` e `smtp`**, password compresa — stanno in `settings`, e il server
+  rifiuta un documento che li contenga (§8.16).
+
+I pannelli corrispondenti restano ma dicono che la gestione è lato server, invece di
+offrire controlli che non salvano niente.
+
+#### Scritture serializzate
+
+`InventoryWriter`: **una sola PUT in volo, una sola in attesa**. `persist()` viene
+chiamata anche durante drag e resize, e la versione è una sequenza stretta: due PUT in
+parallelo dallo stesso client fanno 409 contro sé stesse. Il documento è completo,
+quindi coalescere significa scartare l'intermedio — le posizioni intermedie di un
+trascinamento non hanno valore storico. `baseVersion` si aggiorna con quella che
+risponde il server, anche su no-op.
+
+**«Salvato» si scrive solo dopo la conferma del server.** Prima di quella non si può
+affermare che i dati esistano da qualche parte, e l'indicatore mostra
+«salvataggio…» finché la PUT è in volo. `beforeunload` avvisa se si chiude con
+scritture in sospeso.
+
+#### Errori distinti
+
+| Stato | Trattamento |
+|---|---|
+| 401 | sessione scaduta → si torna al login |
+| 403 `password_change_required` | si impone il cambio password |
+| 403 altro | permesso negato, con il ruolo richiesto se il server lo indica |
+| 409 | **si ricarica esplicitamente** l'inventario e si smette di scrivere |
+| 413 | documento troppo grande |
+| 422 | dati rifiutati, con i codici dei problemi |
+| 503 | servizio non pronto, modifiche non salvate |
+| rete assente | distinto da una risposta del server |
+
+Sul 409 la coda si **ferma**: continuare a scrivere sovrascriverebbe il lavoro di
+un'altra persona. Si ricarica e si avvisa che le modifiche non salvate vanno riapplicate.
+
+#### ⚠ Difetto trovato dal test end-to-end: `X-Forwarded-Proto`
+
+La validazione di origine (§8.27), in mancanza di `TSM_PUBLIC_ORIGIN`, confrontava
+`Origin` con `request.url.scheme` + `Host`. Dietro un proxy che termina TLS quello
+schema è `http` — è la connessione fra nginx e l'API, non quella del browser — quindi
+`Origin: https://host` non combaciava e **ogni richiesta che modifica stato veniva
+rifiutata con 403**.
+
+Si manifestava solo dopo il login, perché la richiesta di login non porta ancora il
+cookie e il controllo la salta: il sintomo era «entro ma non riesco a cambiare la
+password». Chiamando FastAPI direttamente non si vedeva affatto.
+
+Ora si usa `X-Forwarded-Proto` (e `X-Forwarded-Host`) **solo se il peer è il proxy
+fidato**, come per l'IP del client: altrimenti sarebbe il chiamante a decidere da quale
+origine sembra arrivare.
+
+#### Prova nel browser vero
+
+`tools/browser-e2e-test.py` gira su Chrome attraverso nginx e TLS **sulla porta 443**,
+non contro FastAPI. Metà di ciò che va verificato vive fra browser e proxy: il cookie
+`Secure` che senza HTTPS non parte, HSTS, il reindirizzamento da HTTP, la validazione
+di origine, l'allowlist statica. Un test contro l'API salterebbe tutto questo e direbbe
+che funziona — ed è precisamente il difetto qui sopra.
+
+Copre: reindirizzamento e HSTS, avvio via `/auth/me`, login su 401, credenziali errate
+con messaggio generico, **cambio password forzato** con ritorno al login, caricamento
+dell'inventario solo dopo, attributi del cookie (`Secure`, `HttpOnly`, `SameSite`), un
+salvataggio reale con una sola PUT, persistenza verificata ricaricando la pagina,
+allowlist statica, logout e inaccessibilità dell'inventario dopo il logout.
+
 ## 9. Ordine di lavoro proposto
+
 
 
 1. ~~Vendorizzare React → l'app parte in rete chiusa~~ ✔ **fatto** (§5)
@@ -1687,8 +1831,14 @@ nessuna parte. `PATCH` usa `exclude_unset`: una modifica del solo ruolo non azze
    rifiuto di partire in modo insicuro (§8.29), audit dell'autenticazione (§8.25)~~ ✔ **fatto**
 6-ter. ~~Gestione delle utenze da parte degli admin (§8.30)~~ ✔ **fatto** —
    `backend/app/api/users.py`, `backend/app/auth/users.py`
-6-quater. Rimozione del bypass client in `_doLogin` e aggancio del frontend all'API: è il
-   passo che rende i dati durevoli per l'utente. **Prossimo commit.**
+6-quater. ~~Correzioni di confine (porte standard §8.31, codice `password_change_required`
+   in minuscolo, semantica transazionale §8.32) e **integrazione del frontend** con
+   l'API (§8.33)~~ ✔ **fatto** — `handoff/api.js`, `tools/browser-e2e-test.py`.
+   Da qui in avanti i dati dell'utente sono durevoli e passano dal server.
+7. Interfaccia di amministrazione delle utenze su `/api/users` (le rotte ci sono già,
+   §8.30): oggi i pannelli dicono che la gestione è lato server.
+8. Vista del registro su `GET /api/audit`, e `/api/settings` per notifiche e SMTP.
+9. Foto su `/api/photos` + GC (§8.5), poi job scadenze (§8.8).
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

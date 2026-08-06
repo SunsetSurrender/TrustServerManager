@@ -106,6 +106,14 @@ def run_case(browser, base: str, case: str) -> dict:
     page.on("console", lambda m: console.append(f"{m.type}: {m.text}"))
     page.on("pageerror", lambda e: page_errors.append(str(e)))
 
+    # Questo banco serve SOLO file statici: non c'è backend, quindi la chiamata di
+    # avvio a /api/auth/me risponde 404. È il comportamento giusto dell'app — che
+    # poi mostra il login — e non un difetto del vendoring di React, che è ciò che
+    # questo test verifica. Le richieste API si annotano a parte.
+    api_404: list[str] = []
+    page.on("response", lambda r: api_404.append(f"{r.status} {r.url}")
+            if "/api/" in r.url and r.status >= 400 else None)
+
     page.goto(f"{base}/{case}/{PAGE}", wait_until="load")
     page.wait_for_timeout(5000)   # boot async + import('./inventario.js')
 
@@ -119,8 +127,13 @@ def run_case(browser, base: str, case: str) -> dict:
                          .map(b => b.textContent.trim()).slice(0, 5),
     })""")
     context.close()
+    # Si scartano gli errori di console che riguardano le chiamate all'API: in
+    # questo banco l'API non esiste per costruzione.
+    console_errors = [c for c in console if c.startswith("error")
+                      and "status of 404" not in c]
     return {"case": case, "blocked_external_requests": blocked,
-            "console_errors": [c for c in console if c.startswith("error")],
+            "console_errors": console_errors,
+            "api_requests_without_backend": api_404,
             "page_errors": page_errors, **probe}
 
 

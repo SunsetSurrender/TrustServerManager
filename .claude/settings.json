@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/c/Users/matteo.zandonella/tsmtest/venv/Scripts/python.exe\" tools/users-ui-test.py --base https://localhost --password admin-definitiva-1)"
+    ]
+  }
+}

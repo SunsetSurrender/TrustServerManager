@@ -503,31 +503,126 @@
                 </sc-if>
             </div>
           <sc-if value="{{ isAdminUser }}" hint-placeholder-val="{{ false }}">
-            <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
-              <div style="font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">UTENTI E PRIVILEGI</div>
-                <sc-for list="{{ userRows }}" as="ur" hint-placeholder-count="0">
-                  <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dd7dde4)">
-                    <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:'Roboto Mono',monospace; font-size:11.5px">{{ ur.email }}</span>
-                    <span style="font-size:10.5px; color:var(--d8a94a2); flex-shrink:0">{{ ur.ruolo }}</span>
-                    <span tabIndex="0" data-kb="1" onClick="{{ ur.rimuovi }}" title="Rimuovi utente" style="cursor:pointer; color:#ff5c5c; flex-shrink:0">✕</span>
+            <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:12px">
+              <div style="display:flex; align-items:center; gap:10px">
+                <div style="flex:1; font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">UTENTI E PRIVILEGI</div>
+                <button onClick="{{ usersReload }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; font-family:inherit">Aggiorna</button>
+                <button onClick="{{ toggleUserForm }}" style="background:var(--d1a2a27); color:var(--accent); border:1px solid var(--d2c4a45); border-radius:6px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit">+ Utenza</button>
+              </div>
+
+              <sc-if value="{{ hasUsersError }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:11.5px; color:#ff5c5c; line-height:1.5; background:var(--d2a1618); border:1px solid var(--d4a2b2b); border-radius:6px; padding:8px 10px">{{ usersError }}</div>
+              </sc-if>
+
+              <!-- creazione -->
+              <sc-if value="{{ userFormOpen }}" hint-placeholder-val="{{ false }}">
+                <div id="form-nuova-utenza" style="border:1px solid var(--d2c4a45); border-radius:8px; background:var(--d0c0f13); padding:12px; display:flex; flex-direction:column; gap:8px">
+                  <div style="font-size:11.5px; font-weight:700; color:var(--dd7dde4)">Nuova utenza</div>
+                  <input name="username" placeholder="utenza (es. m.rossi)" value="{{ userDraft.username }}" onChange="{{ onUserDraft }}" autoComplete="off" style="width:100%; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                  <div style="display:flex; gap:8px">
+                    <input name="nome" placeholder="nome" value="{{ userDraft.nome }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
+                    <input name="cognome" placeholder="cognome" value="{{ userDraft.cognome }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
+                  </div>
+                  <div style="display:flex; gap:8px">
+                    <input name="telefono" placeholder="telefono" value="{{ userDraft.telefono }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
+                    <input name="team" placeholder="team" value="{{ userDraft.team }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
+                  </div>
+                  <div style="display:flex; gap:8px">
+                    <select name="role" value="{{ userDraft.role }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
+                      <option value="view">Visualizzazione</option>
+                      <option value="edit">Operatore</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button id="btn-crea-utenza" onClick="{{ creaUtente }}" disabled="{{ createDisabled }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; flex-shrink:0">{{ createLabel }}</button>
+                  </div>
+                  <div style="font-size:10.5px; color:var(--d57626f); line-height:1.5">La password provvisoria è generata dal server e mostrata una volta sola. L'utente la cambia al primo accesso.</div>
+                </div>
+              </sc-if>
+
+              <!-- elenco -->
+              <sc-if value="{{ usersLoading }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:11.5px; color:var(--d8a94a2)">Caricamento…</div>
+              </sc-if>
+              <sc-if value="{{ usersEmpty }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:11.5px; color:var(--d8a94a2)">Nessuna utenza.</div>
+              </sc-if>
+
+              <div style="display:flex; flex-direction:column">
+                <sc-for list="{{ usersRows }}" as="ur" hint-placeholder-count="0">
+                  <div style="{{ ur.rowStyle }}">
+                    <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px">
+                      <div style="display:flex; align-items:center; gap:8px">
+                        <span style="font-family:'Roboto Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.username }}</span>
+                        <span style="{{ ur.statoStyle }}">{{ ur.statoLabel }}</span>
+                        <sc-if value="{{ ur.seStesso }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-size:10px; color:var(--accent); flex-shrink:0">tu</span>
+                        </sc-if>
+                      </div>
+                      <div style="font-size:10.5px; color:var(--d57626f); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.ruoloLabel }} · {{ ur.profilo }} · ultimo accesso {{ ur.ultimoAccesso }}</div>
+                    </div>
+                    <button onClick="{{ ur.apriModifica }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:5px; padding:4px 8px; font-size:10.5px; cursor:pointer; font-family:inherit; flex-shrink:0">Modifica</button>
+                    <sc-if value="{{ ur.isActive }}" hint-placeholder-val="{{ true }}">
+                      <button onClick="{{ ur.disattiva }}" disabled="{{ ur.disableDisabled }}" style="background:transparent; color:#ff8a3d; border:1px solid var(--d3a2f18); border-radius:5px; padding:4px 8px; font-size:10.5px; cursor:pointer; font-family:inherit; flex-shrink:0">{{ ur.disableLabel }}</button>
+                    </sc-if>
+                    <sc-if value="{{ ur.isDisabled }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ ur.riattiva }}" disabled="{{ ur.enableDisabled }}" style="background:transparent; color:#3ddc84; border:1px solid var(--d21362f); border-radius:5px; padding:4px 8px; font-size:10.5px; cursor:pointer; font-family:inherit; flex-shrink:0">{{ ur.enableLabel }}</button>
+                    </sc-if>
+                    <button data-tsm-reset="1" onClick="{{ ur.reimposta }}" disabled="{{ ur.resetDisabled }}" title="Genera una nuova password provvisoria" style="background:transparent; color:var(--dd9a13f); border:1px solid var(--d3a2f18); border-radius:5px; padding:4px 8px; font-size:10.5px; cursor:pointer; font-family:inherit; flex-shrink:0">{{ ur.resetLabel }}</button>
                   </div>
                 </sc-for>
-                <input placeholder="utenza (es. m.rossi)" value="{{ nuovoUtente }}" onChange="{{ onNuovoUtente }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <div style="display:flex; gap:8px">
-                  <input placeholder="password provvisoria" value="{{ nuovaPw }}" onChange="{{ onNuovaPw }}" autoComplete="off" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                  <button onClick="{{ generaPw }}" title="Genera una password provvisoria" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 10px; font-size:11.5px; cursor:pointer; font-family:inherit; white-space:nowrap" style-hover="color:var(--dd7dde4)">Genera</button>
-                </div>
-                <div style="display:flex; gap:8px">
-                  <select value="{{ nuovoRuolo }}" onChange="{{ onNuovoRuolo }}" style="flex:1; min-width:0; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:6px; font-family:inherit; font-size:12px">
-                    <option value="view">Visualizzazione</option>
-                    <option value="edit">Operatore</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <button onClick="{{ aggiungiUtente }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.15)">Aggiungi</button>
-                </div>
-                <div style="font-size:10.5px; color:var(--d57626f)">L'utente accede con l'utenza e la password provvisoria, poi la cambia dal proprio profilo. Con il backend le credenziali saranno gestite dal sistema di autenticazione aziendale.</div>
+              </div>
+
+              <div style="font-size:10.5px; color:var(--d57626f); line-height:1.5">Le utenze non si cancellano: si disattivano, così il registro delle modifiche resta attribuibile. Le regole (ultimo amministratore, sé stessi) sono applicate dal server.</div>
             </div>
           </sc-if>
+
+          <!-- modifica utenza -->
+          <sc-if value="{{ userEditOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:fixed; inset:0; z-index:215; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif">
+              <div id="form-modifica-utenza" style="width:400px; background:var(--d12161c); border:1px solid var(--d2b333d); border-radius:12px; padding:22px; display:flex; flex-direction:column; gap:10px; box-shadow:0 24px 64px rgba(0,0,0,0.6)">
+                <div style="font-size:13.5px; font-weight:700; color:var(--de6ecf2)">Modifica {{ userEdit.username }}</div>
+                <div style="display:flex; gap:8px">
+                  <input name="nome" placeholder="nome" value="{{ userEdit.nome }}" onChange="{{ onUserEdit }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
+                  <input name="cognome" placeholder="cognome" value="{{ userEdit.cognome }}" onChange="{{ onUserEdit }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
+                </div>
+                <div style="display:flex; gap:8px">
+                  <input name="telefono" placeholder="telefono" value="{{ userEdit.telefono }}" onChange="{{ onUserEdit }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
+                  <input name="team" placeholder="team" value="{{ userEdit.team }}" onChange="{{ onUserEdit }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
+                </div>
+                <select name="role" value="{{ userEdit.role }}" onChange="{{ onUserEdit }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
+                  <option value="view">Visualizzazione</option>
+                  <option value="edit">Operatore</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <sc-if value="{{ hasUsersError }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11.5px; color:#ff5c5c; line-height:1.5">{{ usersError }}</div>
+                </sc-if>
+                <div style="display:flex; gap:8px; margin-top:4px">
+                  <button onClick="{{ salvaUserEdit }}" disabled="{{ saveEditDisabled }}" style="flex:1; background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:9px 0; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit">{{ saveEditLabel }}</button>
+                  <button onClick="{{ annullaUserEdit }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:9px 0; font-size:12.5px; cursor:pointer; font-family:inherit">Annulla</button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- password provvisoria: mostrata UNA VOLTA, cancellata alla chiusura -->
+          <sc-if value="{{ tempPwOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:fixed; inset:0; z-index:220; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif">
+              <div style="width:420px; background:var(--d12161c); border:1px solid var(--dd9a13f); border-radius:12px; padding:22px; display:flex; flex-direction:column; gap:12px; box-shadow:0 24px 64px rgba(0,0,0,0.7)">
+                <div style="font-size:13.5px; font-weight:700; color:var(--de6ecf2)">Password provvisoria {{ tempPwReason }}</div>
+                <div style="font-size:12px; color:var(--d8a94a2); line-height:1.5">Utenza <span style="font-family:'Roboto Mono',monospace; color:var(--dd7dde4)">{{ tempPwUser }}</span>. Comunicala alla persona: <b>non sarà più visibile dopo la chiusura</b> e non è salvata da nessuna parte.</div>
+                <div style="display:flex; gap:8px; align-items:stretch">
+                  <div id="temp-password-value" style="flex:1; min-width:0; background:var(--d0c0f13); border:1px solid var(--d3a2f18); border-radius:6px; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px; color:var(--dd9a13f); overflow-x:auto; white-space:nowrap">{{ tempPwValue }}</div>
+                  <button onClick="{{ copiaTempPw }}" style="background:var(--d1a2a27); color:var(--accent); border:1px solid var(--d2c4a45); border-radius:6px; padding:0 14px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; flex-shrink:0">Copia</button>
+                </div>
+                <sc-if value="{{ tempPwCopied }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11.5px; color:#3ddc84">Copiata negli appunti.</div>
+                </sc-if>
+                <button onClick="{{ chiudiTempPw }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:9px 0; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit">Ho annotato la password — chiudi</button>
+              </div>
+            </div>
+          </sc-if>
+
           <button onClick="{{ logout }}" style="align-self:flex-start; background:transparent; color:#ff5c5c; border:1px solid var(--d4a2b2b); border-radius:6px; padding:9px 20px; font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit" style-hover="background:var(--d2a1618)">Esci dall'applicazione</button>
         </div>
       </div>
@@ -1060,7 +1155,10 @@ const preserveIdentity = (original, patch) => {
 };
 
 class Component extends DCLogic {
-  state = { booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
+  state = { usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
+            usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
+            tempPw: null, tempPwCopied: false,
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
 
   static ipToNum(ip) {
     const m = String(ip || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -1670,6 +1768,191 @@ class Component extends DCLogic {
       alimentazione: { label: 'Alimentazione', color: '#ffb020' },
       altro:         { label: 'Altro',         color: '#96a1af' }
     };
+  }
+
+  // ================= gestione utenze (solo /api/users, §8.30) =================
+  //
+  // Le utenze NON stanno nel documento dell'inventario: il server lo rifiuterebbe
+  // se le contenesse (§8.16). Qui si legge e si scrive solo dall'API.
+  //
+  // Ogni operazione va per **UUID immutabile**, mai per username o posizione
+  // nell'elenco: l'username è rinominabile e la posizione cambia a ogni ricarica,
+  // quindi usarli significherebbe agire sull'utenza sbagliata appena due richieste
+  // si incrociano.
+
+  /** Ricarica l'elenco dal server. Si chiama dopo OGNI mutazione riuscita: il
+   *  server è l'autorità, e l'oggetto inviato non è quello canonico (può aver
+   *  applicato regole, normalizzazioni o rifiuti parziali). */
+  async _loadUsers() {
+    this.setState({ usersLoading: true, usersError: '' });
+    try {
+      // includeDisabled: i disattivati restano VISIBILI con il loro stato. Non
+      // sono cancellati, e nasconderli li farebbe sembrare tali (§8.30).
+      const rows = await API.listUsers(true);
+      this.setState({ usersList: rows, usersLoading: false, usersError: '' });
+    } catch (err) {
+      this.setState({ usersLoading: false, usersList: [] });
+      this._handleUsersError(err);
+    }
+  }
+
+  /** Traduce l'errore e, per i casi che riguardano la sessione, agisce. */
+  _handleUsersError(err) {
+    const d = API.describeError(err);
+    if (err instanceof API.ApiError) {
+      if (err.status === 401) {
+        this.setState({ session: null, data: null, usersPanelOpen: false,
+                        usersError: '' });
+        return;
+      }
+      if (err.status === 403 && err.code === 'password_change_required') {
+        this.setState({ mustChangePw: true, data: null, usersPanelOpen: false,
+                        usersError: '' });
+        return;
+      }
+    }
+    this.setState({ usersError: d.titolo + ' — ' + d.testo });
+  }
+
+  /** Esegue una mutazione con protezione dal doppio invio.
+   *
+   *  `key` identifica il pulsante: finché è in volo il pulsante è disabilitato,
+   *  così un doppio clic su "Crea" non produce due utenze né due password
+   *  provvisorie. Il controllo è sulla CHIAVE e non su un booleano globale, per
+   *  non bloccare l'intera schermata mentre una riga sta lavorando.
+   */
+  async _userAction(key, fn, { afterList = true } = {}) {
+    if ((this.state.usersBusy || {})[key]) return null;
+    this.setState(s => ({ usersBusy: { ...(s.usersBusy || {}), [key]: true },
+                          usersError: '' }));
+    try {
+      const out = await fn();
+      if (afterList) await this._loadUsers();
+      return out;
+    } catch (err) {
+      this._handleUsersError(err);
+      return null;
+    } finally {
+      this.setState(s => {
+        const busy = { ...(s.usersBusy || {}) };
+        delete busy[key];
+        return { usersBusy: busy };
+      });
+    }
+  }
+
+  /** Dopo una modifica che riguarda l'amministratore stesso: si richiede
+   *  /api/auth/me e si adegua l'interfaccia all'autorità che il server dichiara
+   *  ADESSO. Non si deduce dal payload inviato: l'autorità non è nostra. */
+  async _refreshOwnAuthority() {
+    try {
+      const me = await API.getMe();
+      this.setState({ session: me, mustChangePw: !!me.mustChangePassword });
+      if (me.mustChangePassword) {
+        this.setState({ usersPanelOpen: false, data: null });
+        return;
+      }
+      if (me.role !== 'admin') {
+        // Non si è più amministratori: il pannello si chiude, e si chiude con un
+        // messaggio, perché un pannello che scompare senza spiegazione sembra un
+        // guasto.
+        this.setState({ usersPanelOpen: false, usersList: [], tempPw: null,
+                        saveError: 'Il tuo ruolo è cambiato: il pannello utenze '
+                                 + 'richiede privilegi di amministratore.' });
+      }
+    } catch (err) {
+      this._handleUsersError(err);
+    }
+  }
+
+  _isSelf(row) {
+    const me = this.state.session;
+    return !!(me && row && row.username === me.username);
+  }
+
+  async _userCreate() {
+    const d = this.state.userDraft || {};
+    const username = (d.username || '').trim();
+    if (!username) { this.setState({ usersError: 'Inserisci l’utenza.' }); return; }
+    const out = await this._userAction('create', () => API.createUser({
+      username,
+      role: d.role || 'view',
+      nome: (d.nome || '').trim() || null,
+      cognome: (d.cognome || '').trim() || null,
+      telefono: (d.telefono || '').trim() || null,
+      team: (d.team || '').trim() || null,
+    }));
+    if (out) {
+      // La password provvisoria vive SOLO qui, in stato React, e solo finché il
+      // riquadro è aperto: mai nel documento dell'inventario, mai in
+      // localStorage/sessionStorage, mai nella URL, mai nei log.
+      this.setState({
+        tempPw: { password: out.temporaryPassword, username: out.user.username,
+                  reason: 'creata' },
+        userDraft: null, userFormOpen: false, tempPwCopied: false,
+      });
+    }
+  }
+
+  async _userReset(row) {
+    const out = await this._userAction('reset:' + row.id,
+      () => API.resetUserPassword(row.id));
+    if (out) {
+      this.setState({ tempPw: { password: out.temporaryPassword,
+                                username: out.user.username, reason: 'reimpostata' },
+                      tempPwCopied: false });
+    }
+  }
+
+  async _userSetDisabled(row, disabled) {
+    const done = await this._userAction((disabled ? 'disable:' : 'enable:') + row.id,
+      () => (disabled ? API.disableUser(row.id) : API.enableUser(row.id)));
+    // Nessuna rimozione ottimistica: la riga cambia stato solo perché l'elenco è
+    // stato ricaricato dal server. Le regole (ultimo amministratore, sé stessi)
+    // stanno sul server e qui si mostra il suo rifiuto.
+    if (done && this._isSelf(row)) await this._refreshOwnAuthority();
+  }
+
+  async _userSaveEdit() {
+    const d = this.state.userEdit;
+    if (!d) return;
+    const patch = {};
+    if (d.role !== d._origRole) patch.role = d.role;
+    for (const f of ['nome', 'cognome', 'telefono', 'team']) {
+      if ((d[f] || '') !== (d['_orig_' + f] || '')) patch[f] = (d[f] || '').trim() || null;
+    }
+    if (!Object.keys(patch).length) { this.setState({ userEdit: null }); return; }
+
+    const out = await this._userAction('edit:' + d.id,
+      () => API.updateUser(d.id, patch));
+    if (out) {
+      this.setState({ userEdit: null });
+      // Se l'amministratore ha cambiato il PROPRIO ruolo, l'autorità va richiesta
+      // al server subito: l'interfaccia non può dedurla da ciò che ha inviato.
+      if (this.state.session && d.username === this.state.session.username) {
+        await this._refreshOwnAuthority();
+      }
+    }
+  }
+
+  /** Chiude il riquadro della password provvisoria e ne CANCELLA il valore. */
+  _closeTempPw() {
+    this.setState({ tempPw: null, tempPwCopied: false });
+  }
+
+  async _copyTempPw() {
+    const tp = this.state.tempPw;
+    if (!tp) return;
+    try {
+      await navigator.clipboard.writeText(tp.password);
+      this.setState({ tempPwCopied: true });
+    } catch {
+      // Senza permesso sulla clipboard si dice all'utente di selezionarla a mano,
+      // invece di fingere che sia stata copiata.
+      this.setState({ tempPwCopied: false,
+                      usersError: 'Copia non consentita dal browser: '
+                                + 'seleziona la password e copiala a mano.' });
+    }
   }
 
   renderVals() {
@@ -2542,7 +2825,15 @@ class Component extends DCLogic {
       toggleAccount: () => this.setState(s => ({ accountOpen: !s.accountOpen, profileOpen: false, expOpen: false, regOpen: false })),
       // --- profilo ---
       profileOpen: S.profileOpen,
-      toggleProfile: () => this.setState(s => ({ profileOpen: !s.profileOpen, accountOpen: false, expOpen: false, regOpen: false, invOpen: false, capOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profDraft: s.profDraft || this._profOf(), profMsg: '' })),
+      toggleProfile: () => {
+        const opening = !this.state.profileOpen;
+        this.setState(s => ({ profileOpen: !s.profileOpen, accountOpen: false, expOpen: false, regOpen: false, invOpen: false, capOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profDraft: s.profDraft || this._profOf(), profMsg: '' }));
+        // L'elenco utenze si carica dal server quando il pannello si apre, e solo
+        // per gli amministratori: è l'API a decidere, ma non ha senso chiederlo
+        // per poi mostrare un 403.
+        if (opening && S_user && S_user.ruolo === 'admin') this._loadUsers();
+        if (!opening) this.setState({ userEdit: null, userFormOpen: false, tempPw: null, tempPwCopied: false, usersError: '' });
+      },
       closeProfile: () => this.setState({ profileOpen: false }),
       profDraft: S.profDraft || this._profOf(),
       profNomeCompleto: (() => { const p = S.profDraft || this._profOf(); return [p.nome, p.cognome].filter(Boolean).join(' ') || (S_user ? S_user.email : ''); })(),
@@ -2589,14 +2880,121 @@ class Component extends DCLogic {
       savePw: () => { this._doChangePassword(); },
       resetPw: () => this.setState({ pwMsg: 'Email di reset inviata (demo — sarà attiva con il backend).' }),
       pwMsg: S.pwMsg, hasPwMsg: !!S.pwMsg,
-      // --- utenze: nella tabella `users`, via /api/users (solo admin) ---
-      // Non sono più nel documento dell'inventario, che il server rifiuterebbe
-      // se le contenesse (§8.16). L'interfaccia di amministrazione userà l'API.
-      userRows: [],
-      usersManagedByApi: true,
-      nuovaUtenza: '', onNuovaUtenza: () => {},
-      nuovoRuolo: 'view', onNuovoRuolo: () => {},
-      aggiungiUtenza: () => {},
+      // --- utenze: solo /api/users, mai il documento (§8.30) ---
+      usersPanelOpen: S.usersPanelOpen,
+      toggleUsersPanel: () => {
+        const opening = !this.state.usersPanelOpen;
+        this.setState({ usersPanelOpen: opening, usersError: '', userEdit: null,
+                        userFormOpen: false, tempPw: null, tempPwCopied: false });
+        if (opening) this._loadUsers();
+      },
+      usersLoading: S.usersLoading,
+      hasUsersError: !!S.usersError,
+      usersError: S.usersError,
+      usersEmpty: !S.usersLoading && !(S.usersList || []).length,
+      usersReload: () => this._loadUsers(),
+
+      // Ogni riga porta il proprio UUID e i propri gestori: l'identità non è la
+      // posizione nell'elenco né l'username.
+      usersRows: (S.usersList || []).map(u => {
+        const busy = S.usersBusy || {};
+        const isSelf = !!(S_user && u.username === S_user.email);
+        const editing = !!(S.userEdit && S.userEdit.id === u.id);
+        return {
+          id: u.id,
+          username: u.username,
+          ruoloLabel: u.role === 'admin' ? 'Admin'
+            : (u.role === 'edit' ? 'Operatore' : 'Visualizzazione'),
+          statoLabel: u.disabled ? 'disattivata' : 'attiva',
+          statoStyle: {
+            fontSize: 10.5, flexShrink: 0, fontWeight: 700,
+            color: u.disabled ? '#ff8a3d' : '#3ddc84',
+          },
+          rowStyle: {
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+            padding: '6px 0', borderBottom: '1px solid var(--d1c232c)',
+            color: 'var(--dd7dde4)', opacity: u.disabled ? 0.65 : 1,
+          },
+          // I dati di profilo sono testo interpolato: il runtime li inserisce come
+          // testo, non come markup (§8.35).
+          profilo: [u.nome, u.cognome].filter(Boolean).join(' ')
+                   + (u.team ? ' · ' + u.team : ''),
+          ultimoAccesso: u.lastLoginAt ? String(u.lastLoginAt).slice(0, 16).replace('T', ' ')
+                                       : 'mai',
+          seStesso: isSelf,
+          isDisabled: !!u.disabled,
+          isActive: !u.disabled,
+          editing,
+          // --- azioni, disabilitate mentre la loro richiesta è in volo ---
+          // Il linguaggio dei template non ha la negazione: i booleani arrivano
+          // già nella forma che serve al markup.
+          disableDisabled: !!busy['disable:' + u.id],
+          enableDisabled: !!busy['enable:' + u.id],
+          resetDisabled: !!busy['reset:' + u.id],
+          resetLabel: busy['reset:' + u.id] ? '…' : 'Reimposta password',
+          disableLabel: busy['disable:' + u.id] ? '…' : 'Disattiva',
+          enableLabel: busy['enable:' + u.id] ? '…' : 'Riattiva',
+          apriModifica: () => this.setState({
+            userEdit: {
+              id: u.id, username: u.username, role: u.role, _origRole: u.role,
+              nome: u.nome || '', cognome: u.cognome || '',
+              telefono: u.telefono || '', team: u.team || '',
+              _orig_nome: u.nome || '', _orig_cognome: u.cognome || '',
+              _orig_telefono: u.telefono || '', _orig_team: u.team || '',
+            }, usersError: '',
+          }),
+          disattiva: () => this._userSetDisabled(u, true),
+          riattiva: () => this._userSetDisabled(u, false),
+          reimposta: () => this._userReset(u),
+        };
+      }),
+
+      // --- creazione ---
+      userFormOpen: S.userFormOpen,
+      toggleUserForm: () => this.setState(s => ({
+        userFormOpen: !s.userFormOpen, usersError: '',
+        userDraft: s.userFormOpen ? null
+          : { username: '', role: 'view', nome: '', cognome: '', telefono: '', team: '' },
+      })),
+      userDraft: S.userDraft
+        || { username: '', role: 'view', nome: '', cognome: '', telefono: '', team: '' },
+      onUserDraft: (e) => {
+        const { name, value } = e.target;
+        this.setState(s => ({
+          userDraft: { ...(s.userDraft || { role: 'view' }), [name]: value },
+          usersError: '',
+        }));
+      },
+      // Doppio clic su "Crea": il pulsante è disabilitato finché la richiesta è in
+      // volo, così non nascono due utenze né due password provvisorie.
+      creaUtente: () => this._userCreate(),
+      createDisabled: !!(S.usersBusy || {})['create'],
+      createLabel: (S.usersBusy || {})['create'] ? 'Creazione…' : 'Crea utenza',
+
+      // --- modifica ---
+      userEditOpen: !!S.userEdit,
+      userEdit: S.userEdit || { username: '', role: 'view', nome: '', cognome: '',
+                                telefono: '', team: '' },
+      onUserEdit: (e) => {
+        const { name, value } = e.target;
+        this.setState(s => ({ userEdit: { ...(s.userEdit || {}), [name]: value },
+                              usersError: '' }));
+      },
+      salvaUserEdit: () => this._userSaveEdit(),
+      annullaUserEdit: () => this.setState({ userEdit: null, usersError: '' }),
+      saveEditDisabled: !!(S.usersBusy || {})['edit:' + ((S.userEdit || {}).id || '')],
+      saveEditLabel: (S.usersBusy || {})['edit:' + ((S.userEdit || {}).id || '')]
+        ? 'Salvataggio…' : 'Salva',
+
+      // --- password provvisoria: una volta sola, poi si cancella ---
+      tempPwOpen: !!S.tempPw,
+      tempPwValue: S.tempPw ? S.tempPw.password : '',
+      tempPwUser: S.tempPw ? S.tempPw.username : '',
+      tempPwReason: S.tempPw ? S.tempPw.reason : '',
+      tempPwCopied: !!S.tempPwCopied,
+      copiaTempPw: () => this._copyTempPw(),
+      chiudiTempPw: () => this._closeTempPw(),
+
       onNotAttive: (e) => this._setNotifiche({ attive: e.target.checked }),
       onNotEmail: (e) => this._setNotifiche({ email: e.target.value }),
       onNotGiorni: (e) => this._setNotifiche({ giorni: Math.max(1, Math.min(365, parseInt(e.target.value, 10) || 30)) }),

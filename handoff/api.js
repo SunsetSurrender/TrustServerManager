@@ -68,6 +68,28 @@ export const doLogout = () => request('POST', '/api/auth/logout');
 export const changePassword = (currentPassword, newPassword) =>
   request('POST', '/api/auth/password', { currentPassword, newPassword });
 
+// ------------------------------------------------------------------ utenze
+//
+// Solo /api/users. Le utenze NON stanno nel documento dell'inventario: il server
+// rifiuterebbe un documento che le contenesse (§8.16).
+//
+// Non esiste una funzione di cancellazione, e non è una dimenticanza: l'audit
+// referenzia le utenze, quindi si disattiva e non si elimina (§8.30). Il ruolo di
+// runtime del database non ha nemmeno il privilegio.
+
+export const listUsers = (includeDisabled = true) =>
+  request('GET', `/api/users?includeDisabled=${includeDisabled ? 'true' : 'false'}`);
+
+export const createUser = (payload) => request('POST', '/api/users', payload);
+
+/** Ogni operazione va per UUID immutabile, mai per username o posizione:
+ *  l'username è rinominabile e la posizione nell'elenco cambia a ogni ricarica. */
+export const updateUser = (id, patch) => request('PATCH', `/api/users/${id}`, patch);
+export const disableUser = (id) => request('POST', `/api/users/${id}/disable`, {});
+export const enableUser = (id) => request('POST', `/api/users/${id}/enable`, {});
+export const resetUserPassword = (id) =>
+  request('POST', `/api/users/${id}/reset-password`, {});
+
 // ------------------------------------------------------------- inventario
 
 export const getInventory = () => request('GET', '/api/inventory');
@@ -205,6 +227,23 @@ export function describeError(err) {
                  : 'Il tuo ruolo non consente questa operazione.',
                azione: null };
     case 409:
+      // 409 non è un caso solo: lo stesso stato copre il conflitto di versione
+      // dell'inventario, l'utenza già esistente e la protezione dell'ultimo
+      // amministratore. Un testo unico direbbe alla persona una cosa falsa —
+      // «qualcun altro ha salvato» quando in realtà ha scelto un nome già in
+      // uso. Si distingue per codice.
+      if (err.code === 'username_taken') {
+        return { titolo: 'Utenza già esistente',
+                 testo: err.message || 'Esiste già un\'utenza con questo nome.',
+                 azione: null };
+      }
+      if (err.code === 'last_admin_protected') {
+        return { titolo: 'Ultimo amministratore',
+                 testo: err.message
+                   || 'Non si può togliere l\'ultimo amministratore attivo: '
+                    + 'nominane un altro prima di procedere.',
+                 azione: null };
+      }
       return { titolo: 'Modificato da un\'altra sessione',
                testo: 'Un\'altra persona ha salvato prima di te. '
                     + 'Ricarico i dati aggiornati: le tue modifiche non salvate '

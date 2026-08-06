@@ -1865,7 +1865,98 @@ Verificato che il test fallisca su ciascuna delle due regressioni **separatament
 test di regressione che non fallisce quando si reintroduce il difetto non sta
 proteggendo niente.
 
+### 8.35 Interfaccia di amministrazione delle utenze
+
+Frontend puro sopra le rotte già esistenti di §8.30. Nessuna utenza nel documento
+dell'inventario: si legge e si scrive solo da `/api/users`.
+
+#### Identità: sempre l'UUID
+
+Elenco, modifica, disattivazione, riattivazione e reimpostazione usano l'`id` UUID
+della riga. Mai l'username, mai la posizione nell'elenco: il primo è rinominabile e la
+seconda cambia a ogni ricarica, quindi bastano due richieste che si incrociano per agire
+sull'utenza sbagliata.
+
+#### Il server è l'autorità, non una copia delle sue regole
+
+- Le politiche (ultimo amministratore attivo, non disattivare sé stessi, username già
+  in uso) **non sono riprodotte in JavaScript**: si invia e si mostra il rifiuto. Una
+  seconda copia delle regole nel client si sarebbe scostata dalla prima, e la copia
+  sbagliata sarebbe stata quella che l'utente vede.
+- **Nessuna rimozione o retrocessione ottimistica**: la riga cambia solo perché
+  l'elenco è stato **ricaricato dal server** dopo la conferma. L'oggetto inviato non è
+  quello canonico — il server normalizza, applica regole e può rifiutare in parte.
+- Dopo una modifica che riguarda l'amministratore stesso si richiede
+  **`/api/auth/me`** e si adegua l'interfaccia a quello che il server dichiara
+  *adesso*. Se il ruolo non basta più, il pannello si chiude **con un messaggio**: un
+  pannello che scompare senza spiegazione sembra un guasto.
+
+#### Nessuna cancellazione, da nessuna parte
+
+Nessun pulsante di eliminazione, nessuna chiamata `DELETE`. Le utenze disattivate
+**restano visibili** con lo stato «disattivata» e l'azione di riattivazione: nasconderle
+le farebbe sembrare cancellate, che è esattamente l'impressione da evitare quando
+l'audit continua a citarle.
+
+#### Password provvisorie
+
+Mostrate **una volta**, in un riquadro dedicato, con un pulsante di copia esplicito.
+Vivono solo in stato React e solo finché il riquadro è aperto: mai nel documento
+dell'inventario, mai in `localStorage` o `sessionStorage`, mai nella URL, mai nei log o
+in console, mai nei dettagli dell'audit. Alla chiusura il valore viene **cancellato**
+dallo stato, e il test verifica che scompaia anche dall'HTML.
+
+Se il browser nega la clipboard si dice di copiarla a mano, invece di confermare una
+copia che non è avvenuta.
+
+#### Doppio invio
+
+Ogni azione si disabilita mentre la sua richiesta è in volo, e la chiave è **per
+pulsante** (`reset:<uuid>`), non un booleano globale: una riga che lavora non deve
+bloccare l'intero pannello.
+
+Il test riproduce un doppio clic **vero**, cioè due eventi nello stesso task del
+browser. Con due `dispatch_event` separati non provava nulla: la creazione riuscita
+chiude il form, quindi il secondo clic non trovava più il pulsante e il test passava per
+il motivo sbagliato.
+
+#### Errori distinti
+
+Tutti i casi richiesti passano da `describeError`: 401 → login, 403
+`password_change_required` → cambio forzato, 403 → autorità insufficiente con il ruolo
+richiesto, 409, 413, 422, 429, 503.
+
+⚠ Difetto trovato dal test: **409 non è un caso solo.** Lo stesso stato copre il
+conflitto di versione dell'inventario, l'utenza già esistente e la protezione
+dell'ultimo amministratore, e il mapping li trattava tutti come il primo. Chi provava a
+creare un'utenza con un nome già in uso leggeva «un'altra persona ha salvato prima di
+te» — un messaggio non solo inutile ma falso. Ora si distingue per `code`.
+
+#### Testo, non markup
+
+I campi di profilo e i messaggi del server passano dall'interpolazione `{{ }}` del
+runtime, che li inserisce come **testo**. Nessun `innerHTML`, nessun rendering di
+markup che arriva dal server o da un altro utente.
+
+#### Prova nel browser
+
+`tools/users-ui-test.py` (51 controlli) attraverso nginx e TLS. Copre creazione,
+modifica di ruolo e profilo, disattivazione, riattivazione, reimpostazione, utenza
+duplicata, doppio clic su creazione e reimpostazione, ciclo di vita della password
+provvisoria, protezione dell'ultimo amministratore, autoretrocessione con rilettura
+dell'autorità, e il rifiuto delle rotte a un non-amministratore — compresi header
+(`X-Role`, `Authorization`) e parametri di query falsificati, che restano inefficaci
+perché il ruolo lo rilegge il server dalla sessione.
+
+Il test **non è ripetibile** su uno stato già usato, perché finisce retrocedendo
+l'amministratore: c'è una precondizione che lo dice con chiarezza e
+`tools/run-users-ui-test.ps1` ricrea lo stato prima di partire. E il rapporto degli
+esiti si stampa **sempre**, anche se il test si interrompe a metà: senza,
+un'eccezione nascondeva tutto ciò che era già stato verificato e si finiva a
+indovinare.
+
 ## 9. Ordine di lavoro proposto
+
 
 
 
@@ -1908,10 +1999,13 @@ proteggendo niente.
 6-quinquies. ~~Regressione sulle intestazioni `X-Forwarded-*` (§8.34): nginx le
    sovrascrive, l'API si fida solo del proxy, e la porta dell'API non è più pubblicata~~
    ✔ **fatto** — `tools/proxy-security-test.py`
-7. Interfaccia di amministrazione delle utenze su `/api/users` (le rotte ci sono già,
-   §8.30): oggi i pannelli dicono che la gestione è lato server. **Prossimo commit.**
-8. Vista del registro su `GET /api/audit`, e `/api/settings` per notifiche e SMTP.
-9. Foto su `/api/photos` + GC (§8.5), poi job scadenze (§8.8).
+7. ~~Interfaccia di amministrazione delle utenze su `/api/users` (§8.35)~~
+   ✔ **fatto** — `tools/users-ui-test.py`, `tools/run-users-ui-test.ps1`
+8. **Vista del registro** su `GET /api/audit` (endpoint da scrivere: cursore su
+   `(ts, id)`, filtri, solo admin). **Prossimo commit.**
+9. `/api/settings` con schema tipizzato e `If-Match`, più l'endpoint di prova invio.
+10. Layout di archiviazione in produzione: volume su secondo disco, preflight, systemd.
+11. Foto su `/api/photos` + GC (§8.5), poi job scadenze (§8.8).
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

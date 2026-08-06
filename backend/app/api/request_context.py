@@ -50,16 +50,22 @@ def client_ip(request: Request) -> str | None:
     proprio indirizzo — e con esso aggiri la limitazione dei tentativi di accesso
     semplicemente cambiando una stringa a ogni richiesta.
 
-    Quando il peer è fidato si prende la PRIMA voce della catena, che è il client
-    originale; le successive sono i proxy attraversati.
+    Si prende l'ULTIMA voce della catena, non la prima. Il nostro nginx
+    sovrascrive l'header con il solo `$remote_addr` (§8.34), quindi la voce è una
+    sola e le due scelte coincidono — ma se un giorno un proxy davanti accodasse
+    invece di sovrascrivere, l'ultima voce resterebbe quella scritta da un
+    componente fidato, mentre la prima sarebbe quella scelta dal chiamante.
+    Fra due letture equivalenti oggi si sceglie quella che regge domani.
     """
     peer = request.client.host if request.client else None
     if _peer_is_trusted(peer):
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            first = safe_ip(forwarded)
-            if first:
-                return first
+            parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+            for candidate in reversed(parts):
+                ip = safe_ip(candidate)
+                if ip:
+                    return ip
     return safe_ip(peer)
 
 

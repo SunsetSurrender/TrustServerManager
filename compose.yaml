@@ -87,9 +87,18 @@ services:
       context: ./backend
     image: tsm-api:0.2.0
     networks: [internal, edge]
-    ports:
-      # Solo loopback: in produzione ci parla nginx, non l'esterno.
-      - "127.0.0.1:8000:8000"
+    # NESSUNA porta pubblicata (§8.34).
+    #
+    # Pubblicarla su 127.0.0.1:8000 sembrava innocuo — "solo loopback" — e non lo
+    # era: le richieste dall'host arrivano al container attraverso il bridge di
+    # Docker con indirizzo sorgente 172.x, cioè DENTRO TSM_TRUSTED_PROXIES. L'API
+    # le considera provenienti dal proxy e crede alle loro intestazioni
+    # `X-Forwarded-*`: chiunque sull'host poteva dichiarare il proprio IP e
+    # aggirare il limitatore dei tentativi.
+    #
+    # L'API si raggiunge da nginx sulla rete interna. Per la diagnostica c'è
+    # `docker compose exec api`, e compose.dev.yaml ripubblica la porta quando
+    # serve davvero.
     depends_on:
       db:
         condition: service_healthy

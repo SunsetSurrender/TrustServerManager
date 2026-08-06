@@ -12,6 +12,12 @@
 
 services:
   api:
+    # In sviluppo la porta dell'API è pubblicata per poterla interrogare
+    # direttamente. Attenzione: da qui gli header `X-Forwarded-*` vengono creduti,
+    # perché il peer cade nelle reti fidate (§8.34). Va bene per lo sviluppo, non
+    # per la produzione, dove infatti non è pubblicata.
+    ports:
+      - "127.0.0.1:8000:8000"
     environment:
       TSM_ENV: development
       TSM_COOKIE_SECURE: "false"

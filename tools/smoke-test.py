@@ -40,7 +40,9 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-API = "http://127.0.0.1:8000"
+# L'API NON è pubblicata sull'host (§8.34): la si raggiunge da nginx, che è anche
+# il modo in cui la raggiungono gli utenti.
+API = "https://127.0.0.1"
 PG_PORT = 5432
 
 results: list[tuple[str, bool, str]] = []
@@ -60,9 +62,16 @@ def exec_in(service: str, *cmd: str) -> subprocess.CompletedProcess:
     return compose("exec", "-T", service, *cmd)
 
 
+_API_TLS = ssl.create_default_context()
+_API_TLS.check_hostname = False
+_API_TLS.verify_mode = ssl.CERT_NONE
+
+
 def http_get(path: str) -> tuple[int, str]:
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=_API_TLS))
     try:
-        with urllib.request.urlopen(f"{API}{path}", timeout=10) as r:
+        with opener.open(f"{API}{path}", timeout=10) as r:
             return r.status, r.read().decode()
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()

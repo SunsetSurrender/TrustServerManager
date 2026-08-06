@@ -1796,7 +1796,77 @@ dell'inventario solo dopo, attributi del cookie (`Secure`, `HttpOnly`, `SameSite
 salvataggio reale con una sola PUT, persistenza verificata ricaricando la pagina,
 allowlist statica, logout e inaccessibilità dell'inventario dopo il logout.
 
+### 8.34 Intestazioni `X-Forwarded-*`: non falsificabili
+
+Le `X-Forwarded-*` sono le uniche affermazioni che l'API accetta *da noi* su una
+richiesta: schema, host e IP del client. Se il chiamante può scriverle, può scegliere
+da dove sembra arrivare — e con esso aggirare la validazione di origine (§8.27) e il
+limitatore per IP (§8.28).
+
+Regola: **nginx le sovrascrive sempre.** Mai accodare, mai lasciar passare.
+
+```nginx
+proxy_set_header X-Forwarded-For   $remote_addr;   # NON $proxy_add_x_forwarded_for
+proxy_set_header X-Forwarded-Host  $host;          # va scritto ANCHE se uguale a Host
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+#### Due difetti reali, trovati scrivendo questo test
+
+**1. `$proxy_add_x_forwarded_for` accoda.** Era la configurazione in uso. Quella
+variabile aggiunge l'IP reale *in coda* a un eventuale header del client, quindi un
+`X-Forwarded-For: 203.0.113.77` inviato dall'esterno arrivava all'API come
+`203.0.113.77, 172.20.0.1`. L'API leggeva la **prima** voce — quella scelta
+dall'attaccante — e la registrava come IP del client: limitatore per IP aggirabile
+cambiando una stringa a ogni tentativo.
+
+Corretto su due lati indipendenti: nginx sovrascrive, e l'API legge l'**ultima** voce
+della catena invece della prima. Fra due letture equivalenti quando c'è un solo proxy,
+si sceglie quella che regge se un giorno qualcuno accodasse.
+
+**2. `X-Forwarded-Host` non era impostato affatto**, quindi quello del client passava
+intatto — e l'API, che si fida degli header quando il peer è il proxy, costruiva
+l'origine attesa con un valore scelto dall'attaccante. Bastava mandare
+`X-Forwarded-Host: malintenzionato.example` insieme a `Origin: https://malintenzionato.example`
+perché i due combaciassero e la validazione di origine passasse.
+
+**3. La porta dell'API pubblicata su `127.0.0.1:8000` era una scorciatoia che
+scavalcava il proxy.** «Solo loopback» sembrava innocuo e non lo era: le richieste
+dall'host al container attraversano il bridge di Docker e arrivano con sorgente
+`172.20.0.1`, cioè **dentro** `TSM_TRUSTED_PROXIES`. L'API le considerava provenienti
+dal proxy e credeva alle loro `X-Forwarded-*`: chiunque sull'host potiva dichiarare il
+proprio IP. In produzione la porta non è più pubblicata; l'API si raggiunge da nginx e,
+per la diagnostica, con `docker compose exec`. `compose.dev.yaml` la ripubblica in
+sviluppo, con il motivo scritto accanto.
+
+#### Il test: comportamento **e** configurazione
+
+`tools/proxy-security-test.py`, attraverso nginx vero sulla 443. Chiamare FastAPI
+direttamente non serve: da lì il peer non è fidato, gli header vengono ignorati, e il
+test passerebbe anche con nginx configurato male — che è esattamente come il difetto è
+sopravvissuto fino a qui.
+
+Il test verifica entrambi i livelli, e la ragione è concreta: le due difese sono
+indipendenti e **ognuna da sola nasconde la regressione dell'altra**. Rimettendo
+`$proxy_add_x_forwarded_for`, l'API che legge l'ultima voce continua a comportarsi
+correttamente: il comportamento è a posto mentre la configurazione è tornata
+vulnerabile, e basterebbe un cambio sul lato API perché si aprissero insieme. Quindi:
+
+- **configurazione** — si leggono le sole direttive `proxy_set_header` (i commenti
+  nominano `$proxy_add_x_forwarded_for` per spiegare perché non si usa, e un controllo
+  sul testo grezzo confonderebbe la spiegazione col difetto), su `nginx.conf` **e**
+  `nginx.dev.conf`;
+- **comportamento** — l'IP falsificato non compare in `login_attempts` né in `audit`;
+  un `Origin` estraneo con `X-Forwarded-Host` falsificato riceve 403; un
+  `X-Forwarded-Proto: http` falsificato non abilita un `Origin` http; e non esiste una
+  porta dell'API pubblicata da cui scavalcare tutto.
+
+Verificato che il test fallisca su ciascuna delle due regressioni **separatamente**: un
+test di regressione che non fallisce quando si reintroduce il difetto non sta
+proteggendo niente.
+
 ## 9. Ordine di lavoro proposto
+
 
 
 
@@ -1835,8 +1905,11 @@ allowlist statica, logout e inaccessibilità dell'inventario dopo il logout.
    in minuscolo, semantica transazionale §8.32) e **integrazione del frontend** con
    l'API (§8.33)~~ ✔ **fatto** — `handoff/api.js`, `tools/browser-e2e-test.py`.
    Da qui in avanti i dati dell'utente sono durevoli e passano dal server.
+6-quinquies. ~~Regressione sulle intestazioni `X-Forwarded-*` (§8.34): nginx le
+   sovrascrive, l'API si fida solo del proxy, e la porta dell'API non è più pubblicata~~
+   ✔ **fatto** — `tools/proxy-security-test.py`
 7. Interfaccia di amministrazione delle utenze su `/api/users` (le rotte ci sono già,
-   §8.30): oggi i pannelli dicono che la gestione è lato server.
+   §8.30): oggi i pannelli dicono che la gestione è lato server. **Prossimo commit.**
 8. Vista del registro su `GET /api/audit`, e `/api/settings` per notifiche e SMTP.
 9. Foto su `/api/photos` + GC (§8.5), poi job scadenze (§8.8).
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)

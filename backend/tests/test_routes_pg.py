@@ -330,6 +330,7 @@ def test_api_surface_is_the_expected_set():
         "/api/users", "/api/users/{user_id}",
         "/api/users/{user_id}/disable", "/api/users/{user_id}/enable",
         "/api/users/{user_id}/reset-password",
+        "/api/audit",
     }
 
 

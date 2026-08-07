@@ -358,11 +358,14 @@ class InventoryRepository:
     def _insert_audit(self, version: int, actor: Actor, *, action: str,
                       scopes: list[str], events: list[dict],
                       client_hint: str | None) -> None:
+        from app.audit.sanitize import sanitize
+
         self.conn.execute(text("""
             INSERT INTO audit (actor_user_id, actor_username, actor_role, ip,
-                               inventory_version, action, scopes, events, client_hint)
+                               inventory_version, action, result, scopes, events,
+                               client_hint)
             VALUES (:user_id, :username, :role, :ip,
-                    :version, :action, :scopes, :events, :hint)
+                    :version, :action, 'success', :scopes, :events, :hint)
         """), {
             "user_id": actor.user_id,
             "username": actor.username,
@@ -371,7 +374,10 @@ class InventoryRepository:
             "version": version,
             "action": action,
             "scopes": scopes,
-            "events": json.dumps(events, ensure_ascii=False),
+            # Ripulitura in scrittura (§8.36): gli eventi di dominio non
+            # contengono segreti, ma il registro è alimentato da più produttori e
+            # la difesa non deve dipendere dal fatto che ognuno si ricordi.
+            "events": json.dumps(sanitize(events), ensure_ascii=False),
             "hint": _clip(client_hint),
         })
 

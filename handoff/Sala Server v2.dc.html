@@ -198,20 +198,12 @@
             </div>
           </sc-if>
         </div>
-        <div style="position:relative">
-          <button onClick="{{ toggleReg }}" style="background:var(--d161b22); color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:8px; padding:7px 14px; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0" style-hover="color:var(--accent); border-color:var(--d2c4a45)">Registro</button>
-          <sc-if value="{{ regOpen }}" hint-placeholder-val="{{ false }}">
-            <div class="pop-in" style="position:absolute; top:calc(100% + 6px); right:0; width:360px; max-height:320px; overflow-y:auto; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; box-shadow:0 12px 32px var(--sh55); z-index:60; padding:10px 12px">
-              <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">REGISTRO MODIFICHE (sessione)</div>
-              <sc-if value="{{ regEmpty }}" hint-placeholder-val="{{ false }}">
-                <div style="font-size:12px; color:var(--d57626f)">Nessuna modifica registrata.</div>
-              </sc-if>
-              <sc-for list="{{ regRows }}" as="rg" hint-placeholder-count="0">
-                <div style="font-family:'Roboto Mono',monospace; font-size:11px; color:var(--d7c8794); padding:4px 0; border-bottom:1px solid var(--d1e252e)">{{ rg.txt }}</div>
-              </sc-for>
-            </div>
-          </sc-if>
-        </div>
+        <!-- Registro: pannello di sola lettura su /api/audit, solo admin.
+             Il vecchio elenco «di sessione» era ricostruito lato client e non
+             era un registro: spariva al ricaricamento e non provava niente. -->
+        <sc-if value="{{ isAdminUser }}" hint-placeholder-val="{{ false }}">
+          <button id="btn-registro" onClick="{{ toggleAudit }}" style="background:var(--d161b22); color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:8px; padding:7px 14px; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0" style-hover="color:var(--accent); border-color:var(--d2c4a45)">Registro</button>
+        </sc-if>
         <button onClick="{{ toggleProfile }}" title="{{ profileTip }}" style="{{ profileBtnStyle }}" style-hover="filter:brightness(1.15)">{{ userInitials }}</button>
         <div style="position:relative; flex-shrink:0">
           <!-- Stato del salvataggio: "salvato" appare SOLO dopo la conferma del
@@ -624,6 +616,86 @@
           </sc-if>
 
           <button onClick="{{ logout }}" style="align-self:flex-start; background:transparent; color:#ff5c5c; border:1px solid var(--d4a2b2b); border-radius:6px; padding:9px 20px; font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit" style-hover="background:var(--d2a1618)">Esci dall'applicazione</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Registro di audit: sola lettura, solo admin (§8.36) -->
+    <sc-if value="{{ auditOpen }}" hint-placeholder-val="{{ false }}">
+      <div class="view-in" style="flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:var(--d0c0f13)">
+        <div style="padding:14px 24px 10px; border-bottom:1px solid var(--d1e252e); display:flex; flex-direction:column; gap:10px">
+          <div style="display:flex; align-items:center; gap:10px">
+            <span style="font-size:14px; font-weight:700; color:var(--de6ecf2)">Registro delle modifiche</span>
+            <span style="font-size:11px; color:var(--d57626f)">{{ auditCount }} voci caricate</span>
+            <div style="flex:1"></div>
+            <button onClick="{{ toggleAudit }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 12px; font-size:11.5px; cursor:pointer; font-family:inherit">✕ Chiudi</button>
+          </div>
+
+          <!-- filtri: tipizzati, non espressioni libere -->
+          <div id="audit-filtri" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center">
+            <input type="date" name="from" value="{{ auditFilters.from }}" onChange="{{ onAuditFilter }}" title="Dal giorno" style="background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:6px 8px; font-family:inherit; font-size:12px">
+            <input type="date" name="to" value="{{ auditFilters.to }}" onChange="{{ onAuditFilter }}" title="Al giorno" style="background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:6px 8px; font-family:inherit; font-size:12px">
+            <input name="username" placeholder="utenza" value="{{ auditFilters.username }}" onChange="{{ onAuditFilter }}" style="width:150px; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:6px 8px; font-family:'Roboto Mono',monospace; font-size:12px">
+            <input name="event" placeholder="evento (es. auth, inventory.save)" value="{{ auditFilters.event }}" onChange="{{ onAuditFilter }}" style="width:230px; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:6px 8px; font-family:'Roboto Mono',monospace; font-size:12px">
+            <select name="result" value="{{ auditFilters.result }}" onChange="{{ onAuditFilter }}" style="background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:6px 8px; font-family:inherit; font-size:12px">
+              <option value="">ogni esito</option>
+              <option value="success">riuscito</option>
+              <option value="failure">fallito</option>
+              <option value="denied">negato</option>
+            </select>
+            <button id="btn-audit-filtra" onClick="{{ applicaFiltriAudit }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit">Filtra</button>
+            <button onClick="{{ azzeraFiltriAudit }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit">Azzera</button>
+          </div>
+
+          <sc-if value="{{ hasAuditError }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:11.5px; color:#ff5c5c; background:var(--d2a1618); border:1px solid var(--d4a2b2b); border-radius:6px; padding:8px 10px">{{ auditError }}</div>
+          </sc-if>
+        </div>
+
+        <div style="flex:1; min-height:0; overflow-y:auto; padding:0 24px 18px">
+          <sc-if value="{{ auditLoading }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:14px 0; font-size:12px; color:var(--d8a94a2)">Caricamento…</div>
+          </sc-if>
+          <sc-if value="{{ auditEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:14px 0; font-size:12px; color:var(--d8a94a2)">Nessuna voce corrisponde ai filtri.</div>
+          </sc-if>
+
+          <div id="audit-elenco">
+            <sc-for list="{{ auditRows }}" as="ev" hint-placeholder-count="0">
+              <div style="display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--d1c232c); font-size:12px; color:var(--dd7dde4)">
+                <span style="font-family:'Roboto Mono',monospace; font-size:11px; color:var(--d8a94a2); flex-shrink:0; width:150px">{{ ev.quando }}</span>
+                <span style="font-family:'Roboto Mono',monospace; flex-shrink:0; width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ev.chi }}</span>
+                <span style="font-size:10.5px; color:var(--d57626f); flex-shrink:0; width:70px">{{ ev.ruolo }}</span>
+                <span style="font-family:'Roboto Mono',monospace; font-size:11.5px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ev.evento }}</span>
+                <span style="{{ ev.esitoStyle }}">{{ ev.esito }}</span>
+                <span style="font-size:10.5px; color:var(--d57626f); flex-shrink:0; width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ev.nota }}</span>
+                <sc-if value="{{ ev.hasDetail }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ ev.apriDetail }}" data-tsm-audit-detail="1" style="background:transparent; color:var(--accent); border:1px solid var(--d2c4a45); border-radius:5px; padding:3px 8px; font-size:10.5px; cursor:pointer; font-family:inherit; flex-shrink:0">Dettaglio</button>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ auditHasMore }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:14px 0; display:flex; justify-content:center">
+              <button id="btn-audit-altri" onClick="{{ auditMore }}" disabled="{{ auditMoreDisabled }}" style="background:var(--d1a2a27); color:var(--accent); border:1px solid var(--d2c4a45); border-radius:6px; padding:8px 22px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit">{{ auditMoreLabel }}</button>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- dettaglio di una voce: il JSON non si riversa nella tabella -->
+    <sc-if value="{{ auditDetailOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:fixed; inset:0; z-index:218; background:rgba(0,0,0,0.65); display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif" onClick="{{ chiudiAuditDetail }}">
+        <div id="audit-detail" style="width:640px; max-height:70vh; background:var(--d12161c); border:1px solid var(--d2b333d); border-radius:12px; padding:22px; display:flex; flex-direction:column; gap:10px; box-shadow:0 24px 64px rgba(0,0,0,0.6)">
+          <div style="font-size:13px; font-weight:700; color:var(--de6ecf2); font-family:'Roboto Mono',monospace">{{ auditDetailTitle }}</div>
+          <div style="font-size:12px; color:var(--d8a94a2)">Attore: {{ auditDetailWho }}</div>
+          <sc-if value="{{ auditDetailHint }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:11.5px; color:var(--d57626f); line-height:1.5">Nota del client (non attendibile): {{ auditDetailHint }}</div>
+          </sc-if>
+          <pre id="audit-detail-json" style="flex:1; min-height:0; overflow:auto; margin:0; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; padding:12px; font-family:'Roboto Mono',monospace; font-size:11.5px; color:var(--dd7dde4); white-space:pre-wrap; word-break:break-word">{{ auditDetailJson }}</pre>
+          <button onClick="{{ chiudiAuditDetail }}" style="align-self:flex-end; background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:8px 18px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit">Chiudi</button>
         </div>
       </div>
     </sc-if>
@@ -1155,7 +1227,11 @@ const preserveIdentity = (original, patch) => {
 };
 
 class Component extends DCLogic {
-  state = { usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
+  state = { auditOpen: false, auditRows: [], auditCursor: null, auditLoading: false,
+            auditLoaded: false, auditError: '', auditDetail: null,
+            auditFilters: { from: '', to: '', username: '', event: '', result: '' },
+            timezone: '',
+            usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
             booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
@@ -1952,6 +2028,99 @@ class Component extends DCLogic {
       this.setState({ tempPwCopied: false,
                       usersError: 'Copia non consentita dal browser: '
                                 + 'seleziona la password e copiala a mano.' });
+    }
+  }
+
+  // ==================== registro di audit (solo /api/audit) ====================
+  //
+  // Sola lettura. Il client NON ricostruisce né integra voci di registro (§8.9):
+  // quello che si vede è ciò che il server ha registrato, o niente. Le voci
+  // client-side del prototipo sono state rimosse con l'integrazione (§8.33).
+
+  /** Carica la prima pagina, azzerando il cursore. Si chiama quando il pannello
+   *  si apre e ogni volta che cambiano i filtri: con un cursore vecchio i
+   *  risultati sarebbero una pagina di un elenco che non esiste più. */
+  async _auditReload() {
+    this.setState({ auditCursor: null, auditRows: [], auditError: '' });
+    await this._auditFetch(null, true);
+  }
+
+  /** Pagina successiva. L'elenco corrente resta visibile durante il caricamento. */
+  async _auditMore() {
+    const cur = this.state.auditCursor;
+    if (!cur) return;
+    await this._auditFetch(cur, false);
+  }
+
+  async _auditFetch(cursor, replace) {
+    // Una richiesta alla volta: due clic su «Carica altri» accoderebbero due
+    // pagine con lo stesso cursore, e la seconda duplicherebbe le righe della
+    // prima. Il flag è il guardiano, ed è anche ciò che disabilita il pulsante.
+    if (this.state.auditLoading) return;
+    this.setState({ auditLoading: true, auditError: '' });
+
+    const f = this.state.auditFilters || {};
+    try {
+      const out = await API.getAudit({
+        cursor,
+        pageSize: 50,
+        from: f.from ? new Date(f.from + 'T00:00:00').toISOString() : null,
+        to: f.to ? new Date(f.to + 'T23:59:59').toISOString() : null,
+        username: f.username || null,
+        event: f.event || null,
+        result: f.result || null,
+      });
+      this.setState(s => ({
+        auditRows: replace ? out.items : [...(s.auditRows || []), ...out.items],
+        auditCursor: out.nextCursor,
+        auditLoading: false,
+        auditLoaded: true,
+      }));
+    } catch (err) {
+      this.setState({ auditLoading: false, auditLoaded: true });
+      this._handleAuditError(err);
+    }
+  }
+
+  _handleAuditError(err) {
+    const d = API.describeError(err);
+    if (err instanceof API.ApiError) {
+      if (err.status === 401) {
+        this.setState({ session: null, data: null, auditOpen: false, auditRows: [] });
+        return;
+      }
+      if (err.status === 403 && err.code === 'password_change_required') {
+        this.setState({ mustChangePw: true, data: null, auditOpen: false });
+        return;
+      }
+      if (err.status === 403) {
+        // Il 403 del server è l'autorità: il pannello si chiude anche se
+        // l'interfaccia credeva di poterlo mostrare.
+        this.setState({ auditOpen: false, auditRows: [],
+                        saveError: d.titolo + ' — ' + d.testo });
+        return;
+      }
+    }
+    this.setState({ auditError: d.titolo + ' — ' + d.testo });
+  }
+
+  /** Formatta un istante UTC nel fuso dell'applicazione.
+   *
+   *  L'API resta in UTC — è l'unico modo perché due amministratori in fusi
+   *  diversi parlino dello stesso evento — e la conversione avviene solo qui,
+   *  per la lettura. */
+  _auditTime(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      const tz = this.state.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return new Intl.DateTimeFormat('it-IT', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        timeZone: tz,
+      }).format(d);
+    } catch {
+      return String(iso);
     }
   }
 
@@ -2880,6 +3049,85 @@ class Component extends DCLogic {
       savePw: () => { this._doChangePassword(); },
       resetPw: () => this.setState({ pwMsg: 'Email di reset inviata (demo — sarà attiva con il backend).' }),
       pwMsg: S.pwMsg, hasPwMsg: !!S.pwMsg,
+      // --- registro di audit: solo /api/audit, solo admin (§8.36) ---
+      auditOpen: S.auditOpen,
+      auditLoading: S.auditLoading,
+      hasAuditError: !!S.auditError,
+      auditError: S.auditError,
+      auditEmpty: S.auditLoaded && !S.auditLoading && !(S.auditRows || []).length,
+      // Il pulsante «Carica altri» esiste solo se il server ha dato un cursore, ed
+      // è disabilitato mentre una pagina è in volo: senza, due clic accoderebbero
+      // due richieste con lo stesso cursore e le righe si duplicherebbero.
+      auditHasMore: !!S.auditCursor,
+      auditMoreDisabled: !!S.auditLoading,
+      auditMoreLabel: S.auditLoading ? 'Caricamento…' : 'Carica altri',
+      auditCount: String((S.auditRows || []).length),
+
+      toggleAudit: () => {
+        const opening = !this.state.auditOpen;
+        this.setState({
+          auditOpen: opening, regOpen: false, accountOpen: false, expOpen: false,
+          dashOpen: false, invOpen: false, capOpen: false, scadOpen: false,
+          manualOpen: false, profileOpen: false, auditDetail: null,
+        });
+        if (opening) this._auditReload();
+      },
+      auditMore: () => this._auditMore(),
+
+      auditFilters: S.auditFilters
+        || { from: '', to: '', username: '', event: '', result: '' },
+      onAuditFilter: (e) => {
+        const { name, value } = e.target;
+        this.setState(s => ({
+          auditFilters: { ...(s.auditFilters || {}), [name]: value },
+        }));
+      },
+      // Il cursore si azzera a ogni cambio di filtro: continuare da un cursore
+      // ottenuto con altri filtri darebbe una pagina di un elenco diverso.
+      applicaFiltriAudit: () => this._auditReload(),
+      azzeraFiltriAudit: () => {
+        this.setState({ auditFilters: { from: '', to: '', username: '',
+                                        event: '', result: '' } });
+        setTimeout(() => this._auditReload(), 0);
+      },
+
+      auditRows: (S.auditRows || []).map(r => ({
+        id: String(r.id),
+        // Ora locale per la lettura; l'API resta in UTC.
+        quando: this._auditTime(r.ts),
+        chi: (r.actor && r.actor.username) || '(sconosciuto)',
+        ruolo: (r.actor && r.actor.role) || '—',
+        evento: r.event,
+        esito: r.result,
+        esitoStyle: {
+          fontSize: 10.5, fontWeight: 700, flexShrink: 0,
+          color: r.result === 'success' ? '#3ddc84'
+               : (r.result === 'failure' ? '#ff5c5c' : '#ff8a3d'),
+        },
+        ip: r.ip || '',
+        // Testo del client: si mostra come tale, non come descrizione autorevole.
+        nota: r.clientHint || '',
+        hasNota: !!r.clientHint,
+        ambiti: (r.scopes || []).join(', '),
+        // Il dettaglio NON si riversa nella tabella: una riga con dentro un JSON
+        // di mille caratteri rende l'elenco illeggibile. Si apre su richiesta.
+        hasDetail: !!(r.detail && (Array.isArray(r.detail) ? r.detail.length
+                                                           : Object.keys(r.detail).length)),
+        apriDetail: () => this.setState({ auditDetail: r }),
+      })),
+
+      // --- dettaglio di una voce ---
+      auditDetailOpen: !!S.auditDetail,
+      auditDetailTitle: S.auditDetail
+        ? `${S.auditDetail.event} · ${this._auditTime(S.auditDetail.ts)}` : '',
+      auditDetailWho: S.auditDetail && S.auditDetail.actor
+        ? `${S.auditDetail.actor.username} (${S.auditDetail.actor.role || '—'})` : '',
+      auditDetailHint: S.auditDetail ? (S.auditDetail.clientHint || '') : '',
+      // Formattato leggibile e inserito come TESTO dal runtime: mai innerHTML.
+      auditDetailJson: S.auditDetail
+        ? JSON.stringify(S.auditDetail.detail, null, 2) : '',
+      chiudiAuditDetail: () => this.setState({ auditDetail: null }),
+
       // --- utenze: solo /api/users, mai il documento (§8.30) ---
       usersPanelOpen: S.usersPanelOpen,
       toggleUsersPanel: () => {
@@ -3421,12 +3669,8 @@ class Component extends DCLogic {
         this.setState({ impPreview: null });
         alert('Import applicato: ' + p.nuovi + ' nuovi, ' + p.aggiornati + ' aggiornati' + (p.saltati ? ', ' + p.saltati + ' righe ignorate' : '') + '.\nPuoi annullare con ↩ Annulla o Ctrl+Z.');
       },
-      regOpen: S.regOpen,
-      toggleReg: () => this.setState(s => ({ regOpen: !s.regOpen, accountOpen: false })),
-      // Il registro è lato server (tabella `audit`, §8.9): non è più nel
-      // documento. La vista su GET /api/audit arriverà separatamente.
-      regRows: [],
-      regEmpty: true,
+      // Il vecchio registro «di sessione» non esiste più: la vista è il pannello
+      // su /api/audit (§8.36), e il client non ricostruisce voci per conto suo.
 
       occBarStyle: { width: (occPct * 100) + '%', height: '100%', background: occPct > 0.85 ? '#ff5c5c' : accent, borderRadius: 3, transition: 'width 0.3s' },
       occLabel: usedU + '/' + (sel ? sel.u : 0) + ' U',

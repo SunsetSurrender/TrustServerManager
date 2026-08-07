@@ -25,7 +25,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import destructive_guard
 
 try:
     from playwright.sync_api import sync_playwright
@@ -45,6 +49,7 @@ def main() -> int:
     ap.add_argument("--username", default="admin")
     ap.add_argument("--password", required=True)
     ap.add_argument("--new-password", default="")
+    destructive_guard.add_arguments(ap)
     args = ap.parse_args()
 
     base = args.base.rstrip("/")

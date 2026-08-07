@@ -1955,7 +1955,134 @@ esiti si stampa **sempre**, anche se il test si interrompe a metà: senza,
 un'eccezione nascondeva tutto ciò che era già stato verificato e si finiva a
 indovinare.
 
+### 8.36 Registro di audit: API e vista
+
+`GET /api/audit`, solo amministratori, sola lettura. Il registro non passa mai dal
+documento dell'inventario e il client non ne ricostruisce voci: quello che si vede è
+ciò che il server ha registrato, o niente.
+
+#### Ordinamento e cursore: due campi, non uno
+
+`ORDER BY ts DESC, id DESC`, e il cursore porta **entrambi**. Il timestamp da solo non
+basta: più eventi condividono lo stesso istante — un salvataggio ne produce diversi
+nella stessa transazione — e un cursore sul solo `ts` salterebbe o ripeterebbe le righe
+a cavallo fra due pagine. Il predicato è un confronto fra **tuple**,
+`(a.ts, a.id) < (:cur_ts, :cur_id)`, che corrisponde all'ordinamento per costruzione
+invece che per coincidenza.
+
+Il cursore è **opaco** al confine HTTP: base64url di `v1|<iso-utc>|<id>`. La versione è
+dentro il valore per poter cambiare formato senza che un client con un cursore vecchio
+riceva risultati sbagliati in silenzio. La decodifica è severa e ogni anomalia dà
+`422 invalid_cursor`: un cursore manomesso deve produrre un errore riconoscibile, non
+una pagina «quasi giusta» che salta righe senza dirlo. `?cursor=` vuoto vale come
+«prima pagina», che è ciò che intende un client che invia il parametro vuoto.
+
+Si chiede sempre **una riga in più** della pagina: la sua esistenza dice che c'è un
+seguito, senza un `COUNT` che su una tabella che cresce costerebbe quanto la query.
+
+#### Filtri tipizzati, non un linguaggio
+
+`from`, `to`, `username`, `event`, `result`. Niente espressioni libere, niente JSON
+arbitrario: la superficie è chiusa e ciò che non è previsto viene rifiutato con
+`422 invalid_filter`. `event` accetta la categoria o l'azione completa — `auth` prende
+tutta la famiglia `auth.*` — e ammette solo i caratteri che le azioni usano davvero.
+
+Dimensione pagina: 50 di default, 200 massimo, valori non validi o negativi rifiutati
+con `invalid_page_size`.
+
+⚠ I parametri arrivano alla rotta come **stringhe** e li valida il nostro parser. Se
+fossero dichiarati tipizzati sarebbe FastAPI a rifiutarli per primo, con una forma di
+errore diversa dalla nostra: il client riceverebbe due formati a seconda di quale
+controllo scatta per primo. Così il codice è sempre uno dei nostri, ed è stabile.
+
+#### Istantanea storica dell'attore
+
+`actor_username` e `actor_role` sono copiati nella riga al momento dell'evento (§8.30):
+un utente rinominato, retrocesso o disattivato resta attribuibile con il nome e il ruolo
+che **aveva allora**. Tre test lo verificano rinominando, disattivando e retrocedendo
+dopo il fatto.
+
+#### Riservatezza: due ripuliture, non una
+
+`sanitize()` gira **in scrittura** e di nuovo **in serializzazione**. Non è ridondanza:
+il registro è alimentato da produttori diversi e ne arriveranno altri. La prima evita
+che una chiave di troppo finisca su disco; la seconda evita che esca comunque se è già
+finita su disco o se un produttore ha aggirato la prima. Una sola delle due lascia
+scoperta metà del problema.
+
+Si guarda il **nome** della chiave (`password`, `secret`, `token`, `hash`, `credential`,
+…) e solo forme di valore inequivocabili (hash Argon2/bcrypt, DSN con credenziali):
+indovinare cosa «sembra» un segreto produce falsi negativi sui segreti nuovi e falsi
+positivi su tutto il resto. Un test inserisce un dettaglio velenoso **grezzo**,
+scavalcando la ripulitura in scrittura, e verifica che la risposta non lo contenga —
+e che il campo innocuo accanto sia ancora lì, perché una ripulitura che cancella tutto
+non è una difesa ma un guasto.
+
+`clientHint` si restituisce com'è, in un campo suo: è testo del client, **non** la
+descrizione autorevole dell'evento, che è `event` più `detail` calcolati dal server.
+
+#### Indice e privilegi
+
+Un solo indice composito `(ts DESC, id DESC)`, che è esattamente l'ordinamento e il
+predicato della paginazione. Indici sui filtri si aggiungeranno quando i numeri lo
+giustificheranno, non prima.
+
+Il ruolo di runtime ha `SELECT` e `INSERT`, e la migrazione **revoca esplicitamente**
+`UPDATE`, `DELETE` e `TRUNCATE`. Un test si connette *davvero* come `tsm_api` e verifica
+che i tre comandi ricevano `permission denied`, e che l'inserimento continui a
+funzionare — la sola lettura non basterebbe, altrimenti nessun evento verrebbe più
+registrato.
+
+#### La vista
+
+Pannello di sola lettura, visibile solo agli amministratori, con il 403 del server come
+autorità finale. Ha sostituito il vecchio elenco «di sessione», che era ricostruito lato
+client, spariva al ricaricamento e non provava niente.
+
+- **«Carica altri»** invece del caricamento integrale. L'elenco corrente resta visibile
+  mentre arriva la pagina successiva, e il pulsante è disabilitato durante la richiesta:
+  due clic accoderebbero due pagine con lo **stesso** cursore, e la seconda
+  duplicherebbe le righe della prima.
+- **Il cursore si azzera a ogni cambio di filtro**: proseguire da un cursore ottenuto
+  con altri filtri darebbe una pagina di un elenco che non esiste più.
+- **Orari nel fuso locale**, con l'API in UTC. È l'unico modo perché due amministratori
+  in fusi diversi parlino dello stesso evento; la conversione avviene solo per la
+  lettura.
+- **Tutto come testo**, tramite l'interpolazione del runtime. Il dettaglio strutturato
+  non si riversa nella tabella — una riga con dentro un JSON di mille caratteri rende
+  l'elenco illeggibile — ma si apre in un riquadro su richiesta.
+- Stati distinti per caricamento, elenco vuoto, filtro non valido, 401, 403, 422, 503.
+
+#### Test
+
+`backend/tests/test_audit_api_pg.py` (50, PostgreSQL reale) e
+`tools/audit-ui-test.py` (24, browser via nginx/TLS).
+
+Due cose imparate scrivendoli, entrambe finite nel codice dei test:
+
+- **Il limitatore ha morso il test.** La prima versione generava 60 accessi falliti per
+  avere più di una pagina: superata la soglia per IP, veniva bloccato anche l'accesso
+  dell'amministratore e il test non entrava più. Ora il volume si genera con accessi
+  **riusciti**, che per scelta non contano ai fini del blocco (§8.28), e i pochi
+  fallimenti servono al filtro per esito. `tools/run-audit-ui-test.ps1` riparte pulito,
+  perché la finestra del limitatore dura 15 minuti e sopravvive alle esecuzioni.
+- **`is_visible()` non vuol dire raggiungibile.** Il controllo «sono entrato» guardava un
+  pulsante dell'applicazione, che dietro il pannello di login resta «visibile» per
+  Playwright pur essendo coperto: passava anche quando l'accesso era stato rifiutato con
+  429. Ora si verifica la sessione con `/api/auth/me`.
+
+### 8.37 Test distruttivi: consenso esplicito
+
+`tools/destructive_guard.py`. I test end-to-end che cambiano davvero i dati — utenze,
+password, inventario — richiedono `--allow-destructive` a ogni esecuzione, e rifiutano
+un obiettivo non locale salvo `--force-remote`.
+
+Non è un ostacolo per chi sa cosa sta facendo: sono due parole sulla riga di comando.
+Serve a rendere impossibile lanciarli *per sbaglio* contro qualcosa che somiglia alla
+produzione, che finora era impedito solo dalla memoria di chi digitava.
+
 ## 9. Ordine di lavoro proposto
+
 
 
 
@@ -2001,9 +2128,11 @@ indovinare.
    ✔ **fatto** — `tools/proxy-security-test.py`
 7. ~~Interfaccia di amministrazione delle utenze su `/api/users` (§8.35)~~
    ✔ **fatto** — `tools/users-ui-test.py`, `tools/run-users-ui-test.ps1`
-8. **Vista del registro** su `GET /api/audit` (endpoint da scrivere: cursore su
-   `(ts, id)`, filtri, solo admin). **Prossimo commit.**
+8. ~~**API e vista del registro** su `GET /api/audit` (§8.36), più il consenso
+   esplicito per i test distruttivi (§8.37)~~ ✔ **fatto** —
+   `backend/app/audit/`, `tools/audit-ui-test.py`, `tools/destructive_guard.py`
 9. `/api/settings` con schema tipizzato e `If-Match`, più l'endpoint di prova invio.
+   **Prossimo commit.**
 10. Layout di archiviazione in produzione: volume su secondo disco, preflight, systemd.
 11. Foto su `/api/photos` + GC (§8.5), poi job scadenze (§8.8).
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)

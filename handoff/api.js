@@ -90,6 +90,27 @@ export const enableUser = (id) => request('POST', `/api/users/${id}/enable`, {})
 export const resetUserPassword = (id) =>
   request('POST', `/api/users/${id}/reset-password`, {});
 
+// ------------------------------------------------------------------ audit
+//
+// Sola lettura, solo admin. Il registro NON passa dal documento dell'inventario
+// e il client non ne ricostruisce voci per conto proprio (§8.9): quello che si
+// vede è quello che il server ha registrato, o niente.
+
+/** Una pagina di registro. `cursor` è OPACO: si rimanda quello ricevuto, senza
+ *  interpretarlo — il formato è affare del server e può cambiare. */
+export function getAudit({ cursor = null, pageSize = 50, from = null, to = null,
+                           username = null, event = null, result = null } = {}) {
+  const q = new URLSearchParams();
+  if (cursor) q.set('cursor', cursor);
+  if (pageSize) q.set('pageSize', String(pageSize));
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  if (username) q.set('username', username);
+  if (event) q.set('event', event);
+  if (result) q.set('result', result);
+  return request('GET', '/api/audit?' + q.toString());
+}
+
 // ------------------------------------------------------------- inventario
 
 export const getInventory = () => request('GET', '/api/inventory');

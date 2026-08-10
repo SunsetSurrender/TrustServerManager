@@ -23,7 +23,9 @@ LOC = "aaaaaaaa-0000-4000-8000-000000000001"
 ROOM = "bbbbbbbb-0000-4000-8000-000000000001"
 RACK = "cccccccc-0000-4000-8000-00000000000a"
 DEV = "dddddddd-0000-4000-8000-00000000000a"
-ORIGIN = {"Origin": "http://testserver"}
+
+#: Client HTTPS e `Origin` corrispondente: vedi il commento in conftest.py.
+from conftest import ORIGIN, api_client  # noqa: E402
 
 
 def base_doc() -> dict:
@@ -71,7 +73,7 @@ def client(db, engine):
             with conn.begin():
                 yield conn
     app.dependency_overrides[get_connection] = _dep
-    with TestClient(app) as c:
+    with api_client(app) as c:
         yield c
     app.dependency_overrides.clear()
 
@@ -133,7 +135,7 @@ def test_password_change_revokes_all_sessions_and_needs_fresh_login(client, engi
     uid = uid_of(engine, "temp")
 
     # una seconda sessione dello stesso utente, che deve cadere anch'essa
-    with TestClient(app) as other:
+    with api_client(app) as other:
         login(other, "temp", "password-lunga-2")
         assert other.get("/api/auth/me").status_code == 200
 

@@ -239,32 +239,75 @@
                   <button onClick="{{ setTim }}" style="{{ timBtnStyle }}">TIM</button>
                 </div>
               </div>
-              <div style="display:flex; flex-direction:column; gap:8px">
-                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">NOTIFICHE SCADENZE</div>
-                <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--dd7dde4); cursor:pointer">
-                  <input type="checkbox" checked="{{ notAttive }}" onChange="{{ onNotAttive }}"> Promemoria via email
-                </label>
-                <input placeholder="email destinatario" value="{{ notEmail }}" onChange="{{ onNotEmail }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--d7c8794)">Anticipo (giorni)
-                  <input type="number" min="1" max="365" value="{{ notGiorni }}" onChange="{{ onNotGiorni }}" style="width:70px; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:5px 8px; font-family:'Roboto Mono',monospace; font-size:12px">
-                </label>
-                <div style="font-size:11px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace">{{ notPreview }}</div>
-                <div style="font-size:10.5px; color:var(--d57626f)">L'invio effettivo si attiva con il backend; la configurazione viaggia nell'export JSON.</div>
-              </div>
               <sc-if value="{{ isAdminUser }}" hint-placeholder-val="{{ false }}">
-              <div style="display:flex; flex-direction:column; gap:8px">
-                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">SERVER SMTP</div>
-                <div style="display:flex; gap:8px">
-                  <input placeholder="host (es. smtp.azienda.it)" value="{{ smtpHost }}" onChange="{{ onSmtpHost }}" style="flex:2; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                  <input placeholder="porta" type="number" min="1" max="65535" value="{{ smtpPorta }}" onChange="{{ onSmtpPorta }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+
+              <!-- NOTIFICHE DI SCADENZA — solo /api/settings (§8.38).
+                   Non stanno nel documento dell'inventario: il server rifiuterebbe
+                   un documento che le contenesse. Non c'è nessun campo password:
+                   le credenziali SMTP sono gestite dai sistemisti con un secret,
+                   e qui si vede soltanto se ci sono. -->
+              <div id="settings-notifiche" style="display:flex; flex-direction:column; gap:8px">
+                <div style="display:flex; align-items:baseline; gap:8px">
+                  <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">NOTIFICHE SCADENZE</div>
+                  <span id="settings-version" style="font-size:10px; color:var(--d57626f); font-family:'Roboto Mono',monospace">{{ setVersionLabel }}</span>
                 </div>
-                <input placeholder="utente" value="{{ smtpUser }}" onChange="{{ onSmtpUser }}" autoComplete="off" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <input placeholder="password" type="password" value="{{ smtpPass }}" onChange="{{ onSmtpPass }}" autoComplete="new-password" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <input placeholder="mittente (es. ced@azienda.it)" value="{{ smtpFrom }}" onChange="{{ onSmtpFrom }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--dd7dde4); cursor:pointer">
-                  <input type="checkbox" checked="{{ smtpTls }}" onChange="{{ onSmtpTls }}"> TLS/STARTTLS
-                </label>
-                <div style="font-size:10.5px; color:var(--d57626f)">Usati dal job di invio lato server. La password viene salvata in chiaro nel JSON: in produzione va spostata in un secret del backend.</div>
+
+                <sc-if value="{{ setLoading }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11.5px; color:var(--d8a94a2)">Caricamento…</div>
+                </sc-if>
+
+                <sc-if value="{{ setLoaded }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex; flex-direction:column; gap:8px">
+                    <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--dd7dde4); cursor:pointer">
+                      <input id="set-enabled" type="checkbox" checked="{{ setEnabled }}" onChange="{{ onSetEnabled }}"> Promemoria via email attivi
+                    </label>
+
+                    <label style="font-size:11px; color:var(--d7c8794)">Destinatari (uno per riga)
+                      <textarea id="set-recipients" rows="3" value="{{ setRecipients }}" onChange="{{ onSetRecipients }}" placeholder="ced@azienda.it" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px; resize:vertical"></textarea>
+                    </label>
+
+                    <label style="font-size:11px; color:var(--d7c8794)">Preavviso, giorni (separati da virgola)
+                      <input id="set-warning-days" value="{{ setWarningDays }}" onChange="{{ onSetWarningDays }}" placeholder="7, 30, 90" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                    </label>
+
+                    <div style="display:flex; gap:8px; align-items:flex-end">
+                      <label style="flex:1; min-width:0; font-size:11px; color:var(--d7c8794)">Fuso orario
+                        <input id="set-timezone" value="{{ setTimezone }}" onChange="{{ onSetTimezone }}" placeholder="Europe/Rome" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                      </label>
+                      <label style="font-size:11px; color:var(--d7c8794)">Ora
+                        <input id="set-hour" type="number" min="0" max="23" value="{{ setHour }}" onChange="{{ onSetHour }}" style="width:62px; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                      </label>
+                      <label style="font-size:11px; color:var(--d7c8794)">Minuti
+                        <input id="set-minute" type="number" min="0" max="59" value="{{ setMinute }}" onChange="{{ onSetMinute }}" style="width:62px; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                      </label>
+                    </div>
+
+                    <div style="font-size:11px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace">{{ setPreview }}</div>
+
+                    <!-- Stato delle credenziali SMTP: un sì/no e nient'altro.
+                         Né host, né utenza, né percorso del secret. -->
+                    <div id="settings-smtp-status" style="{{ setSmtpStyle }}">{{ setSmtpLabel }}</div>
+
+                    <div style="display:flex; gap:8px">
+                      <button id="btn-settings-save" onClick="{{ salvaSettings }}" disabled="{{ setSaveDisabled }}" style="{{ setSaveBtnStyle }}">{{ setSaveLabel }}</button>
+                      <button id="btn-settings-test" onClick="{{ provaSettings }}" disabled="{{ setTestDisabled }}" style="{{ setTestBtnStyle }}">{{ setTestLabel }}</button>
+                    </div>
+
+                    <!-- Esito del SALVATAGGIO. Separato da quello dell'invio di
+                         prova: sono due operazioni distinte, e un messaggio unico
+                         farebbe credere che l'una dica qualcosa dell'altra. -->
+                    <sc-if value="{{ setHasSaveMsg }}" hint-placeholder-val="{{ false }}">
+                      <div id="settings-save-msg" style="{{ setSaveMsgStyle }}">{{ setSaveMsg }}</div>
+                    </sc-if>
+
+                    <!-- Esito dell'INVIO DI PROVA. -->
+                    <sc-if value="{{ setHasTestMsg }}" hint-placeholder-val="{{ false }}">
+                      <div id="settings-test-msg" style="{{ setTestMsgStyle }}">{{ setTestMsg }}</div>
+                    </sc-if>
+
+                    <div style="font-size:10.5px; color:var(--d57626f)">Il server di posta e le sue credenziali sono configurati dai sistemisti e non da questa schermata. L'invio automatico agli orari indicati arriverà con lo scheduler.</div>
+                  </div>
+                </sc-if>
               </div>
               <div style="display:flex; flex-direction:column; gap:8px">
                 <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">IMPORTA DATI</div>
@@ -1550,8 +1593,8 @@ class Component extends DCLogic {
     return [
       { id: 'intro', titolo: 'Introduzione', blocchi: [
         B('', 'Trust Technologies Server Manager è lo strumento per tenere sotto controllo le sale server (CED) dell\'azienda: dove si trova ogni rack, cosa contiene, quanto spazio resta e quali scadenze si avvicinano.', 'Tutto ruota attorno a tre livelli: i siti (es. Pomezia G0, Oriolo Romano), le sale di ciascun sito e i rack dentro ogni sala, con i loro dispositivi.'),
-        B('I tre livelli di privilegio', 'Visualizzazione: accesso in sola lettura, indicato per la consultazione. Le funzioni di modifica non sono visibili.', 'Operatore: gestione operativa dei contenuti — aggiunta, modifica, spostamento ed eliminazione dei dispositivi nei rack, import/export dell\'inventario.', 'Admin: controllo completo, incluse la struttura (rack, sale, siti), la configurazione SMTP e la gestione delle utenze.', 'Il livello si seleziona dal menu in alto a sinistra, accanto al sito. In produzione sarà determinato dal login aziendale.'),
-        B('Gestione delle utenze (Admin)', 'Dal menu Profilo (avatar con le iniziali) → Utenti e privilegi, un amministratore registra le utenze e assegna a ciascuna il livello di accesso appropriato. Le sezioni riservate (SMTP, utenze) non sono visibili agli altri profili.')
+        B('I tre livelli di privilegio', 'Visualizzazione: accesso in sola lettura, indicato per la consultazione. Le funzioni di modifica non sono visibili.', 'Operatore: gestione operativa dei contenuti — aggiunta, modifica, spostamento ed eliminazione dei dispositivi nei rack, import/export dell\'inventario.', 'Admin: controllo completo, incluse la struttura (rack, sale, siti), le impostazioni di notifica, il registro delle modifiche e la gestione delle utenze.', 'Il livello si seleziona dal menu in alto a sinistra, accanto al sito. In produzione sarà determinato dal login aziendale.'),
+        B('Gestione delle utenze (Admin)', 'Dal menu Profilo (avatar con le iniziali) → Utenti e privilegi, un amministratore registra le utenze e assegna a ciascuna il livello di accesso appropriato. Le sezioni riservate (notifiche, registro, utenze) non sono visibili agli altri profili, e il server le rifiuta comunque a chi non è amministratore.')
       ]},
       { id: 'accesso', titolo: 'Accesso e profilo', blocchi: [
         B('Entrare nell\'applicazione', 'Alla schermata di accesso inserisci la tua utenza e la password. Se un amministratore ha appena creato il tuo account, usa la password provvisoria che ti ha comunicato: al primo ingresso l\'app apre da sola il profilo e ti chiede di sostituirla con una personale (almeno 8 caratteri).'),
@@ -1600,7 +1643,7 @@ class Component extends DCLogic {
         B('Dove si trovano', 'Pulsante ⚙ Impostazioni nella barra in alto: raccoglie le preferenze dell\'applicazione, mentre i dati personali stanno nel Profilo.'),
         B('Temi', 'Tre temi: Scuro (predefinito, ideale in sala macchine), Chiaro e TIM (palette aziendale blu con firma rossa). Il tema cambia tutta l\'interfaccia, pianta e vista 3D comprese.'),
         B('Annulla modifiche', 'Scegli quante modifiche tenere in memoria (5, 10, 15 o 20). Più profondità significa poter tornare più indietro con Annulla.'),
-        B('Notifiche scadenze e SMTP (Admin)', 'Indica il destinatario dei promemoria e con quanti giorni di anticipo avvisare; l\'anteprima mostra quante scadenze rientrano nella finestra scelta. La sezione Server SMTP raccoglie host, porta, credenziali, mittente e TLS che il backend userà per l\'invio effettivo.')
+        B('Notifiche scadenze (Admin)', 'Indica i destinatari dei promemoria (uno per riga), con quanti giorni di anticipo avvisare, il fuso orario e l\'ora di invio; l\'anteprima mostra quante scadenze rientrano nella finestra più ampia scelta.', 'Il pulsante "Invia messaggio di prova" manda un messaggio fisso ai destinatari configurati e serve a verificare che la posta funzioni: il numero di prove è limitato di proposito, e non si può scegliere né il destinatario né il testo.', 'Il server di posta e la sua password NON si configurano da qui: li impostano i sistemisti sul server, e la schermata mostra soltanto se le credenziali sono presenti. Se due amministratori salvano insieme, il secondo viene avvisato e ricarica invece di sovrascrivere.')
       ]},
       { id: 'shortcuts', titolo: 'Scorciatoie da tastiera', blocchi: [
         B('', '/  oppure  Ctrl+F — vai alla ricerca', 'D — apri/chiudi la Dashboard', 'V — passa tra vista 2D e 3D', 'Ctrl+E — alterna Visualizzazione ed Editing', 'Ctrl+B — apri o chiudi la scheda rack a destra', 'Ctrl+Z — annulla l\'ultima modifica', 'Ctrl+Y  oppure  Ctrl+Shift+Z — ripristina la modifica annullata', 'Invio o Spazio — attiva l\'elemento selezionato con Tab', 'Le scorciatoie non scattano mentre stai scrivendo in un campo di testo.')
@@ -1805,23 +1848,199 @@ class Component extends DCLogic {
     if (this._writer) this._writer.queue(data, azione);
   }
 
-  // Notifiche e SMTP vivono nella tabella `settings`, non nel documento (§8.16):
-  // il server rifiuta un documento che li contenga. Restano come punto d'aggancio
-  // per quando arriverà /api/settings.
-  _setNotifiche(patch) {
-    this.setState({ profMsg: 'Le impostazioni di notifica sono gestite dal server.' });
-    return;
-    const next = JSON.parse(JSON.stringify(this.state.data));
-    next.notifiche = { email: '', giorni: 30, attive: false, ...(next.notifiche || {}), ...patch };
-    this.setState({ data: next, dirty: true });
+  // ============================================================
+  // Impostazioni di notifica — solo /api/settings (§8.38)
+  // ============================================================
+  //
+  // Non vivono nel documento dell'inventario: il server rifiuta un documento che
+  // le contenga (§8.16). La concorrenza si gestisce con l'ETag ricevuto dalla
+  // GET e rimandato in `If-Match`: due amministratori con la stessa schermata
+  // aperta non si sovrascrivono in silenzio.
+
+  /** Modifica un campo della bozza. Non salva: il salvataggio è esplicito. */
+  _setDraftPatch(patch) {
+    this.setState(s => ({
+      setDraft: { ...(s.setDraft || {}), ...patch },
+      // Un messaggio di esito precedente non deve restare accanto a valori che
+      // sono già stati cambiati: direbbe «salvato» di uno stato diverso.
+      setSaveMsg: '',
+    }));
   }
 
-  _setSmtp(patch) {
-    this.setState({ profMsg: 'La configurazione SMTP è lato server; la password sta in un secret.' });
-    return;
-    const next = JSON.parse(JSON.stringify(this.state.data));
-    next.smtp = { host: '', porta: 587, utente: '', password: '', mittente: '', tls: true, ...(next.smtp || {}), ...patch };
-    this.setState({ data: next, dirty: true });
+  /** Carica dal server e riempie la bozza. L'ETag si CONSERVA così com'è. */
+  async _settingsLoad() {
+    this.setState({ setLoading: true, setLocalErr: '' });
+    try {
+      const { data, etag } = await API.getSettings();
+      this.setState({
+        setLoading: false,
+        setLoaded: true,
+        setEtag: etag,
+        setVersion: data.version,
+        setSmtpConfigured: !!(data.smtp && data.smtp.configured),
+        // La bozza è testo, perché i campi sono testo: destinatari uno per riga e
+        // giorni separati da virgola si convertono al salvataggio. Tenerli come
+        // array mentre la persona sta scrivendo significherebbe riformattare
+        // sotto le dita a metà parola.
+        setDraft: {
+          enabled: !!data.notifications.enabled,
+          timezone: data.notifications.timezone || '',
+          recipientsText: (data.notifications.recipients || []).join('\n'),
+          warningDaysText: (data.notifications.warningDays || []).join(', '),
+          hour: String(data.notifications.schedule.hour),
+          minute: String(data.notifications.schedule.minute),
+        },
+      });
+    } catch (err) {
+      this.setState({ setLoading: false });
+      this._handleSettingsError(err);
+    }
+  }
+
+  _handleSettingsError(err, { where = 'save' } = {}) {
+    const d = API.describeError(err);
+    if (err instanceof API.ApiError) {
+      if (err.status === 401) {
+        this.setState({ session: null, data: null, accountOpen: false });
+        return;
+      }
+      if (err.status === 403 && err.code === 'password_change_required') {
+        this.setState({ mustChangePw: true, data: null, accountOpen: false });
+        return;
+      }
+      if (err.status === 403) {
+        // Il 403 del server è l'autorità finale, anche se l'interfaccia credeva
+        // di poter mostrare la sezione.
+        this.setState({ setLoaded: false, setLocalErr: '',
+                        saveError: d.titolo + ' — ' + d.testo });
+        return;
+      }
+    }
+    const message = d.titolo + ' — ' + d.testo;
+    if (where === 'test') this.setState({ setTestMsg: message, setTestOk: false });
+    else this.setState({ setSaveMsg: message, setSaveOk: false });
+  }
+
+  /** Bozza → documento tipizzato. Restituisce `{ ok, value, error }`.
+   *
+   *  I controlli qui servono all'usabilità — dire subito «manca la chiocciola»
+   *  senza un giro di rete — e NON sono l'autorità: il server rivalida tutto e
+   *  la sua risposta vince. Un client non può garantire niente su di sé. */
+  _settingsDraftToDocument() {
+    const d = this.state.setDraft || {};
+
+    const recipients = (d.recipientsText || '')
+      .split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+    for (const r of recipients) {
+      if (!/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(r)) {
+        return { ok: false, error: `Indirizzo non valido: ${r}` };
+      }
+    }
+    const lowered = recipients.map(r => r.toLowerCase());
+    const dup = lowered.find((r, i) => lowered.indexOf(r) !== i);
+    if (dup) return { ok: false, error: `Destinatario ripetuto: ${dup}` };
+
+    const warningDays = [];
+    for (const piece of (d.warningDaysText || '').split(/[\s,;]+/).filter(Boolean)) {
+      if (!/^\d+$/.test(piece)) {
+        return { ok: false, error: `Giorni di preavviso non validi: ${piece}` };
+      }
+      const n = parseInt(piece, 10);
+      if (n <= 0) return { ok: false, error: 'Il preavviso deve essere positivo.' };
+      if (warningDays.indexOf(n) === -1) warningDays.push(n);
+    }
+    warningDays.sort((a, b) => a - b);
+
+    const hour = parseInt(d.hour, 10);
+    const minute = parseInt(d.minute, 10);
+    if (!(hour >= 0 && hour <= 23)) return { ok: false, error: 'Ora non valida (0–23).' };
+    if (!(minute >= 0 && minute <= 59)) return { ok: false, error: 'Minuti non validi (0–59).' };
+
+    const timezone = (d.timezone || '').trim();
+    if (!timezone) return { ok: false, error: 'Indica un fuso orario (es. Europe/Rome).' };
+
+    return {
+      ok: true,
+      value: {
+        // `!!` e non un valore lasciato passare: `enabled` deve essere un
+        // booleano vero, e il server lo pretende.
+        enabled: !!d.enabled,
+        timezone,
+        warningDays,
+        recipients,
+        schedule: { hour, minute },
+      },
+    };
+  }
+
+  async _settingsSave() {
+    // Un salvataggio alla volta: due invii accoderebbero due PUT con lo STESSO
+    // If-Match, e la seconda riceverebbe un conflitto contro la prima — un 409
+    // provocato da noi stessi, che non significa niente per chi legge.
+    if (this.state.setSaving) return;
+
+    const parsed = this._settingsDraftToDocument();
+    if (!parsed.ok) {
+      this.setState({ setSaveMsg: parsed.error, setSaveOk: false });
+      return;
+    }
+
+    this.setState({ setSaving: true, setSaveMsg: '', setSaveOk: false });
+    try {
+      const { data, etag } = await API.putSettings(this.state.setEtag, parsed.value);
+      // «Salvato» si dice SOLO adesso, con la risposta in mano. Dirlo prima
+      // sarebbe una promessa che il server non ha ancora fatto.
+      this.setState({
+        setSaving: false,
+        setEtag: etag,
+        setVersion: data.version,
+        setSmtpConfigured: !!(data.smtp && data.smtp.configured),
+        setSaveOk: true,
+        setSaveMsg: data.changed
+          ? `Impostazioni salvate (revisione ${data.version}).`
+          : 'Nessuna modifica da salvare.',
+      });
+      // Si rilegge il documento canonico dal server: la normalizzazione è sua
+      // (indirizzi ripuliti, giorni ordinati) e la schermata deve mostrare quello
+      // che è stato scritto, non quello che si è digitato.
+      await this._settingsLoad();
+    } catch (err) {
+      this.setState({ setSaving: false });
+      if (err instanceof API.ApiError && err.status === 409) {
+        // Conflitto: si RICARICA la versione del server invece di insistere.
+        // Rimandare gli stessi dati cancellerebbe il lavoro di un altro
+        // amministratore, che è esattamente ciò che l'ETag serve a impedire.
+        const d = API.describeError(err);
+        this.setState({ setSaveOk: false, setSaveMsg: d.titolo + ' — ' + d.testo });
+        await this._settingsLoad();
+        return;
+      }
+      this._handleSettingsError(err);
+    }
+  }
+
+  /** Invio di prova. NON si chiama dopo un salvataggio: mandare posta è un
+   *  effetto reale su persone reali, e va chiesto esplicitamente. */
+  async _settingsTest() {
+    if (this.state.setTesting) return;
+    this.setState({ setTesting: true, setTestMsg: '', setTestOk: false });
+    try {
+      const out = await API.testNotification();
+      const parte = out.recipients < out.configuredRecipients
+        ? ` (${out.recipients} dei ${out.configuredRecipients} destinatari: la prova ne usa alcuni)`
+        : ` (${out.recipients} destinatari)`;
+      this.setState({
+        setTesting: false,
+        setTestOk: true,
+        setTestMsg: 'Messaggio di prova inviato' + parte + '.'
+          // L'invio è riuscito: non lo si presenta come un errore. Ma la
+          // mancanza della traccia va detta, perché il registro non lo dirà.
+          + (out.auditRecorded ? '' : ' Attenzione: l\'evento non è stato registrato nel registro.'),
+      });
+    } catch (err) {
+      this.setState({ setTesting: false });
+      this._handleSettingsError(err, { where: 'test' });
+    }
   }
 
   _moveRoom(dir, data, loc, room) {
@@ -2575,17 +2794,27 @@ class Component extends DCLogic {
       flat.push({ name: d.name, type: (TYPES[d.type] || TYPES.altro).label, stato: (STATI[d.stato] || STATI.attivo).label, model: d.model || '', ip: d.ip || '', serial: d.serial || '', owner: d.owner || '', locN: L.nome, roomN: R.nome, rackId: rk.id, u: d.u, garanzia: d.garanzia || '', supporto: d.supporto || '', note: d.note || '', _loc: L.id, _room: R.id, _rack: rk.id, _dev: d.id });
     }
 
-    // --- notifiche scadenze ---
-    const notCfg = (data && data.notifiche) || { email: '', giorni: 30, attive: false };
-    const smtpCfg = (data && data.smtp) || { host: '', porta: 587, utente: '', password: '', mittente: '', tls: true };
-    let nScad = 0;
+    // --- notifiche scadenze: la configurazione arriva da /api/settings (§8.38),
+    //     NON dal documento dell'inventario. L'anteprima si calcola sulla bozza
+    //     in corso di modifica, così si vede l'effetto della finestra scelta
+    //     prima di salvarla.
+    const setDraft = S.setDraft || {};
+    const setWindowDays = (() => {
+      const days = (setDraft.warningDaysText || '')
+        .split(/[\s,;]+/).filter(Boolean).map(n => parseInt(n, 10))
+        .filter(n => Number.isFinite(n) && n > 0);
+      // La più ampia delle finestre: è quella che determina quante scadenze
+      // rientrano in almeno un avviso.
+      return days.length ? Math.max(...days) : 30;
+    })();
+    let setNScad = 0;
     {
       const now = new Date();
-      const lim = new Date(now.getTime() + ((parseInt(notCfg.giorni, 10) || 30) * 86400000));
+      const lim = new Date(now.getTime() + (setWindowDays * 86400000));
       for (const r of flat) for (const fv of [r.garanzia, r.supporto]) {
         if (!fv) continue;
         const dt = new Date(fv);
-        if (!isNaN(dt) && dt >= now && dt <= lim) nScad++;
+        if (!isNaN(dt) && dt >= now && dt <= lim) setNScad++;
       }
     }
 
@@ -2991,7 +3220,18 @@ class Component extends DCLogic {
       isDarkTheme: S.theme !== 'light',
       isLightTheme: S.theme === 'light',
       accountOpen: S.accountOpen,
-      toggleAccount: () => this.setState(s => ({ accountOpen: !s.accountOpen, profileOpen: false, expOpen: false, regOpen: false })),
+      toggleAccount: () => {
+        const opening = !this.state.accountOpen;
+        this.setState({ accountOpen: opening, profileOpen: false, expOpen: false,
+                        regOpen: false, setSaveMsg: '', setTestMsg: '' });
+        // Si ricarica a ogni apertura, non una volta sola: fra due aperture un
+        // altro amministratore può aver salvato, e partire da un ETag vecchio
+        // significherebbe un conflitto al primo salvataggio.
+        // L'autorità resta del server: questo evita solo una GET che riceverebbe
+        // 403 con certezza. Se l'interfaccia si sbagliasse, il 403 arriverebbe e
+        // il pannello si chiuderebbe da sé (`_handleSettingsError`).
+        if (opening && S_user && S_user.ruolo === 'admin') this._settingsLoad();
+      },
       // --- profilo ---
       profileOpen: S.profileOpen,
       toggleProfile: () => {
@@ -3243,23 +3483,72 @@ class Component extends DCLogic {
       copiaTempPw: () => this._copyTempPw(),
       chiudiTempPw: () => this._closeTempPw(),
 
-      onNotAttive: (e) => this._setNotifiche({ attive: e.target.checked }),
-      onNotEmail: (e) => this._setNotifiche({ email: e.target.value }),
-      onNotGiorni: (e) => this._setNotifiche({ giorni: Math.max(1, Math.min(365, parseInt(e.target.value, 10) || 30)) }),
-      notPreview: nScad + ' scadenze entro ' + (notCfg.giorni || 30) + ' giorni',
-      // --- SMTP ---
-      smtpHost: smtpCfg.host || '',
-      smtpPorta: smtpCfg.porta || 587,
-      smtpUser: smtpCfg.utente || '',
-      smtpPass: smtpCfg.password || '',
-      smtpFrom: smtpCfg.mittente || '',
-      smtpTls: smtpCfg.tls !== false,
-      onSmtpHost: (e) => this._setSmtp({ host: e.target.value }),
-      onSmtpPorta: (e) => this._setSmtp({ porta: Math.max(1, Math.min(65535, parseInt(e.target.value, 10) || 587)) }),
-      onSmtpUser: (e) => this._setSmtp({ utente: e.target.value }),
-      onSmtpPass: (e) => this._setSmtp({ password: e.target.value }),
-      onSmtpFrom: (e) => this._setSmtp({ mittente: e.target.value }),
-      onSmtpTls: (e) => this._setSmtp({ tls: e.target.checked }),
+      // --- impostazioni di notifica: solo /api/settings (§8.38) ---
+      //
+      // I booleani sono PRECALCOLATI: il linguaggio dei template non ha
+      // l'operatore di negazione, e `{{ !x }}` non fallisce — viene semplicemente
+      // valutato come falso, cioè disabilita un pulsante per sempre senza dire
+      // niente. È già capitato una volta (§8.35).
+      setLoading: !!S.setLoading,
+      setLoaded: !!S.setLoaded,
+      setVersionLabel: S.setVersion ? `revisione ${S.setVersion}` : '',
+
+      setEnabled: !!setDraft.enabled,
+      setTimezone: setDraft.timezone || '',
+      setRecipients: setDraft.recipientsText || '',
+      setWarningDays: setDraft.warningDaysText || '',
+      setHour: setDraft.hour === undefined ? '' : String(setDraft.hour),
+      setMinute: setDraft.minute === undefined ? '' : String(setDraft.minute),
+
+      onSetEnabled: (e) => this._setDraftPatch({ enabled: e.target.checked }),
+      onSetTimezone: (e) => this._setDraftPatch({ timezone: e.target.value }),
+      onSetRecipients: (e) => this._setDraftPatch({ recipientsText: e.target.value }),
+      onSetWarningDays: (e) => this._setDraftPatch({ warningDaysText: e.target.value }),
+      onSetHour: (e) => this._setDraftPatch({ hour: e.target.value }),
+      onSetMinute: (e) => this._setDraftPatch({ minute: e.target.value }),
+
+      setPreview: setNScad + ' scadenze entro ' + setWindowDays + ' giorni',
+
+      // Credenziali SMTP: un sì/no. Nient'altro passa da qui.
+      setSmtpLabel: S.setSmtpConfigured
+        ? 'Credenziali SMTP configurate: sì'
+        : 'Credenziali SMTP configurate: no — l\'invio non è possibile finché i sistemisti non le impostano',
+      setSmtpStyle: 'font-size:11px; font-family:\'Roboto Mono\',monospace; color:'
+        + (S.setSmtpConfigured ? '#3ddc84' : '#ff8a3d'),
+
+      // Ogni pulsante è disabilitato mentre la SUA richiesta è in volo: un doppio
+      // clic su Salva manderebbe due PUT con lo stesso If-Match (e la seconda
+      // riceverebbe un conflitto contro la prima); due invii di prova
+      // manderebbero due messaggi veri.
+      setSaveDisabled: !!S.setSaving,
+      setTestDisabled: !!S.setTesting,
+      setSaveLabel: S.setSaving ? 'Salvataggio…' : 'Salva impostazioni',
+      setTestLabel: S.setTesting ? 'Invio…' : 'Invia messaggio di prova',
+      setSaveBtnStyle: 'flex:1; background:' + (S.setSaving ? 'var(--d2b333d)' : 'var(--accent)')
+        + '; color:#ffffff; border:none; border-radius:6px; padding:8px 0; font-size:12px;'
+        + ' font-weight:600; font-family:inherit; cursor:'
+        + (S.setSaving ? 'default' : 'pointer'),
+      setTestBtnStyle: 'flex:1; background:transparent; color:'
+        + (S.setTesting ? 'var(--d57626f)' : 'var(--d8a94a2)')
+        + '; border:1px solid var(--d2b333d); border-radius:6px; padding:8px 0;'
+        + ' font-size:12px; font-family:inherit; cursor:'
+        + (S.setTesting ? 'default' : 'pointer'),
+      salvaSettings: () => this._settingsSave(),
+      provaSettings: () => this._settingsTest(),
+
+      // Due messaggi distinti: il salvataggio e l'invio di prova sono due
+      // operazioni diverse, e un'area sola farebbe credere che l'esito di una
+      // dica qualcosa dell'altra.
+      setHasSaveMsg: !!S.setSaveMsg,
+      setSaveMsg: S.setSaveMsg || '',
+      setSaveMsgStyle: 'font-size:11.5px; border-radius:6px; padding:7px 9px; border:1px solid '
+        + (S.setSaveOk ? 'var(--d2c4a45); color:#3ddc84; background:var(--d1a2a27)'
+                       : 'var(--d4a2b2b); color:#ff5c5c; background:var(--d2a1618)'),
+      setHasTestMsg: !!S.setTestMsg,
+      setTestMsg: S.setTestMsg || '',
+      setTestMsgStyle: 'font-size:11.5px; border-radius:6px; padding:7px 9px; border:1px solid '
+        + (S.setTestOk ? 'var(--d2c4a45); color:#3ddc84; background:var(--d1a2a27)'
+                       : 'var(--d4a2b2b); color:#ff5c5c; background:var(--d2a1618)'),
       stampa: () => window.print(),
       esportaCsv: doExpCsv,
       // --- menu export ---

@@ -26,14 +26,21 @@ export class ApiError extends Error {
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
-async function request(method, path, body) {
+/**
+ * @param {object} [opts]
+ *  - headers      intestazioni aggiuntive (es. `If-Match`)
+ *  - withHeaders  restituisce `{ data, etag }` invece del solo corpo
+ */
+async function request(method, path, body, opts = {}) {
   let res;
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
       cache: 'no-store',
-      headers: body === undefined ? undefined : JSON_HEADERS,
+      headers: body === undefined
+        ? (opts.headers || undefined)
+        : { ...JSON_HEADERS, ...(opts.headers || {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (err) {
@@ -42,14 +49,18 @@ async function request(method, path, body) {
       'Server non raggiungibile. Controlla la connessione.', null);
   }
 
-  if (res.status === 204) return null;
+  if (res.status === 204) return opts.withHeaders ? { data: null, etag: null } : null;
 
   let payload = null;
   try {
     payload = await res.json();
   } catch { /* corpo vuoto o non JSON */ }
 
-  if (res.ok) return payload;
+  if (res.ok) {
+    return opts.withHeaders
+      ? { data: payload, etag: res.headers.get('ETag') }
+      : payload;
+  }
 
   // FastAPI annida sotto `detail` gli errori sollevati come HTTPException, e
   // lascia in radice quelli dei middleware: si accetta entrambe le forme.
@@ -110,6 +121,42 @@ export function getAudit({ cursor = null, pageSize = 50, from = null, to = null,
   if (result) q.set('result', result);
   return request('GET', '/api/audit?' + q.toString());
 }
+
+// ------------------------------------------------------------ impostazioni
+//
+// Concorrenza ottimistica con `ETag`/`If-Match`. Non è cerimonia: due
+// amministratori che hanno la stessa schermata aperta salverebbero l'uno sopra
+// l'altro, e chi perde non se ne accorgerebbe — nessun errore, nessuna traccia,
+// e il destinatario appena aggiunto semplicemente non c'è più.
+//
+// La password SMTP non compare né in andata né in ritorno: è gestita
+// dall'operations con un secret montato. Il documento dice solo se è configurata.
+
+/** Impostazioni correnti. Restituisce `{ data, etag }`: l'ETag va CONSERVATO e
+ *  rimandato tale e quale nella PUT, senza interpretarlo. */
+export const getSettings = () =>
+  request('GET', '/api/settings', undefined, { withHeaders: true });
+
+/**
+ * Salva. `etag` è quello ricevuto dalla GET.
+ *
+ * Si invia il SOLO blocco `notifications`: `version`, `smtp` e `updatedAt` sono
+ * di sola lettura e il server li rifiuta. Rimandare indietro il documento
+ * ricevuto così com'è non funziona, ed è voluto — la concorrenza si gestisce con
+ * l'intestazione, non con un campo nel corpo che si può dimenticare.
+ */
+export const putSettings = (etag, notifications) =>
+  request('PUT', '/api/settings', { notifications },
+          { headers: { 'If-Match': etag }, withHeaders: true });
+
+// ------------------------------------------------------------- notifiche
+//
+// Nessun parametro, e non è una semplificazione: destinatari e testo vengono
+// dalle impostazioni SALVATE e dal server. Un endpoint che accettasse
+// destinatario, oggetto e corpo sarebbe un servizio di invio posta autenticato.
+
+/** Invia un messaggio di prova ai destinatari configurati. */
+export const testNotification = () => request('POST', '/api/notifications/test', {});
 
 // ------------------------------------------------------------- inventario
 
@@ -265,6 +312,16 @@ export function describeError(err) {
                     + 'nominane un altro prima di procedere.',
                  azione: null };
       }
+      if (err.code === 'settings_version_conflict') {
+        // Si RICARICA, non si riprova con gli stessi dati: il conflitto esiste
+        // perché quei dati sono vecchi, e rimandarli sovrascriverebbe il lavoro
+        // di un'altra persona — che è esattamente ciò che l'ETag impedisce.
+        return { titolo: 'Impostazioni modificate altrove',
+                 testo: 'Un altro amministratore ha salvato prima di te. '
+                      + 'Ricarico la versione del server: rivedi le modifiche '
+                      + 'e salva di nuovo.',
+                 azione: 'ricarica' };
+      }
       return { titolo: 'Modificato da un\'altra sessione',
                testo: 'Un\'altra persona ha salvato prima di te. '
                     + 'Ricarico i dati aggiornati: le tue modifiche non salvate '
@@ -275,13 +332,31 @@ export function describeError(err) {
                testo: 'Il documento supera il limite consentito. '
                     + 'Le foto vanno caricate separatamente.', azione: null };
     case 422:
+      // Le impostazioni hanno codici propri e un campo: dire QUALE campo è
+      // sbagliato è la differenza fra un messaggio utile e «dati non accettati».
+      if (_SETTINGS_ERRORS[err.code]) {
+        return { titolo: 'Impostazioni non accettate',
+                 testo: _SETTINGS_ERRORS[err.code]
+                      + (err.detail && err.detail.field
+                          ? ` (campo: ${err.detail.field})` : ''),
+                 azione: null };
+      }
       return { titolo: 'Dati non accettati',
                testo: _problemsText(err) || 'Il server ha rifiutato il documento.',
                azione: null };
     case 429:
+      if (err.code === 'notification_test_rate_limited') {
+        return { titolo: 'Troppi invii di prova',
+                 testo: 'Il numero di messaggi di prova è limitato di proposito. '
+                      + 'Attendi prima di riprovare.', azione: null };
+      }
       return { titolo: 'Troppi tentativi',
                testo: 'Attendi qualche minuto prima di riprovare.', azione: null };
     case 503:
+      if (_SMTP_ERRORS[err.code]) {
+        return { titolo: 'Invio non riuscito',
+                 testo: _SMTP_ERRORS[err.code](err), azione: null };
+      }
       return { titolo: 'Servizio non disponibile',
                testo: 'Il server non è pronto. Le modifiche non sono state salvate; '
                     + 'riprova fra poco.', azione: 'riprova' };
@@ -290,6 +365,52 @@ export function describeError(err) {
                testo: err.message || 'Operazione non riuscita.', azione: null };
   }
 }
+
+/** Codici di validazione delle impostazioni → cosa deve fare la persona. */
+const _SETTINGS_ERRORS = {
+  invalid_recipient: 'Un indirizzo email non è valido. Uno per riga.',
+  duplicate_recipient: 'Lo stesso destinatario è indicato due volte.',
+  too_many_recipients: 'Troppi destinatari.',
+  invalid_warning_day: 'I giorni di preavviso devono essere numeri interi positivi.',
+  too_many_warning_days: 'Troppe finestre di preavviso.',
+  invalid_timezone: 'Fuso orario non riconosciuto (atteso un nome IANA, es. Europe/Rome).',
+  invalid_schedule: 'Orario di invio non valido.',
+  unknown_field: 'Il server non riconosce uno dei campi inviati.',
+  missing_field: 'Manca un campo obbligatorio.',
+  read_only_field: 'Uno dei campi inviati è di sola lettura.',
+  secret_field_rejected: 'Le impostazioni non possono contenere password o segreti: '
+                       + 'la password SMTP è gestita dai sistemisti.',
+  invalid_type: 'Un valore ha un tipo non ammesso.',
+  document_too_complex: 'La richiesta è troppo complessa.',
+  if_match_required: 'Ricarico le impostazioni: riprova a salvare.',
+  if_match_malformed: 'Ricarico le impostazioni: riprova a salvare.',
+  invalid_body: 'Il server non ha potuto leggere la richiesta.',
+  unexpected_fields: 'Questa operazione non accetta parametri.',
+};
+
+/** Esiti di un invio SMTP → una spiegazione, senza dettagli del server di posta. */
+const _SMTP_ERRORS = {
+  smtp_not_configured: () =>
+    'L\'invio email non è configurato sul server. Serve l\'intervento dei sistemisti.',
+  no_recipients_configured: () =>
+    'Non c\'è nessun destinatario configurato: aggiungine uno e salva prima di provare.',
+  smtp_send_failed: (err) => {
+    const reason = (err.detail && err.detail.reason) || '';
+    return {
+      timeout: 'Il server di posta non ha risposto entro il tempo massimo.',
+      connection_failed: 'Server di posta non raggiungibile.',
+      auth_failed: 'Il server di posta ha rifiutato le credenziali.',
+      recipients_refused: 'Il server di posta ha rifiutato i destinatari.',
+      sender_refused: 'Il server di posta ha rifiutato il mittente.',
+      tls_failed: 'Negoziazione TLS con il server di posta non riuscita.',
+      protocol_error: 'Il server di posta ha risposto con un errore.',
+    }[reason] || 'Invio non riuscito.';
+  },
+  notification_test_unavailable: () =>
+    'Non è possibile verificare il limite degli invii: prova rifiutata per prudenza.',
+  settings_unavailable: () =>
+    'Le impostazioni non sono inizializzate sul server.',
+};
 
 function _problemsText(err) {
   const list = (err.detail && (err.detail.problems || err.detail.violations)) || [];

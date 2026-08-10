@@ -28,14 +28,44 @@ dietro autenticazione nello stesso commit in cui arrivano gli endpoint reali.
 ## Avvio
 
 ```bash
-# la prima volta: creare il secret
+# la prima volta: creare i secret
 #   Linux/macOS
 openssl rand -base64 24 | tr -d '\n+/=' > secrets/postgres_password
+openssl rand -base64 24 | tr -d '\n+/=' > secrets/api_db_password
 #   Windows PowerShell — vedi la nota sul newline più sotto
+
+# Password del relay SMTP. Il file deve ESISTERE, ma può essere VUOTO: un relay
+# interno senza autenticazione è normale in rete chiusa, e con
+# TSM_SMTP_USERNAME vuoto non viene tentato alcun login.
+touch secrets/smtp_password
 
 docker compose up -d --build --wait
 python tools/smoke-test.py
 ```
+
+### Configurazione dell'invio email
+
+Il trasporto è dell'**operations**, non dell'interfaccia: host, porta, modalità
+TLS, mittente e utenza sono variabili d'ambiente, e la password è un secret
+montato. `/api/settings` non restituisce né accetta nulla di tutto questo —
+espone solo `smtp.configured`, un booleano (§8.38).
+
+La ragione è pratica: un oggetto `smtp` modificabile via API è un oggetto in cui,
+un giorno, qualcuno aggiunge `password`. Se non esiste un posto dove metterla,
+non ci finisce.
+
+```bash
+TSM_SMTP_HOST=relay.interno.azienda.it
+TSM_SMTP_PORT=587
+TSM_SMTP_TLS_MODE=starttls        # starttls | tls | none
+TSM_SMTP_SENDER=ced@azienda.it
+TSM_SMTP_USERNAME=               # vuoto = nessun login
+TSM_SMTP_TLS_VERIFY=true         # false solo per una CA interna non riconosciuta
+```
+
+Con `TSM_SMTP_HOST` vuoto l'invio è «non configurato»: la schermata delle
+impostazioni lo dichiara e l'invio di prova risponde `503 smtp_not_configured`,
+invece di far restare qualcuno ad aspettare una posta che non partirà.
 
 `--wait` fa uscire il comando solo quando gli healthcheck sono verdi: se qualcosa non
 parte, se ne accorge Compose e non il primo utente.

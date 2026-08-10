@@ -28,6 +28,16 @@ secrets:
   # sulla testa. L'append-only è imposto dai privilegi, non dal codice (§8.19).
   api_db_password:
     file: ./secrets/api_db_password
+  # Password del relay SMTP. Come quella del database: un file montato, non una
+  # variabile d'ambiente — le variabili si vedono in `docker inspect` e nei log
+  # di crash (§8.7). Non passa MAI dall'API: `/api/settings` non la restituisce e
+  # non la accetta, e dice soltanto se c'è (§8.38).
+  #
+  # Se il relay interno non richiede autenticazione il file può restare vuoto:
+  # `TSM_SMTP_USERNAME` vuoto significa «nessun login», e l'assenza della
+  # password non è un errore di avvio.
+  smtp_password:
+    file: ./secrets/smtp_password
 
 services:
   db:
@@ -108,6 +118,7 @@ services:
       # NON `postgres_password`: l'API non ha bisogno del proprietario dello
       # schema, e non averne la password è metà della difesa.
       - api_db_password
+      - smtp_password
     environment:
       TSM_DB_HOST: db
       # Ruolo di runtime, non proprietario: non può aggiornare o cancellare la
@@ -131,6 +142,24 @@ services:
       # Solo la rete interna di Compose: `X-Forwarded-For` si crede unicamente se
       # il peer è il nostro nginx (§8.28).
       TSM_TRUSTED_PROXIES: ${TSM_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1}
+      # Trasporto della posta: gestito dall'OPERATIONS, non dall'interfaccia
+      # (§8.38). L'applicazione decide *a chi* e *quando* scrivere; *come*
+      # spedire è infrastruttura, uguale per tutti gli amministratori.
+      #
+      # Con TSM_SMTP_HOST vuoto l'invio è semplicemente «non configurato»:
+      # `/api/settings` lo dichiara, l'invio di prova risponde 503 con un codice
+      # proprio, e nessuno resta a chiedersi perché la posta non arriva.
+      TSM_SMTP_HOST: ${TSM_SMTP_HOST:-}
+      TSM_SMTP_PORT: ${TSM_SMTP_PORT:-587}
+      # starttls | tls | none. `none` esiste perché in rete chiusa il relay
+      # interno spesso non parla TLS: resta una scelta esplicita, non un ripiego.
+      TSM_SMTP_TLS_MODE: ${TSM_SMTP_TLS_MODE:-starttls}
+      TSM_SMTP_SENDER: ${TSM_SMTP_SENDER:-}
+      TSM_SMTP_USERNAME: ${TSM_SMTP_USERNAME:-}
+      TSM_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      # Verifica del certificato del relay. `true` per default: un certificato
+      # non valido deve far fallire l'invio, non passare in silenzio.
+      TSM_SMTP_TLS_VERIFY: ${TSM_SMTP_TLS_VERIFY:-true}
     healthcheck:
       # LIVENESS, non readiness. L'healthcheck di Docker decide riavvii e ordine
       # di avvio: legarlo a /api/ready significherebbe che un'installazione nuova

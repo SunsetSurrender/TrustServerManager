@@ -16,13 +16,16 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
+from app.api.notifications import router as notifications_router
 from app.api.request_context import origin_is_acceptable
+from app.api.settings import router as settings_router
 from app.api.users import router as users_router
 from app.config import get_settings
 
@@ -96,6 +99,29 @@ async def limit_request_size(request: Request, call_next):
     return await call_next(request)
 
 
+@app.exception_handler(RequestValidationError)
+async def malformed_body(request: Request,
+                         exc: RequestValidationError) -> JSONResponse:
+    """UN solo formato di errore su tutta l'API.
+
+    Senza questo, un corpo JSON malformato riceve la forma di FastAPI
+    (`detail` come elenco di oggetti con `loc`/`type`) mentre tutto il resto
+    riceve la nostra (`{code, message}`): il client dovrebbe saper leggere due
+    formati e indovinare quale aspettarsi a seconda di quale controllo scatta
+    per primo. È lo stesso motivo per cui i parametri di `/api/audit` sono
+    dichiarati come stringhe e validati dal nostro parser (§8.36).
+
+    I dettagli di FastAPI non si riportano: `loc` e `input` contengono frammenti
+    del corpo rifiutato, che è esattamente ciò che non si restituisce (§8.21).
+    """
+    log.info("corpo non valido su %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"code": "invalid_body",
+                 "message": "corpo della richiesta non valido"},
+        headers={"Cache-Control": "no-store"})
+
+
 @app.exception_handler(Exception)
 async def unhandled(request: Request, exc: Exception) -> JSONResponse:
     """Ultima rete: nessun traceback e nessun dettaglio SQL nella risposta.
@@ -116,3 +142,5 @@ app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(inventory_router, prefix="/api", tags=["inventory"])
 app.include_router(users_router, prefix="/api", tags=["users"])
 app.include_router(audit_router, prefix="/api", tags=["audit"])
+app.include_router(settings_router, prefix="/api", tags=["settings"])
+app.include_router(notifications_router, prefix="/api", tags=["notifications"])

@@ -27,8 +27,9 @@ DEV = "dddddddd-0000-4000-8000-00000000000a"
 
 ADMIN = Actor(username="admin", role="admin")
 
-#: Le richieste che modificano stato con cookie richiedono un Origin nostro (§8.27).
-ORIGIN = {"Origin": "http://testserver"}
+#: Client HTTPS e `Origin` corrispondente: il cookie di sessione è `Secure` e su
+#: `http://` non verrebbe inviato affatto. Vedi il commento in conftest.py.
+from conftest import ORIGIN, api_client  # noqa: E402
 
 
 def base_doc() -> dict:
@@ -81,7 +82,7 @@ def conn_override(engine):
 @pytest.fixture
 def client(conn_override):
     """Client SENZA attore: serve a dimostrare che le rotte sono inaccessibili."""
-    with TestClient(app) as c:
+    with api_client(app) as c:
         yield c
 
 
@@ -89,7 +90,7 @@ def client(conn_override):
 def as_editor(conn_override):
     app.dependency_overrides[require_actor] = \
         lambda: Actor(username="operatore", role="edit")
-    with TestClient(app) as c:
+    with api_client(app) as c:
         yield c
     app.dependency_overrides.pop(require_actor, None)
 
@@ -98,7 +99,7 @@ def as_editor(conn_override):
 def as_viewer(conn_override):
     app.dependency_overrides[require_actor] = \
         lambda: Actor(username="lettore", role="view")
-    with TestClient(app) as c:
+    with api_client(app) as c:
         yield c
     app.dependency_overrides.pop(require_actor, None)
 
@@ -331,6 +332,12 @@ def test_api_surface_is_the_expected_set():
         "/api/users/{user_id}/disable", "/api/users/{user_id}/enable",
         "/api/users/{user_id}/reset-password",
         "/api/audit",
+        "/api/settings",
+        # Un solo endpoint di notifica, e manda un messaggio FISSO ai
+        # destinatari salvati: non accetta destinatario, oggetto né corpo
+        # (§8.38). Se qui comparisse una rotta di invio con parametri, sarebbe
+        # un relay di posta autenticato.
+        "/api/notifications/test",
     }
 
 
@@ -382,7 +389,7 @@ def real_auth_client(conn_override, engine):
         _reset(c)
         create_user(c, "test-editor", "password-lunga-1", "edit", must_change_pw=False)
         create_user(c, "test-temp", "password-lunga-2", "admin", must_change_pw=True)
-    with TestClient(app) as c:
+    with api_client(app) as c:
         yield c
     with engine.begin() as c:
         _reset(c)
@@ -436,7 +443,7 @@ def test_logout_revokes_the_session(real_auth_client, head_version):
                           json={"username": "test-editor", "password": "password-lunga-1"})
     assert real_auth_client.get("/api/inventory").status_code == 200
     assert real_auth_client.post(
-        "/api/auth/logout", headers={"Origin": "http://testserver"}).status_code == 204
+        "/api/auth/logout", headers=ORIGIN).status_code == 204
     assert real_auth_client.get("/api/inventory").status_code == 401
 
 
@@ -444,7 +451,7 @@ def test_password_change_revokes_sessions(real_auth_client):
     real_auth_client.post("/api/auth/login",
                           json={"username": "test-editor", "password": "password-lunga-1"})
     r = real_auth_client.post("/api/auth/password",
-                              headers={"Origin": "http://testserver"},
+                              headers=ORIGIN,
                               json={"currentPassword": "password-lunga-1",
                                     "newPassword": "password-nuova-lunga"})
     assert r.status_code == 204

@@ -6,6 +6,12 @@
 #
 # Senza TSM_DB_URL i test PG si saltano e resta la suite pura.
 #
+# `httpx` è pinnato qui e non in requirements.txt: serve SOLO al TestClient di
+# Starlette, cioè ai test, e non deve finire nell'immagine di produzione. È
+# pinnato lo stesso perché non pinnarlo l'ha già rotta una volta — `starlette`
+# è passata alla 1.x, che pretende `httpx2`, e la suite non si è più nemmeno
+# raccolta.
+#
 # Uso:  .\tools\run-backend-tests.ps1  [-KeepDb]
 
 param([switch]$KeepDb)
@@ -39,7 +45,7 @@ Write-Host "esecuzione della suite ..."
 docker run --rm --network $net -v "${root}:/w" -w /w/backend `
     -e TSM_DB_URL="postgresql+psycopg://tsm:testpw@${db}:5432/tsm_test" `
     python:3.13-slim `
-    sh -c "pip install --quiet -r requirements.txt pytest==9.1.1 2>/dev/null && python -m pytest @args"
+    sh -c "pip install --quiet -r requirements.txt pytest==9.1.1 httpx==0.28.1 2>/dev/null && python -m pytest @args"
 $code = $LASTEXITCODE
 
 if (-not $KeepDb) {

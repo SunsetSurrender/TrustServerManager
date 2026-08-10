@@ -5,9 +5,22 @@
 # prima del primo deploy in rete chiusa: il pinning per versione non protegge da una
 # ri-pubblicazione dello stesso numero.
 fastapi==0.141.1
+# Starlette è una dipendenza TRANSITIVA di FastAPI, ed è pinnata lo stesso.
+# Motivo concreto: `fastapi==0.141.1` ammette anche `starlette>=1.0`, e la 1.4.1
+# è uscita dopo l'ultima esecuzione verde della suite. Il salto di major cambia
+# il client di test (da httpx a httpx2) e con esso la gestione dei cookie: la
+# stessa suite, lo stesso codice, sessioni che non si mantengono più. Una
+# dipendenza non pinnata trasforma il tempo che passa in un cambio di
+# comportamento, che è esattamente ciò che il pinning deve impedire (§6).
+starlette==0.52.1
 uvicorn[standard]==0.52.1
 sqlalchemy==2.0.51
 psycopg[binary]==3.3.4
 alembic==1.18.5
 pydantic-settings==2.14.2
 argon2-cffi==25.1.0
+# Database dei fusi orari per `zoneinfo`. NON è facoltativo: senza, l'unica fonte
+# è /usr/share/zoneinfo del sistema, che nelle immagini `slim` può mancare — e il
+# guasto si manifesterebbe come «Europe/Rome non è un fuso valido» in produzione,
+# dove non c'è modo di installare un pacchetto (§8.38).
+tzdata==2026.1

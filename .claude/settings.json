@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(\"/c/Users/matteo.zandonella/tsmtest/venv/Scripts/python.exe\" tools/users-ui-test.py --base https://localhost --password admin-definitiva-1)"
+      "Bash(\"/c/Users/matteo.zandonella/tsmtest/venv/Scripts/python.exe\" tools/users-ui-test.py --base https://localhost --password admin-definitiva-1)",
+      "Read(//c/Users/matteo.zandonella/tsmtest/**)",
+      "Read(//c/Users/matteo.zandonella/tsmtest/Scripts/**)",
+      "Bash(\"C:/Users/matteo.zandonella/tsmtest/venv/Scripts/python.exe\" -m pytest tests/test_settings_schema.py -q)",
+      "Bash(pwd -W)",
+      "Bash(docker run *)",
+      "Bash(git worktree *)",
+      "Bash(MSYS_NO_PATHCONV=1 docker run --rm --network tsm-test-net -v \"C:/Users/matteo.zandonella/AppData/Local/Temp/claude/base-head:/w\" -w /w/backend -e TSM_DB_URL=\"postgresql+psycopg://tsm:testpw@tsm-test-db:5432/tsm_test\" python:3.13-slim sh -c \"pip install --quiet -r requirements.txt 'starlette==0.52.1' pytest==9.1.1 httpx 2>/dev/null && python -m pytest tests/test_users_admin_pg.py -q 2>&1 | tail -15\")",
+      "Bash(docker version *)",
+      "Bash(docker rm *)"
     ]
   }
 }

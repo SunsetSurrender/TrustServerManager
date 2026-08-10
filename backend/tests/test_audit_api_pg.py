@@ -22,7 +22,9 @@ from app.main import app
 DSN = os.environ.get("TSM_DB_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="TSM_DB_URL non impostata")
 
-ORIGIN = {"Origin": "http://testserver"}
+#: Client HTTPS e `Origin` corrispondente: vedi il commento in conftest.py.
+from conftest import ORIGIN, api_client  # noqa: E402
+
 T0 = datetime(2026, 8, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
@@ -68,7 +70,7 @@ def client(db, engine):
             with conn.begin():
                 yield conn
     app.dependency_overrides[get_connection] = _dep
-    with TestClient(app) as c:
+    with api_client(app) as c:
         c.post("/api/auth/login", headers=ORIGIN,
                json={"username": "capo", "password": "password-lunga-1"})
         # L'accesso scrive la propria riga di audit, con `now()`: resterebbe in
@@ -349,7 +351,7 @@ def test_non_admin_gets_403(db, engine):
             with conn.begin():
                 yield conn
     app.dependency_overrides[get_connection] = _dep
-    with TestClient(app) as c:
+    with api_client(app) as c:
         c.post("/api/auth/login", headers=ORIGIN,
                json={"username": "op", "password": "password-lunga-2"})
         r = c.get("/api/audit")
@@ -364,7 +366,7 @@ def test_unauthenticated_gets_401(db, engine):
             with conn.begin():
                 yield conn
     app.dependency_overrides[get_connection] = _dep
-    with TestClient(app) as c:
+    with api_client(app) as c:
         assert c.get("/api/audit").status_code == 401
     app.dependency_overrides.clear()
 

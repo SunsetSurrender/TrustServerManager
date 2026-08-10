@@ -19,7 +19,10 @@ $final = "admin-definitiva-1"
 
 Write-Host "ricreo lo stato ..."
 docker compose down -v 2>$null | Out-Null
-docker compose up -d --wait 2>$null | Out-Null
+# `--build`: senza, si proverebbe l'immagine costruita l'ultima volta, cioè
+# codice vecchio. Un test verde su codice che non è quello che si sta scrivendo
+# è peggio di un test rosso.
+docker compose up -d --build --wait 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "avvio dello stack fallito"; exit 1 }
 
 docker compose run --rm -v "${root}/fixtures:/seed:ro" `

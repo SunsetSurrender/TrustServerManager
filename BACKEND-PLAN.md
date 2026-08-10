@@ -2081,6 +2081,238 @@ Non è un ostacolo per chi sa cosa sta facendo: sono due parole sulla riga di co
 Serve a rendere impossibile lanciarli *per sbaglio* contro qualcosa che somiglia alla
 produzione, che finora era impedito solo dalla memoria di chi digitava.
 
+### 8.38 Impostazioni tipizzate e invio di prova
+
+`GET`/`PUT /api/settings` e `POST /api/notifications/test`, solo amministratori. Lo
+**scheduler non è in questo commit**: prima la configurazione e la consegna devono
+essere stabili, poi si automatizza qualcosa che manda posta da sé.
+
+#### Schema chiuso, non una tabella chiave/valore
+
+Un editor di coppie chiave/valore è comodo per chi lo scrive e indifendibile per chi
+lo mantiene: nulla impedisce che un giorno dentro ci finisca `smtp.password`, e da
+quel momento la password è in un campo che l'API restituisce a chiunque possa
+leggere le impostazioni. I campi ammessi sono quindi un elenco finito —
+`enabled`, `timezone`, `warningDays`, `recipients`, `schedule` — e tutto il resto
+viene rifiutato.
+
+Le chiavi che *somigliano* a un segreto (`password`, `secret`, `token`, `hash`, …)
+sono rifiutate a **qualunque profondità**, con un codice proprio, usando lo stesso
+vocabolario della ripulitura dell'audit (§8.36): una sola definizione di «somiglia a
+un segreto» per tutta l'applicazione. Tecnicamente è ridondante — un campo
+sconosciuto viene già rifiutato — ma la ridondanza è il punto: il giorno in cui lo
+schema crescerà di un sotto-oggetto, quel sotto-oggetto nascerà già protetto invece
+di dipendere dall'attenzione di chi lo aggiunge.
+
+I messaggi d'errore nominano il **campo**, mai il valore: un valore rifiutato può
+essere proprio il segreto che si sta cercando di tenere fuori.
+
+#### `PUT` sostituisce, non modifica parzialmente
+
+Il blocco `notifications` va inviato **completo**. Con i campi facoltativi «assente»
+e «falso» diventano indistinguibili, e un client che dimentica `enabled` spegnerebbe
+le notifiche senza volerlo. Con tutti i campi obbligatori il caso non esiste, e
+`enabled: false` è un valore esplicito che attraversa la canonicalizzazione intatto —
+verificato da un test, perché è precisamente l'errore che un `bool(...)` o un `or`
+commette in silenzio e nella direzione peggiore.
+
+`version`, `smtp` e `updatedAt` sono di sola lettura e vengono rifiutati con un
+codice **dedicato**: il client non ha inventato un campo, ne ha rimandato indietro
+uno che l'API produce. La concorrenza si gestisce con l'intestazione, non con un
+campo nel corpo che si può dimenticare.
+
+#### Canonicalizzazione: cosa si ordina e cosa no
+
+`warningDays` viene deduplicato e **ordinato**: `[30, 7]` e `[7, 30]` sono la stessa
+configurazione — un insieme di finestre — e senza un ordine deterministico due
+salvataggi equivalenti sembrerebbero diversi e farebbero salire la revisione a vuoto.
+
+`recipients` **non** viene ordinato: l'ordine è quello scritto
+dall'amministratore, ed è informazione sua. Si normalizzano gli spazi e il dominio in
+minuscolo; la parte locale resta com'è, perché per l'RFC 5321 è sensibile alle
+maiuscole e cambiarla significa consegnare a un indirizzo diverso da quello scritto.
+I duplicati si cercano invece confrontando tutto in minuscolo: nessun server reale
+tratta `Mario@x.it` e `mario@x.it` come due persone, e accettarli entrambi manderebbe
+due copie di ogni avviso.
+
+Il fuso orario si valida costruendo davvero uno `ZoneInfo` — un elenco scritto a mano
+invecchierebbe, e `ZoneInfo` è la stessa fonte che userà lo scheduler. `tzdata` è in
+`requirements.txt` e non è facoltativo: senza, l'unica fonte è
+`/usr/share/zoneinfo` del sistema, che nelle immagini `slim` può mancare, e il
+guasto si manifesterebbe in produzione come «Europe/Rome non è un fuso valido».
+
+#### Revisione monotona, `ETag`/`If-Match`
+
+Riga **unica** in `settings`, con la singolarità imposta da un `CHECK (id = 1)`: è un
+vincolo del database, non una convenzione del codice. Il ruolo di runtime ha `SELECT`
+e `UPDATE` e **non** `INSERT`, come per `inventory_head` (§8.19): la riga nasce nella
+migrazione, una volta sola.
+
+Il blocco `FOR UPDATE` si prende **prima** di confrontare la revisione. Leggere,
+confrontare e poi scrivere senza blocco lascerebbe una finestra in cui due richieste
+con la stessa revisione attesa passano entrambe il controllo, e la seconda
+sovrascriverebbe la prima con la benedizione del meccanismo che dovrebbe impedirlo.
+
+Un **no-op canonico non incrementa** la revisione. Se la incrementasse, aprire la
+schermata e premere Salva senza toccare niente farebbe fallire il salvataggio di un
+collega che aveva la pagina aperta: un conflitto inventato, che insegna a ignorare
+quelli veri. Un no-op non scrive nemmeno una riga di audit — non è accaduto niente.
+
+⚠ **`W/"4"` va accettato, e l'ha scoperto il browser.** La prima versione ammetteva
+solo l'ETag forte, per il motivo giusto sulla carta: la RFC 9110 impone il confronto
+forte per `If-Match`. In pratica non funzionava. Il modulo gzip di nginx
+**indebolisce** l'ETag quando comprime: il server manda `"4"`, il browser — che
+dichiara `Accept-Encoding: gzip` — riceve `W/"4"`, e può solo rimandare quello che ha
+ricevuto. Ogni salvataggio dall'interfaccia riceveva 422 mentre le stesse chiamate da
+uno script, che non chiede la compressione, funzionavano: un difetto invisibile a
+qualunque test sull'API. Accettare la forma debole è anche corretto nel merito — la
+distinzione forte/debole riguarda l'identità byte per byte della rappresentazione,
+mentre qui il validatore è un numero di revisione, che la compressione non cambia.
+`*` resta rifiutato: quello significa davvero «qualunque versione va bene», cioè
+l'ultimo-che-scrive-vince con un'intestazione davanti.
+
+#### La modifica e la sua traccia stanno o cadono insieme
+
+`UPDATE` e riga di audit nella **stessa** transazione, quella della richiesta. Una
+configurazione cambiata senza sapere da chi è precisamente ciò che l'audit esiste per
+impedire; un test fa fallire la scrittura dell'audit e verifica che la modifica non
+resti.
+
+Nel dettaglio finiscono i **nomi** dei campi cambiati, non i valori: i destinatari
+sono indirizzi di persone e non c'è ragione di duplicarli in ogni riga di registro.
+
+#### SMTP: dell'operations, non dell'interfaccia
+
+Host, porta, modalità TLS, mittente e utenza sono variabili d'ambiente; la password è
+un secret montato, come quella del database (§8.7). L'API espone **una** cosa:
+`smtp: {"configured": true|false}`.
+
+Non è avarizia. Un oggetto `smtp` che accetta `host` e `username` è l'oggetto in cui,
+un giorno, qualcuno aggiunge `password`: se non esiste un posto dove metterla, non ci
+finisce. Non escono mai la password, il suo hash, il percorso del secret, la password
+del database né una stringa di connessione, e un test lo verifica sull'intera
+risposta.
+
+#### L'invio di prova non è un relay
+
+`POST /api/notifications/test` non accetta **niente**: né `to`, né `subject`, né un
+corpo. Destinatari e testo vengono dalle impostazioni **salvate** e dal codice del
+server. Provare una configurazione non ancora committata direbbe che funziona
+qualcosa che non è quello che poi verrà usato.
+
+La prova usa al massimo **tre** destinatari fra quelli configurati: se il relay
+funziona per tre funziona per tutti, e la differenza è solo quanta posta si genera
+premendo un pulsante.
+
+Limitazione **separata** da quella degli accessi (§8.28), perché protegge da un danno
+diverso: non chi indovina password, ma una sessione di amministratore compromessa —
+o un pulsante premuto in un ciclo — usata per generare posta. Tre invii per utenza e
+dieci complessivi all'ora; il limite complessivo non è ridondante, perché con il solo
+limite per attore N amministratori moltiplicherebbero il tetto. La prenotazione conta
+e scrive nella **stessa** transazione sotto `pg_advisory_xact_lock`: sotto READ
+COMMITTED due richieste simultanee conterebbero entrambe «due invii finora» e ne
+partirebbero tre. La riga si scrive **prima** dell'invio, così un invio che va in
+timeout viene contato — che è proprio il caso in cui qualcuno riprova.
+
+Gli errori escono come **categoria** da un elenco chiuso (`timeout`,
+`connection_failed`, `auth_failed`, `recipients_refused`, `sender_refused`,
+`tls_failed`, `protocol_error`). Il testo di un'eccezione di `smtplib` contiene
+l'host del relay, a volte l'utenza e la risposta completa del server: resta nei log.
+
+⚠ **`smtplib.SMTPException` deriva da `OSError`**, e così `ssl.SSLError` e
+`TimeoutError`. Una clausola `except OSError` messa troppo in alto intercetta quindi
+anche gli errori di protocollo e li etichetta «connessione non riuscita»: la risposta
+manderebbe chi legge a controllare la rete mentre il relay ha risposto benissimo,
+dicendo no. L'ordine delle clausole va dal più specifico al più generico, e un test
+fissa la gerarchia perché è una proprietà della libreria, non del nostro codice.
+
+#### L'asimmetria dell'audit dell'invio
+
+È la parte che merita più attenzione, perché riguarda un'azione che il database non
+può annullare.
+
+- Invio **riuscito**, audit non riuscito → si risponde **successo**, con
+  `auditRecorded: false`, e il guasto va nei log a livello di errore. Rispondere
+  «non riuscito» farebbe riprovare il client, e ogni tentativo manderebbe un altro
+  messaggio vero a persone vere.
+- Invio **fallito**, audit non riuscito → la risposta resta il fallimento. Qui non
+  c'è niente di irreversibile da proteggere.
+
+Entrambi i versi hanno un test. Un invio di prova, riuscito o fallito, non cambia mai
+le impostazioni.
+
+#### La schermata
+
+Nel pannello ⚙ Impostazioni, solo per gli amministratori, con il 403 del server come
+autorità finale. Ha sostituito i campi SMTP del prototipo, che raccoglievano host,
+utenza e **password in chiaro** dentro il documento dell'inventario.
+
+- **Nessun campo password**, e un test cerca `input[type=password]` per esserne sicuro.
+- L'ETag si conserva e si rimanda; si ricarica a **ogni** apertura del pannello,
+  perché fra due aperture qualcun altro può aver salvato.
+- «Salvato» si dice **solo** con la risposta in mano, e dopo si rilegge il documento
+  canonico dal server: la normalizzazione è sua, e la schermata deve mostrare quello
+  che è stato scritto, non quello che si è digitato.
+- Su **409** si ricarica la versione del server e si dice cos'è accaduto. Non si
+  rimandano gli stessi dati: cancellerebbero il lavoro di un altro amministratore,
+  che è esattamente ciò che l'ETag serve a impedire.
+- Validazione lato client per comodità — dire «manca la chiocciola» senza un giro di
+  rete — ma **l'autorità è del server**: un test manda un fuso che il client non sa
+  giudicare e verifica che arrivi al server e torni rifiutato.
+- Ogni pulsante è disabilitato mentre la **sua** richiesta è in volo: due Salva
+  manderebbero due `PUT` con lo stesso `If-Match` (e la seconda riceverebbe un
+  conflitto contro la prima), due prove manderebbero due messaggi veri.
+- **Nessun invio di prova automatico** dopo un salvataggio, ed esiti di salvataggio e
+  di prova in **aree distinte**: sono due operazioni diverse, e un'area sola farebbe
+  credere che l'esito di una dica qualcosa dell'altra.
+
+#### Test
+
+`backend/tests/test_settings_schema.py` (pura), `test_settings_api_pg.py` e
+`test_notifications_test_pg.py` (PostgreSQL reale), `tools/settings-ui-test.py`
+(43 controlli nel browser via nginx/TLS) e `tools/run-settings-ui-test.ps1`, che
+riparte pulito perché la revisione è cumulativa e il limite degli invii è orario.
+
+Tre difetti trovati scrivendo questi test, tutti finiti nel codice:
+
+- **L'ETag debole di nginx** (sopra). Solo il browser poteva trovarlo.
+- **Doppia serializzazione nella migrazione.** Passando una stringa già serializzata
+  a un parametro tipizzato JSONB, nella colonna finiva una *stringa* JSON invece di un
+  oggetto. Da Python non si notava — `json.loads` la apriva — ma
+  `data -> 'notifications'` restituiva NULL, e l'avrebbe scoperto lo scheduler mesi
+  dopo come «non trova destinatari». Il `load()` non lo accomoda più: se la colonna
+  non contiene un oggetto, l'API **fallisce** invece di arrangiarsi, perché
+  arrangiarsi sposta il guasto altrove e più tardi.
+- **Un test che verificava sé stesso.** La prima versione di
+  «la migrazione inserisce il documento giusto» girava dopo una fixture che
+  *sovrascriveva* quella riga: passava senza aver mai guardato ciò che la migrazione
+  scrive. Ora c'è una fixture che fa `downgrade` e `upgrade` veri — e come effetto
+  collaterale è l'unica cosa che prova che `downgrade()` funziona.
+
+### 8.39 Il client di prova parla HTTPS
+
+Il `TestClient` di Starlette usa `http://testserver` per default, e il cookie di
+sessione è `Secure`: `http.cookiejar` non invia un cookie `Secure` su `http://`. La
+conseguenza non era solo qualche 401 al posto di un 403.
+
+La validazione di origine (§8.27) scatta **solo** sulle richieste che portano il
+cookie di sessione. Senza cookie non veniva mai esercitata: i test che la riguardavano
+passavano perché il controllo non avveniva. Un test che passa senza eseguire ciò che
+dichiara di verificare è peggio di un test rosso.
+
+`backend/tests/conftest.py` fornisce ora `api_client()` e `ORIGIN`, entrambi su
+`https://testserver`. L'alternativa — far girare la suite con
+`TSM_COOKIE_SECURE=false` — è stata scartata: renderebbe verdi i test cambiando la
+configurazione dell'applicazione, e la configurazione di produzione non verrebbe più
+provata da nessuno.
+
+Nello stesso spirito, `starlette` e `httpx` sono ora **pinnati**. Non lo erano perché
+sono dipendenze transitive, e nel frattempo `starlette` è passata alla 1.x, che
+pretende `httpx2`: la suite non si raccoglieva più. Una dipendenza non pinnata
+trasforma il tempo che passa in un cambio di comportamento (§6). I runner dei test nel
+browser hanno preso `--build`: senza, provavano l'immagine costruita l'ultima volta,
+cioè codice vecchio.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -2131,17 +2363,21 @@ produzione, che finora era impedito solo dalla memoria di chi digitava.
 8. ~~**API e vista del registro** su `GET /api/audit` (§8.36), più il consenso
    esplicito per i test distruttivi (§8.37)~~ ✔ **fatto** —
    `backend/app/audit/`, `tools/audit-ui-test.py`, `tools/destructive_guard.py`
-9. `/api/settings` con schema tipizzato e `If-Match`, più l'endpoint di prova invio.
-   **Prossimo commit.**
+9. ~~`/api/settings` con schema tipizzato e `If-Match`, più l'endpoint di prova invio
+   (§8.38), e il client di prova su HTTPS (§8.39)~~ ✔ **fatto** —
+   `backend/app/settings/`, `backend/app/notifications/`, `0007_settings`,
+   `tools/settings-ui-test.py`. **Senza scheduler**, di proposito.
 10. Layout di archiviazione in produzione: volume su secondo disco, preflight, systemd.
+    **Prossimo commit.**
 11. Foto su `/api/photos` + GC (§8.5), poi job scadenze (§8.8).
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)
 9. Immagine web con allowlist dei file statici (§6): esclusione di `inventario.js`,
    dello standalone e della documentazione. Da fare **dopo** il punto 7.
-10. Foto su `/api/photos` + GC (§8.5), settings con secret SMTP fuori dall'API (§8.7)
-11. Seed realistico con le date (§7), poi job scadenze con lock e idempotenza (§8.8)
+10. Foto su `/api/photos` + GC (§8.5)
+11. Seed realistico con le date (§7), poi job scadenze con lock e idempotenza (§8.8),
+    che ora ha una configurazione da cui partire (§8.38)
 12. Fase 2: normalizzazione e endpoint di query, a frontend invariato
 
 Il cuore sono i punti 3, 4, 6 e 7. L'ordine fra 3 e 6 non è negoziabile: il server che

@@ -14,7 +14,7 @@ from app.main import app
 DSN = os.environ.get("TSM_DB_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="TSM_DB_URL non impostata")
 
-ORIGIN = {"Origin": "http://testserver"}
+from conftest import ORIGIN, api_client  # noqa: E402  (client HTTPS: vedi conftest)
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +47,7 @@ def admin(db, engine):
             with conn.begin():
                 yield conn
     app.dependency_overrides[get_connection] = _dep
-    with TestClient(app) as c:
+    with api_client(app) as c:
         c.post("/api/auth/login", headers=ORIGIN,
                json={"username": "capo", "password": "password-lunga-1"})
         yield c
@@ -61,7 +61,7 @@ def operator(db, engine):
             with conn.begin():
                 yield conn
     app.dependency_overrides[get_connection] = _dep
-    with TestClient(app) as c:
+    with api_client(app) as c:
         c.post("/api/auth/login", headers=ORIGIN,
                json={"username": "op", "password": "password-lunga-3"})
         yield c
@@ -87,7 +87,7 @@ def test_unauthenticated_cannot_manage_users(db, engine):
             with conn.begin():
                 yield conn
     app.dependency_overrides[get_connection] = _dep
-    with TestClient(app) as c:
+    with api_client(app) as c:
         assert c.get("/api/users").status_code == 401
     app.dependency_overrides.clear()
 
@@ -131,7 +131,7 @@ def test_create_returns_temporary_password_once(admin):
 def test_created_user_must_change_password_on_first_login(admin, engine):
     temp = admin.post("/api/users", headers=ORIGIN,
                       json={"username": "nuovo", "role": "edit"}).json()["temporaryPassword"]
-    with TestClient(app) as c:
+    with api_client(app) as c:
         r = c.post("/api/auth/login", headers=ORIGIN,
                    json={"username": "nuovo", "password": temp})
         assert r.status_code == 200
@@ -184,7 +184,7 @@ def test_patch_only_touches_sent_fields(admin):
 
 def test_disable_revokes_sessions(admin, engine):
     target = find(admin, "op")
-    with TestClient(app) as victim:
+    with api_client(app) as victim:
         victim.post("/api/auth/login", headers=ORIGIN,
                     json={"username": "op", "password": "password-lunga-3"})
         assert victim.get("/api/auth/me").status_code == 200
@@ -196,7 +196,7 @@ def test_disable_revokes_sessions(admin, engine):
 def test_disabled_user_cannot_login(admin):
     target = find(admin, "op")
     admin.post(f"/api/users/{target['id']}/disable", headers=ORIGIN)
-    with TestClient(app) as c:
+    with api_client(app) as c:
         r = c.post("/api/auth/login", headers=ORIGIN,
                    json={"username": "op", "password": "password-lunga-3"})
         assert r.status_code == 401
@@ -208,7 +208,7 @@ def test_enable_restores_access(admin):
     r = admin.post(f"/api/users/{target['id']}/enable", headers=ORIGIN)
     assert r.status_code == 200
     assert r.json()["disabled"] is False
-    with TestClient(app) as c:
+    with api_client(app) as c:
         assert c.post("/api/auth/login", headers=ORIGIN,
                       json={"username": "op", "password": "password-lunga-3"}
                       ).status_code == 200
@@ -258,7 +258,7 @@ def test_demoting_a_non_last_admin_is_allowed(admin):
 
 def test_reset_password_returns_temp_and_revokes_sessions(admin):
     target = find(admin, "op")
-    with TestClient(app) as victim:
+    with api_client(app) as victim:
         victim.post("/api/auth/login", headers=ORIGIN,
                     json={"username": "op", "password": "password-lunga-3"})
         assert victim.get("/api/auth/me").status_code == 200
@@ -272,7 +272,7 @@ def test_reset_password_returns_temp_and_revokes_sessions(admin):
         # password è compromessa non servirebbe a nulla altrimenti
         assert victim.get("/api/auth/me").status_code == 401
 
-    with TestClient(app) as c:
+    with api_client(app) as c:
         assert c.post("/api/auth/login", headers=ORIGIN,
                       json={"username": "op", "password": "password-lunga-3"}
                       ).status_code == 401

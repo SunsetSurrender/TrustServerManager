@@ -13,7 +13,7 @@ la catena vera.
 
 Prerequisiti:
     .\\tools\\make-dev-tls.ps1
-    docker compose up -d --build --wait
+    docker compose -f compose.yaml -f compose.storage-dev.yaml up -d --build --wait
     docker compose run --rm -v ".../fixtures:/seed:ro" migrate \\
         python scripts/bootstrap.py --seed /seed/seed.json --from-legacy
 

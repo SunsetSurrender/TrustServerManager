@@ -2313,6 +2313,174 @@ trasforma il tempo che passa in un cambio di comportamento (§6). I runner dei t
 browser hanno preso `--build`: senza, provavano l'immagine costruita l'ultima volta,
 cioè codice vecchio.
 
+### 8.40 Archiviazione di produzione e avvio del servizio
+
+Due dischi su `tsm-prd-01`: il sistema con Docker, le immagini, i log e lo swap sul
+primo; i dati durevoli di PostgreSQL sul secondo, montato su `/srv/tsm-data`, con
+i dati in `/srv/tsm-data/postgres`. `/var/lib/docker` **resta sul disco 1**: le
+immagini si ricaricano, i dati no.
+
+Runbook operativo completo: `deploy/README.md`.
+
+#### Il volume resta un volume, ma i byte vanno sul disco 2
+
+```yaml
+volumes:
+  pgdata:
+    driver: local
+    driver_opts: { type: none, o: bind, device: /srv/tsm-data/postgres }
+```
+
+Il percorso è **letterale**. Un `${TSM_DATA_DIR:-/srv/tsm-data/postgres}`
+sembrerebbe più flessibile e sarebbe un pericolo: una variabile dimenticata in un
+`.env` o nell'ambiente di una shell sposterebbe il database altrove in silenzio,
+e il momento in cui si scopre è quello in cui «i dati non ci sono più». Le
+macchine senza il secondo disco aggiungono `-f compose.storage-dev.yaml`, che è un
+atto visibile sulla riga di comando.
+
+`postgres` è una **sottodirectory** del punto di mount, non il punto di mount: un
+filesystem appena creato non è vuoto, e `initdb` rifiuta una directory non vuota.
+
+#### Il guasto che tutto questo esiste per impedire
+
+Con il bind, se il secondo disco non è montato PostgreSQL può inizializzare sul
+**filesystem di root**. Nessun errore, servizio apparentemente sano, dati sul
+disco che si riempie e che il backup del volume dati non copre.
+
+Misurando, il pericolo si è rivelato più preciso di come lo si immaginava:
+
+| Situazione | Cosa fa Docker |
+|---|---|
+| `/srv/tsm-data/postgres` **assente** | il bind **fallisce**, il container non parte |
+| `/srv/tsm-data/postgres` **presente**, mount assente | il bind riesce, `initdb` scrive **su `/`** |
+
+La prima riga è una difesa gradita e non pianificata; la seconda è il caso
+frequente — la directory l'ha creata l'amministratore seguendo il runbook, e poi
+il disco non è stato montato per un riavvio, una modifica a `fstab` o un device
+che ha cambiato nome. Il test la riproduce e la dimostra prima di dimostrare il
+rimedio: un test che verifica solo il rifiuto non dice se il pericolo era reale.
+
+#### Preflight: fallisce chiuso, e non aggiusta niente
+
+`deploy/preflight.sh` gira **prima** di Compose e rifiuta l'avvio se qualcosa non
+torna. In particolare **non crea la directory dei dati quando il mount manca**: un
+secondo disco assente è un guasto, non una condizione da aggirare. Non formatta,
+non partiziona, non tocca `fstab`, non scarica immagini.
+
+Ogni prerequisito ha un **codice di uscita stabile**, così un'automazione
+distingue «manca il disco» da «manca il certificato» senza leggere il testo:
+`10`–`12` Docker, `20`–`28` archiviazione, `30`–`31` secret e TLS, `40`–`42`
+configurazione non di produzione. Elenco completo nell'intestazione dello script e
+in `deploy/README.md`.
+
+Tre controlli meritano una nota.
+
+- **Non è il filesystem di root**: si confrontano sia la `SOURCE` di `findmnt` sia
+  `st_dev`. Due segnali indipendenti perché `findmnt` da solo non distinguerebbe un
+  bind del filesystem di root montato su `/srv/tsm-data`, che «è un mountpoint» e
+  passerebbe.
+- **Scrivibilità**: non si guardano i permessi, si **scrive davvero** come utente
+  di PostgreSQL attraverso Docker. Sotto SELinux enforcing l'etichetta sbagliata
+  dà `EACCES` con permessi perfetti, e un controllo sui soli permessi lo
+  mancherebbe.
+- **Identità di PostgreSQL letta dall'immagine**, mai assunta. Nell'immagine
+  `postgres:17-alpine` l'uid è **70**, non il 999 delle immagini Debian che quasi
+  tutte le guide danno per scontato: scriverlo a mano avrebbe prodotto una
+  directory di proprietà di un utente inesistente, e un errore che parla di
+  permessi invece di uid.
+
+⚠ **Il preflight legge la configurazione con `awk`, non con un interprete.** La
+prima versione usava `python3` con PyYAML e ricadeva su `grep` quando mancava.
+Sulla VM di prova `python3` *esiste ma è rotto*: `command -v` diceva sì,
+l'estrazione restituiva stringa vuota, e «nessuna porta pubblicata» risultava vero
+perché non si era letto niente. Un preflight che si distrae proprio sul controllo
+che deve fare è peggio di un preflight assente. `docker compose config` produce
+YAML normalizzato, quindi un estrattore basato sull'indentazione è deterministico
+e non dipende da nulla.
+
+#### SELinux: l'etichetta deve essere persistente
+
+Tipo atteso `container_file_t`. Il preflight verifica **anche** che esista la
+regola in `semanage fcontext`, non solo l'etichetta corrente: un `chcon` funziona
+subito e si perde alla prima rietichettatura del filesystem — un `restorecon -R /`,
+un aggiornamento della policy — e da quel momento PostgreSQL non scrive più, in un
+giorno in cui nessuno ha toccato TSM.
+
+#### Unità systemd
+
+`RequiresMountsFor=/srv/tsm-data` fa dedurre a systemd l'unità `.mount`
+corrispondente e la rende una dipendenza necessaria: senza il disco, il servizio
+non parte. Senza, all'avvio della macchina si vincerebbe una corsa — Docker pronto
+prima del mount. Non basta comunque da solo, perché un mount può esserci e puntare
+alla cosa sbagliata: per quello c'è `ExecStartPre`.
+
+`Restart=no` di proposito: se il preflight rifiuta, il motivo è strutturale e
+riprovare ogni trenta secondi riempirebbe i log nascondendo la diagnosi. Nessun
+secret nell'unità né sulla riga di comando — finirebbero in `systemctl cat` e nel
+journal — e nessun `EnvironmentFile`, che sposterebbe gli stessi valori in un
+altro file di testo con un livello di indirezione in più.
+
+#### Se il disco sparisce a servizio avviato
+
+`RequiresMountsFor` protegge l'**avvio**, e nessuna configurazione di systemd rende
+sicura la rimozione a caldo di un filesystem sotto un database in esecuzione:
+descrittori aperti, pagine sporche, WAL da scrivere. L'applicazione non tenta
+alcun recupero automatico, e in particolare non reinizializza niente — un `initdb`
+automatico su una directory vuota trasformerebbe un guasto di archiviazione in una
+perdita di dati.
+
+Il comportamento atteso è: allarme **immediato** del monitoraggio se
+`/srv/tsm-data` non è più un mount o è passato in sola lettura; `/api/ready` che
+fallisce; e l'amministratore che **ferma** lo stack invece di scrivere su un mount
+degradato.
+
+#### Spazio
+
+Il preflight **rifiuta** sotto 5 GiB liberi e **avvisa** a 70% e 85%: bloccare
+l'avvio di un servizio che sta lavorando bene perché il disco è pieno all'86%
+sarebbe un danno, non una protezione.
+
+⚠ 100 GB nel guest non sono 100 GB sul datastore. I dischi sono thin provisioned:
+un datastore pieno si manifesta nel guest come errori di I/O o come filesystem in
+sola lettura **con `df` che mostra spazio in abbondanza**. Nessun controllo dentro
+la VM può vederlo; resta responsabilità del monitoraggio dell'infrastruttura.
+
+#### Backup
+
+Veeam, a livello di VM. **Entrambi i dischi virtuali devono appartenere alla VM
+protetta e rientrare nel job.** Un job che copia solo il disco di sistema produce
+un ripristino che parte, sembra sano e non contiene nessun dato: il tipo di backup
+che si scopre incompleto il giorno del ripristino.
+
+#### Test
+
+- `tools/storage-config-test.py` — 86 controlli sulle **dichiarazioni**: volume
+  ancorato, nessuna porta pubblicata per `db` e `api`, immagini fuori dal disco
+  dati, override di sviluppo che disancora e non tocca altro, unità systemd
+  (direttive, non commenti), codici del preflight, e completezza del runbook.
+- `tools/storage-e2e-test.sh` + `tools/run-storage-e2e-test.ps1` — 31 controlli sul
+  **comportamento**, con un filesystem vero: immagine da 7 GiB, `mkfs.ext4`, mount
+  su `/srv/tsm-data`, stack di produzione avviato, scrittura verificata sul disco
+  dedicato, poi smontaggio, controprova del danno, rifiuto del preflight,
+  rimontaggio e dati ancora al loro posto.
+
+Due cose imparate scrivendo i test, entrambe finite nel codice:
+
+- **`st_dev` non risponde alla domanda giusta.** Su un filesystem overlay un file
+  appena creato riporta un `st_dev` diverso da quello della sua stessa directory:
+  il test dichiarava «non è sul filesystem di root» mentre i dati erano
+  esattamente là. Si usa `findmnt -T`, che dice quale mount contiene un percorso.
+- **`local a="$1" b="$a"` non è affidabile.** In alcune versioni di bash `local`
+  crea tutti i nomi prima di valutare le assegnazioni, e con `set -u` il
+  riferimento nella stessa istruzione aborta con «unbound variable». Le
+  dichiarazioni sono separate.
+
+E una che è finita in `.gitattributes`: gli script di shell **devono** essere LF.
+Due file riscritti da uno strumento Windows sono arrivati alla macchina Linux con
+CRLF, e `set -o pipefail` è diventato `set -o pipefail\r` → «invalid option name».
+Il repository si modifica su Windows e si esegue su Oracle Linux: la regola non è
+una preferenza di stile.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -2367,9 +2535,13 @@ cioè codice vecchio.
    (§8.38), e il client di prova su HTTPS (§8.39)~~ ✔ **fatto** —
    `backend/app/settings/`, `backend/app/notifications/`, `0007_settings`,
    `tools/settings-ui-test.py`. **Senza scheduler**, di proposito.
-10. Layout di archiviazione in produzione: volume su secondo disco, preflight, systemd.
-    **Prossimo commit.**
-11. Foto su `/api/photos` + GC (§8.5), poi job scadenze (§8.8).
+10. ~~Layout di archiviazione in produzione: volume ancorato al secondo disco,
+    preflight che fallisce chiuso, unità systemd con `RequiresMountsFor` (§8.40)~~
+    ✔ **fatto** — `deploy/`, `compose.storage-dev.yaml`,
+    `tools/storage-config-test.py`, `tools/storage-e2e-test.sh`
+11. Foto su `/api/photos` + GC (§8.5), poi lo **scheduler** delle scadenze con lock
+    e idempotenza (§8.8), che ora ha una configurazione da cui partire (§8.38) e un
+    disco su cui scrivere (§8.40). **Prossimo commit.**
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

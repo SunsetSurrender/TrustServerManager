@@ -18,7 +18,38 @@ networks:
   edge: {}
 
 volumes:
-  pgdata: {}
+  # Volume con nome, ma ANCORATO al secondo disco (§8.40).
+  #
+  # Resta un volume con nome perché è ciò che il servizio `db` monta, e perché i
+  # comandi di Compose continuano a funzionare come prima. Cambia dove stanno i
+  # byte: `type: none` + `o: bind` dice a Docker di usare esattamente questa
+  # directory invece di crearne una sotto /var/lib/docker/volumes.
+  #
+  # Il percorso è SCRITTO A MANO e non parametrizzato. Un
+  # `${TSM_DATA_DIR:-/srv/tsm-data/postgres}` sembrerebbe più flessibile e
+  # sarebbe un pericolo: una variabile dimenticata in un `.env` o
+  # nell'ambiente di una shell sposterebbe il database altrove in silenzio, e la
+  # prima volta che ci si accorge è quando i dati «non ci sono più» — perché sono
+  # in un'altra directory. Le macchine senza il secondo disco (portatili, CI)
+  # aggiungono `-f compose.storage-dev.yaml`, che è un atto visibile sulla riga
+  # di comando.
+  #
+  # ⚠ Docker crea la directory del bind se manca, e la crea sul filesystem di
+  # root quando il secondo disco non è montato. Poi PostgreSQL ci fa `initdb` e
+  # comincia a lavorare: nessun errore, e i dati finiscono sul disco sbagliato.
+  # È l'esatto scenario che `deploy/preflight.sh` esiste per fermare PRIMA che
+  # Compose parta (§8.40), e che il test in `tools/storage-e2e-test.ps1`
+  # riproduce sia nel verso giusto sia in quello sbagliato.
+  #
+  # NB: `postgres` è una SOTTODIRECTORY del punto di mount, non il punto di mount
+  # stesso. Non è estetica: un filesystem ext4 appena creato contiene
+  # `lost+found`, e `initdb` rifiuta una directory non vuota.
+  pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/tsm-data/postgres
 
 secrets:
   # Proprietario dello schema: migrazioni, DDL, bootstrap.

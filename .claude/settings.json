@@ -10,7 +10,14 @@
       "Bash(git worktree *)",
       "Bash(MSYS_NO_PATHCONV=1 docker run --rm --network tsm-test-net -v \"C:/Users/matteo.zandonella/AppData/Local/Temp/claude/base-head:/w\" -w /w/backend -e TSM_DB_URL=\"postgresql+psycopg://tsm:testpw@tsm-test-db:5432/tsm_test\" python:3.13-slim sh -c \"pip install --quiet -r requirements.txt 'starlette==0.52.1' pytest==9.1.1 httpx 2>/dev/null && python -m pytest tests/test_users_admin_pg.py -q 2>&1 | tail -15\")",
       "Bash(docker version *)",
-      "Bash(docker rm *)"
+      "Bash(docker rm *)",
+      "Bash(bash -n deploy/preflight.sh)",
+      "Bash(bash -n tools/storage-e2e-test.sh)",
+      "Bash(grep -n \"awk '/\\\\^  pgdata\" tools/storage-e2e-test.sh)",
+      "Bash(MSYS_NO_PATHCONV=1 docker run --rm -v c:/Users/matteo.zandonella/Desktop/TrustServerManager:/w -w /w --entrypoint sh docker:28-cli -c ' *)",
+      "Bash(python tools/storage-config-test.py)",
+      "Bash(MSYS_NO_PATHCONV=1 docker run --rm --network tsm-test-net -v \"c:/Users/matteo.zandonella/Desktop/TrustServerManager:/w\" -w /w/backend -e TSM_DB_URL=\"postgresql+psycopg://tsm:testpw@tsm-test-db:5432/tsm_test\" python:3.13-slim sh -c \"pip install --quiet -r requirements.txt pytest==9.1.1 httpx==0.28.1 2>/dev/null && python -m pytest 2>&1 | grep -E '^[0-9]+ passed|failed|FAILED'\")",
+      "Bash(git check-attr *)"
     ]
   }
 }

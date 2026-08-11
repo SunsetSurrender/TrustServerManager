@@ -1,0 +1,24 @@
+# Override di ARCHIVIAZIONE per le macchine senza il secondo disco.
+# NON si distribuisce.
+#
+#   docker compose -f compose.yaml -f compose.storage-dev.yaml up -d --wait
+#
+# `compose.yaml` ancora `pgdata` a /srv/tsm-data/postgres, che in produzione è il
+# secondo disco (§8.40). Su un portatile o in CI quel percorso non esiste, e
+# Docker lo creerebbe sul filesystem di root: esattamente ciò che in produzione
+# non deve accadere. Qui il volume torna un volume Docker ordinario.
+#
+# Perché un file a parte e non una variabile d'ambiente: la stessa ragione di
+# `compose.dev.yaml`. Un default sovrascrivibile (`${TSM_DATA_DIR:-...}`) si
+# attiva da un `.env` dimenticato e sposta il database senza che nessuno lo
+# scriva da nessuna parte. Un file da nominare sulla riga di comando no.
+#
+# Questo file NON tocca TLS, cookie, origini o porte: chi lo usa continua a
+# provare la configurazione di produzione per tutto il resto. Per lo sviluppo in
+# HTTP c'è `compose.dev.yaml`, che è un'altra cosa e si aggiunge a parte.
+
+volumes:
+  pgdata:
+    # `!reset` rimuove le opzioni del bind e lascia `driver: local` con il
+    # comportamento predefinito: una directory sotto /var/lib/docker/volumes.
+    driver_opts: !reset null

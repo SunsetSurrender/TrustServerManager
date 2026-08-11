@@ -1,0 +1,30 @@
+# Fine di riga: gli script di shell DEVONO essere LF.
+#
+# Non è una preferenza di stile. Uno script con terminatori CRLF su Linux
+# fallisce così:
+#
+#     bash: ./preflight.sh: /usr/bin/env bash^M: bad interpreter: No such file
+#
+# oppure, più insidiosamente, si avvia e sbaglia i confronti perché ogni valore
+# porta un `\r` invisibile in coda. Il repository si modifica su Windows e si
+# esegue su Oracle Linux: senza questa regola, `core.autocrlf` di una postazione
+# Windows può committare CRLF e la produzione riceve script che non partono.
+#
+# È già capitato durante lo sviluppo di §8.40: due script riscritti da un
+# programma Windows sono arrivati alla VM con CRLF, e `set -o pipefail` è
+# diventato `set -o pipefail\r` → «invalid option name».
+*.sh    text eol=lf
+
+# I file di systemd e di configurazione letti da Linux: stessa ragione.
+*.service   text eol=lf
+Dockerfile  text eol=lf
+*.conf      text eol=lf
+
+# Gli script PowerShell girano solo su Windows: CRLF va bene.
+*.ps1   text eol=crlf
+
+# Binari: nessuna conversione.
+*.png   binary
+*.woff2 binary
+*.xlsx  binary
+*.pem   binary

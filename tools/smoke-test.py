@@ -27,7 +27,7 @@ sondando una porta condivisa. Un eventuale listener estraneo viene segnalato com
 informazione, non come fallimento.
 
 Uso:
-    docker compose up -d --build --wait
+    docker compose -f compose.yaml -f compose.storage-dev.yaml up -d --build --wait
     python tools/smoke-test.py
 """
 import json

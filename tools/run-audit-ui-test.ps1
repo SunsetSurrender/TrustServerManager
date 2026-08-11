@@ -18,14 +18,20 @@ $temp = "admin-iniziale-1"
 $final = "admin-definitiva-1"
 
 Write-Host "ricreo lo stato ..."
-docker compose down -v 2>$null | Out-Null
+# `-f compose.storage-dev.yaml`: su questa macchina il secondo disco non esiste,
+# e compose.yaml ancora pgdata a /srv/tsm-data/postgres (§8.40). Senza
+# l'override, Docker rifiuterebbe di montare il volume — che è il comportamento
+# giusto in produzione e un impedimento qui.
+$C = @("-f", "compose.yaml", "-f", "compose.storage-dev.yaml")
+
+docker compose @C down -v 2>$null | Out-Null
 # `--build`: senza, si proverebbe l'immagine costruita l'ultima volta, cioè
 # codice vecchio. Un test verde su codice che non è quello che si sta scrivendo
 # è peggio di un test rosso.
-docker compose up -d --build --wait 2>$null | Out-Null
+docker compose @C up -d --build --wait 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "avvio dello stack fallito"; exit 1 }
 
-docker compose run --rm -v "${root}/fixtures:/seed:ro" `
+docker compose @C run --rm -v "${root}/fixtures:/seed:ro" `
     -e TSM_BOOTSTRAP_PASSWORD=$temp `
     migrate python scripts/bootstrap.py --seed /seed/seed.json --admin $Admin --from-legacy 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "bootstrap fallito"; exit 1 }

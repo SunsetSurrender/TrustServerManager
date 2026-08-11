@@ -1,0 +1,67 @@
+[Unit]
+Description=Trust Server Manager (Docker Compose)
+Documentation=file:///opt/tsm/deploy/README.md
+
+# RequiresMountsFor è la parte che conta di questa sezione.
+#
+# systemd deduce da questo percorso l'unità .mount corrispondente
+# (srv-tsm\x2ddata.mount) e la rende una dipendenza NECESSARIA: se il secondo
+# disco non è montato, questa unità non parte affatto. Senza,
+# all'avvio della macchina si vincerebbe una corsa: Docker può essere pronto
+# prima che il mount ci sia, il bind di pgdata creerebbe la directory sul
+# filesystem di root e PostgreSQL vi farebbe initdb. Nessun errore, dati sul
+# disco sbagliato.
+#
+# Non è comunque sufficiente da solo — un mount può esserci e puntare alla cosa
+# sbagliata — e per questo ExecStartPre esegue il preflight (§8.40).
+RequiresMountsFor=/srv/tsm-data
+
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# `docker compose up -d` esce subito lasciando i container in vita: senza
+# RemainAfterExit systemd considererebbe il servizio terminato e `systemctl
+# status` direbbe «inactive (dead)» con lo stack in esecuzione.
+RemainAfterExit=yes
+
+# Directory di lavoro esplicita: `docker compose` cerca compose.yaml nella
+# directory corrente, e per un servizio di systemd la directory corrente è /.
+WorkingDirectory=/opt/tsm
+
+# Percorsi ASSOLUTI per gli eseguibili: il PATH di un servizio systemd non è
+# quello di una shell di login, e un `docker` non trovato darebbe un errore
+# molto meno chiaro di quello che serve.
+#
+# NESSUN -f compose.dev.yaml e NESSUN -f compose.storage-dev.yaml: quelli sono
+# file di sviluppo. `docker compose` usa compose.yaml e, se presente,
+# compose.override.yaml — motivo per cui in produzione quel file non deve
+# esistere; il preflight lo rileva comunque, perché guarda la configurazione
+# RESA e non i file passati (§8.40).
+ExecStartPre=/opt/tsm/deploy/preflight.sh --dir /opt/tsm
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+
+# Un avvio fallito NON si ritenta in loop: se il preflight rifiuta, il motivo è
+# strutturale (disco assente, certificato mancante) e riprovare ogni 30 secondi
+# riempirebbe i log nascondendo la diagnosi. Si guarda `systemctl status` e si
+# rimedia.
+Restart=no
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+# I secret NON stanno qui e non stanno sulla riga di comando: sono file montati
+# da Compose (§8.7). Una password in un'unità systemd finisce in
+# `systemctl cat`, in `systemd-analyze dump` e nei log del journal.
+# Nemmeno EnvironmentFile: servirebbe solo a spostare gli stessi valori in un
+# altro file di testo, con un livello di indirezione in più e la stessa
+# esposizione.
+
+# L'unità non ha bisogno di privilegi oltre a parlare col socket di Docker.
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

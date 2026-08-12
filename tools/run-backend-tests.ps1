@@ -23,10 +23,22 @@ $db = "tsm-test-db"
 # postgres:17-alpine, pinnata per digest come in compose.yaml
 $pgImage = "postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
 
-docker network create $net 2>$null | Out-Null
+# `docker network create`/`docker rm` scrivono su stderr quando la rete esiste già
+# o il container non esiste, e con $ErrorActionPreference = "Stop" PowerShell 5.1
+# trasforma lo stderr di un eseguibile nativo in un errore che ferma lo script. Non
+# è un guasto: sono le due condizioni normali di un avvio pulito. `Quiet` le
+# esegue con la gestione errori allentata, senza allentarla per tutto il resto.
+function Quiet([scriptblock]$cmd) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & $cmd 2>$null | Out-Null } catch { }
+    $ErrorActionPreference = $prev
+}
+
+Quiet { docker network create $net }
 
 if (-not (docker ps -q -f "name=^$db$")) {
-    docker rm -f $db 2>$null | Out-Null
+    Quiet { docker rm -f $db }
     Write-Host "avvio $db ..."
     docker run -d --name $db --network $net `
         -e POSTGRES_USER=tsm -e POSTGRES_PASSWORD=testpw -e POSTGRES_DB=tsm_test `
@@ -41,16 +53,26 @@ if (-not (docker ps -q -f "name=^$db$")) {
     if ($LASTEXITCODE -ne 0) { throw "il database di test non è diventato pronto" }
 }
 
-Write-Host "esecuzione della suite ..."
+# Gli argomenti in più vanno a pytest (per esempio un singolo file, o `-k`). Si
+# compongono nella stringa passata a `sh -c`: `@args` dentro una stringa
+# PowerShell NON si espande — resta il testo letterale `@args`, che pytest riceve
+# come nome di file e rifiuta con un errore d'uso. Difetto reale del runner,
+# invisibile finché lo si eseguiva senza argomenti.
+$extra = ""
+if ($args.Count -gt 0) {
+    $extra = " " + (($args | ForEach-Object { "'" + ($_ -replace "'", "'\''") + "'" }) -join " ")
+}
+
+Write-Host "esecuzione della suite ...$extra"
 docker run --rm --network $net -v "${root}:/w" -w /w/backend `
     -e TSM_DB_URL="postgresql+psycopg://tsm:testpw@${db}:5432/tsm_test" `
     python:3.13-slim `
-    sh -c "pip install --quiet -r requirements.txt pytest==9.1.1 httpx==0.28.1 2>/dev/null && python -m pytest @args"
+    sh -c "pip install --quiet -r requirements.txt pytest==9.1.1 httpx==0.28.1 2>/dev/null && python -m pytest$extra"
 $code = $LASTEXITCODE
 
 if (-not $KeepDb) {
-    docker rm -f $db 2>$null | Out-Null
-    docker network rm $net 2>$null | Out-Null
+    Quiet { docker rm -f $db }
+    Quiet { docker network rm $net }
 }
 
 exit $code

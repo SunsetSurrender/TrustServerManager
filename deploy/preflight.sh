@@ -65,7 +65,12 @@ ALLOWED_MODES="700 750"
 #: Secret attesi. Il terzo può essere VUOTO — un relay interno senza
 #: autenticazione è normale in rete chiusa — ma il file deve esistere, perché
 #: Compose fallisce il bind di un secret inesistente.
-SECRETS_REQUIRED="postgres_password api_db_password"
+#: `worker_db_password` è il ruolo di database del worker, distinto da quello
+#: dell'API dalla migrazione 0009: la GC delle foto ha bisogno di `DELETE` su
+#: `photos` e l'API non deve averlo (§8.5). Se manca, il servizio `migrate` esce
+#: con errore e il worker non parte — meglio fermarsi qui, dove il messaggio dice
+#: quale file creare.
+SECRETS_REQUIRED="postgres_password api_db_password worker_db_password"
 SECRETS_OPTIONAL_EMPTY="smtp_password"
 
 TLS_FILES="fullchain.pem privkey.pem"

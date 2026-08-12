@@ -99,12 +99,17 @@ printf '  postgres=%s:%s api=%s web=%s\n' "$PG_UID" "$PG_GID" "$API_UID" "$WEB_U
 
 # secret e TLS con proprietario/permessi da runbook
 mkdir -p "$APP/secrets/tls"
-for s in postgres_password api_db_password; do
+# `worker_db_password` c'è dalla migrazione 0009: il worker ha un ruolo di database
+# proprio, perché la GC delle foto ha bisogno di DELETE su `photos` e l'API non
+# deve averlo (§8.5). Il preflight lo pretende, quindi senza questo file il test
+# fallirebbe sul preflight — per un motivo che con l'archiviazione non c'entra.
+for s in postgres_password api_db_password worker_db_password; do
     [ -s "$APP/secrets/$s" ] || head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$APP/secrets/$s"
 done
 : > "$APP/secrets/smtp_password"
-chown "$API_UID:$API_UID" "$APP/secrets/postgres_password" "$APP/secrets/api_db_password" "$APP/secrets/smtp_password"
-chmod 0400 "$APP/secrets/postgres_password" "$APP/secrets/api_db_password" "$APP/secrets/smtp_password"
+SECRET_FILES="$APP/secrets/postgres_password $APP/secrets/api_db_password $APP/secrets/worker_db_password $APP/secrets/smtp_password"
+chown "$API_UID:$API_UID" $SECRET_FILES
+chmod 0400 $SECRET_FILES
 if [ ! -f "$APP/secrets/tls/privkey.pem" ]; then
     openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=tsm-prd-01 \
         -keyout "$APP/secrets/tls/privkey.pem" -out "$APP/secrets/tls/fullchain.pem" >/dev/null 2>&1

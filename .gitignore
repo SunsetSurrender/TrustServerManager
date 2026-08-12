@@ -7,3 +7,7 @@ venv/
 # directory temporanee dei test end-to-end
 .identity-ui-tmp/
 .xlsx-roundtrip-tmp/
+# immagini generate da tools/photos-ui-test.py: si costruiscono a ogni esecuzione,
+# perché un file binario di fixture nel repository non si può leggere in una
+# revisione e non si sa più che cosa dimostri.
+.photos-ui-tmp/

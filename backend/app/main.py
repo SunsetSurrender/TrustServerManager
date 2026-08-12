@@ -5,7 +5,9 @@ Rotte attive: autenticazione, inventario (lettura e salvataggio), operative.
 NON esposto via HTTP, di proposito:
   - il bootstrap dell'inventario, che è una CLI e non ha nemmeno il privilegio di
     database per inserire la riga di testa (§8.17, §8.19);
-  - la cancellazione fisica delle utenze: non esiste (§8.6, §8.30).
+  - la cancellazione fisica delle utenze: non esiste (§8.6, §8.30);
+  - la cancellazione fisica delle foto: la fa la garbage collection nel worker,
+    con un ruolo di database che l'API non ha (§8.5).
 
 Nessun accesso anonimo: ogni rotta dell'inventario dipende da `require_actor`,
 che risponde 401 senza una sessione valida. Non esiste un ripiego di sviluppo che
@@ -24,10 +26,12 @@ from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
 from app.api.notifications import router as notifications_router
+from app.api.photos import router as photos_router
 from app.api.request_context import origin_is_acceptable
 from app.api.settings import router as settings_router
 from app.api.users import router as users_router
 from app.config import get_settings
+from app.photos import MAX_UPLOAD_BYTES
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -68,6 +72,23 @@ async def validate_origin(request: Request, call_next):
     return await call_next(request)
 
 
+#: Spazio per l'involucro multipart: delimitatore, intestazioni della parte,
+#: chiusura. Poche centinaia di byte in pratica; il margine è largo perché
+#: sbagliarlo per difetto farebbe rifiutare un'immagine esattamente al limite, con
+#: un errore che parla di dimensione mentre il file è dentro il limite dichiarato.
+MULTIPART_OVERHEAD = 64 * 1024
+
+#: Percorsi con un limite PROPRIO, più alto di quello generale.
+#:
+#: Il limite generale (5 MB) esiste per i documenti JSON, e un'immagine da 10 MB
+#: non è un documento gonfio: è il caso previsto (§8.5). Alzare il limite generale
+#: a 10 MB per far passare le foto allargherebbe la soglia anche per l'inventario,
+#: dove i 4 MB di `MAX_DOCUMENT_BYTES` (§8.16) sono una decisione a sé. Meglio una
+#: deroga per un percorso, dichiarata qui e verificabile, che una soglia unica che
+#: nessuno sa più perché è quel numero.
+LARGER_LIMITS = {"/api/photos": MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD}
+
+
 @app.middleware("http")
 async def limit_request_size(request: Request, call_next):
     """Limite di dimensione a livello applicativo.
@@ -79,12 +100,15 @@ async def limit_request_size(request: Request, call_next):
     Si guarda `Content-Length` per rifiutare prima di leggere il corpo. Una
     richiesta senza `Content-Length` (chunked) viene lasciata passare qui e la
     fermano i limiti a valle: il documento oltre soglia è comunque respinto dalla
-    validazione (§8.16), che risponde 413.
+    validazione (§8.16), che risponde 413, e il caricamento di una foto legge il
+    corpo con un tetto proprio invece di fidarsi dell'intestazione (§8.5).
     """
+    limit = LARGER_LIMITS.get(request.url.path.rstrip("/"),
+                              settings.max_request_bytes)
     declared = request.headers.get("content-length")
     if declared is not None:
         try:
-            if int(declared) > settings.max_request_bytes:
+            if int(declared) > limit:
                 return JSONResponse(
                     status_code=413,
                     content={"code": "request_too_large",
@@ -144,3 +168,4 @@ app.include_router(users_router, prefix="/api", tags=["users"])
 app.include_router(audit_router, prefix="/api", tags=["audit"])
 app.include_router(settings_router, prefix="/api", tags=["settings"])
 app.include_router(notifications_router, prefix="/api", tags=["notifications"])
+app.include_router(photos_router, prefix="/api", tags=["photos"])

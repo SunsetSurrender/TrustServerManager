@@ -1159,23 +1159,43 @@
       </div>
 
       <!-- Foto rack -->
+      <!--
+        Il caricamento è riservato agli AMMINISTRATORI (`fotoCanEdit`), non a chi
+        può modificare: le foto appartengono alla gestione dei rack, che è già
+        amministrativa, e un operatore che non può creare un armadio non deve poter
+        consumare spazio binario con immagini che non riesce nemmeno a collegare
+        (§8.5). Il server lo impone comunque: `POST /api/photos` è solo-admin.
+      -->
       <div style="padding:14px 20px; border-bottom:1px solid var(--d1e252e)">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px">
           <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">FOTO</div>
-          <sc-if value="{{ canEdit }}" hint-placeholder-val="{{ false }}">
-            <label style="margin-left:auto; font-size:11px; font-weight:600; color:var(--accent); cursor:pointer">{{ fotoBtnLabel }}
-              <input type="file" accept="image/*" onChange="{{ onFotoFile }}" style="display:none">
+          <sc-if value="{{ fotoCanEdit }}" hint-placeholder-val="{{ false }}">
+            <label style="margin-left:auto; font-size:11px; font-weight:600; color:var(--accent); cursor:pointer" data-test="foto-carica">{{ fotoBtnLabel }}
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange="{{ onFotoFile }}" style="display:none" data-test="foto-input">
             </label>
             <sc-if value="{{ hasFoto }}" hint-placeholder-val="{{ false }}">
-              <span onClick="{{ delFoto }}" style="font-size:11px; color:var(--de0716b); cursor:pointer">Rimuovi</span>
+              <span onClick="{{ delFoto }}" style="font-size:11px; color:var(--de0716b); cursor:pointer" data-test="foto-rimuovi">Rimuovi</span>
             </sc-if>
           </sc-if>
         </div>
         <sc-if value="{{ hasFoto }}" hint-placeholder-val="{{ false }}">
-          <div role="img" aria-label="Foto rack" style="{{ fotoStyle }}"></div>
+          <div role="img" aria-label="Foto rack" style="{{ fotoStyle }}" data-test="foto-anteprima"></div>
         </sc-if>
         <sc-if value="{{ noFoto }}" hint-placeholder-val="{{ true }}">
           <div style="font-size:12px; color:var(--d57626f)">Nessuna foto allegata.</div>
+        </sc-if>
+        <!--
+          Lo stato del CARICAMENTO è separato da quello del salvataggio, e deve
+          restarlo: «immagine caricata» non vuol dire «rack salvato». La modifica
+          del rack è salvata solo quando /api/inventory conferma la versione nuova,
+          e dirlo prima significherebbe mentire proprio nel caso in cui il
+          salvataggio va in conflitto.
+        -->
+        <sc-if value="{{ fotoBusy }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:12px; color:var(--d8a94a2); margin-top:6px" data-test="foto-stato">Caricamento dell'immagine…</div>
+        </sc-if>
+        <sc-if value="{{ fotoHasError }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:12px; color:var(--de0716b); margin-top:6px" data-test="foto-errore">{{ fotoError }}</div>
         </sc-if>
       </div>
 
@@ -1846,6 +1866,71 @@ class Component extends DCLogic {
     // calcola dal diff (§8.9). `azione` resta come etichetta di comodo.
     this.setState({ data, dirty: true, saveState: 'in-corso', saveError: '' });
     if (this._writer) this._writer.queue(data, azione);
+  }
+
+  // ---- foto dei rack: due richieste, e l'ordine è obbligato (§8.5) ----
+  //
+  //   scegli l'immagine
+  //     → POST /api/photos            (i byte, subito, fuori dal documento)
+  //       → l'UUID entra nella bozza
+  //         → PUT /api/inventory      (versionato, come ogni altra modifica)
+  //           → SOLO ADESSO il rack è salvato
+  //
+  // Il caricamento riuscito NON è un salvataggio, e non deve sembrarlo: se il
+  // `PUT` va in conflitto resta una foto non referenziata da nessuna versione, e
+  // dire «salvato» dopo il primo passo mostrerebbe come riuscita una modifica che
+  // non è mai stata scritta. La foto orfana non è un problema da risolvere qui: la
+  // raccoglie la manutenzione lato server dopo la finestra di grazia, che è il solo
+  // modo di distinguere «orfana per sempre» da «orfana per trenta secondi».
+
+  _revocaAnteprima() {
+    const p = this.state.fotoPreview;
+    if (p && p.url) URL.revokeObjectURL(p.url);
+    if (p) this.setState({ fotoPreview: null });
+  }
+
+  async _caricaFoto(file, ctx) {
+    if (this.state.fotoBusy) return;
+
+    // Anteprima immediata: l'immagine si vede mentre viaggia. È un `blob:` URL,
+    // non un `data:` URL — non entra in nessun documento e si può revocare.
+    const url = URL.createObjectURL(file);
+    this.setState({ fotoBusy: true, fotoError: '',
+                    fotoPreview: { rackId: ctx.rackId, url } });
+
+    let photo;
+    try {
+      photo = await API.uploadPhoto(file);
+    } catch (err) {
+      this._revocaAnteprima();
+      const d = API.describeError(err);
+      if (err instanceof API.ApiError && err.status === 401) {
+        this.setState({ fotoBusy: false, fotoError: '', session: null, data: null });
+        return;
+      }
+      this.setState({ fotoBusy: false, fotoError: d.testo || 'Caricamento non riuscito.' });
+      return;
+    }
+
+    // I byte ci sono: da qui l'anteprima locale non serve più, perché
+    // `/api/photos/<uuid>` risponde già — la foto esiste sul server anche se il
+    // rack non è ancora salvato.
+    this._revocaAnteprima();
+
+    const next = JSON.parse(JSON.stringify(this.state.data));
+    const L = next.locations.find(l => l.id === ctx.locId);
+    const R = L ? L.sale.find(r => r.id === ctx.roomId) : null;
+    const rk = R ? R.racks.find(r => r.id === ctx.rackId) : null;
+    if (!rk) {
+      // Il rack è stato cancellato mentre l'immagine viaggiava: non si inventa un
+      // posto dove metterla. La foto resta orfana e la raccoglie la manutenzione.
+      this.setState({ fotoBusy: false,
+                      fotoError: 'Il rack non è più presente: foto non collegata.' });
+      return;
+    }
+    rk.foto = photo.id;
+    this.setState({ fotoBusy: false, fotoError: '' });
+    this.persist(next, 'Aggiunta foto a ' + ctx.rackId + ' (' + ctx.roomNome + ')');
   }
 
   // ============================================================
@@ -2675,6 +2760,23 @@ class Component extends DCLogic {
 
     // --- rack selezionato ---
     const sel = room ? room.racks.find(r => r.id === S.selRack) || null : null;
+
+    // --- foto del rack (§8.5) ---
+    //
+    // Nel documento c'è solo un UUID: la sorgente dell'immagine è SEMPRE una URL
+    // del server costruita da quell'UUID. Il prototipo teneva l'immagine come
+    // `data:` URL dentro il JSON, e oggi il server rifiuta un documento che lo
+    // faccia — ogni versione ne duplicherebbe i byte, per sempre.
+    //
+    // L'unica eccezione è l'anteprima locale, che vive fra la scelta del file e la
+    // risposta del caricamento: è un `blob:` URL creato dal browser, appartiene a
+    // QUESTO rack (si confronta l'id, altrimenti cambiando armadio si vedrebbe
+    // l'anteprima di un altro) e viene revocato appena non serve. Senza revocarlo,
+    // i byte dell'immagine restano in memoria della pagina finché non si ricarica.
+    const fotoPreview = (S.fotoPreview && sel && S.fotoPreview.rackId === sel.id)
+      ? S.fotoPreview.url : '';
+    const fotoSrc = fotoPreview || (API && sel && sel.foto ? API.photoUrl(sel.foto) : '');
+
     let selId = '', selMeta = '', elevBoxStyle = {}, uMarks = [], elevDevices = [], devRows = [], devCount = 0;
     if (sel) {
       selId = sel.id;
@@ -4069,15 +4171,31 @@ class Component extends DCLogic {
       schedaRows: sel ? [...sel.devices].sort((a, b) => b.u - a.u).map(d => ({
         cells: ['U' + d.u + ((d.h || 1) > 1 ? '–' + (d.u + d.h - 1) : ''), d.name, (TYPES[d.type] || TYPES.altro).label, (Component.stati()[d.stato] || Component.stati().attivo).label, d.model || '—', d.ip || '—', d.serial || '—', d.owner || '—', d.garanzia || '—', d.supporto || '—']
       })) : [],
-      fotoBtnLabel: sel && sel.foto ? 'Sostituisci' : 'Carica foto',
-      hasFoto: !!(sel && sel.foto),
-      noFoto: !!sel && !sel.foto,
+      // Caricare una foto è un'operazione da AMMINISTRATORE (§8.5), non da
+      // operatore: il server rifiuta `POST /api/photos` agli altri ruoli, e
+      // mostrare un pulsante che darà 403 è peggio che non mostrarlo.
+      fotoCanEdit: canAdmin,
+      fotoBtnLabel: S.fotoBusy ? 'Caricamento…' : (sel && sel.foto ? 'Sostituisci' : 'Carica foto'),
+      fotoBusy: !!S.fotoBusy,
+      fotoError: S.fotoError || '',
+      // Il linguaggio dei template non ha la negazione né la verità di una
+      // stringa: i booleani si calcolano qui.
+      fotoHasError: !!S.fotoError,
+      hasFoto: !!fotoSrc,
+      noFoto: !!sel && !fotoSrc,
       fotoStyle: {
         width: '100%', aspectRatio: '4/3', borderRadius: 6, border: '1px solid var(--d2b333d)',
-        backgroundImage: sel && sel.foto ? 'url("' + sel.foto + '")' : 'none',
+        // La sorgente è SEMPRE una URL del server costruita dall'UUID. Nel
+        // documento non c'è più un `data:` URL — il server lo rifiuterebbe — e
+        // `S.fotoPreview` è l'URL temporaneo dell'oggetto locale, che esiste solo
+        // fra la scelta del file e la risposta del caricamento.
+        backgroundImage: fotoSrc ? 'url("' + fotoSrc + '")' : 'none',
         backgroundSize: 'cover', backgroundPosition: 'center'
       },
       delFoto: () => {
+        // Si toglie il RIFERIMENTO, non i byte. La versione precedente continua a
+        // puntare alla foto, quindi un ripristino la mostra ancora; i byte li
+        // libera la manutenzione lato server quando nessuna versione li usa più.
         const next = JSON.parse(JSON.stringify(data));
         const rk = next.locations.find(l => l.id === loc.id).sale.find(r => r.id === room.id).racks.find(r => r.id === sel.id);
         delete rk.foto;
@@ -4085,23 +4203,10 @@ class Component extends DCLogic {
       },
       onFotoFile: (e) => {
         const f = e.target.files && e.target.files[0];
-        if (!f) return;
-        const img = new Image();
-        img.onload = () => {
-          const MAX = 900;
-          const sc = Math.min(1, MAX / Math.max(img.width, img.height));
-          const cv = document.createElement('canvas');
-          cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc);
-          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-          const url = cv.toDataURL('image/jpeg', 0.82);
-          URL.revokeObjectURL(img.src);
-          const next = JSON.parse(JSON.stringify(this.state.data));
-          const rk = next.locations.find(l => l.id === loc.id).sale.find(r => r.id === room.id).racks.find(r => r.id === sel.id);
-          rk.foto = url;
-          this.persist(next, 'Aggiunta foto a ' + sel.id + ' (' + room.nome + ')');
-        };
-        img.src = URL.createObjectURL(f);
         e.target.value = '';
+        if (!f) return;
+        this._caricaFoto(f, { locId: loc.id, roomId: room.id, rackId: sel.id,
+                              roomNome: room.nome });
       },
       cancelDraft: () => this.setState({ editing: false, selDev: null, draftError: '' }),
       deleteDraft: () => {

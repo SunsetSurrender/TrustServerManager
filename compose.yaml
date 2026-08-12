@@ -59,6 +59,13 @@ secrets:
   # sulla testa. L'append-only è imposto dai privilegi, non dal codice (§8.19).
   api_db_password:
     file: ./secrets/api_db_password
+  # Ruolo del worker `tsm_worker`, distinto da quello dell'API. Un ruolo separato
+  # perché la garbage collection delle foto ha bisogno di `DELETE` su `photos`
+  # (§8.5) e l'API no: con un ruolo unico quel privilegio finirebbe anche a chi
+  # serve richieste HTTP, e un difetto in una rotta potrebbe cancellare byte che
+  # una versione storica dell'inventario referenzia.
+  worker_db_password:
+    file: ./secrets/worker_db_password
   # Password del relay SMTP. Come quella del database: un file montato, non una
   # variabile d'ambiente — le variabili si vedono in `docker inspect` e nei log
   # di crash (§8.7). Non passa MAI dall'API: `/api/settings` non la restituisce e
@@ -115,6 +122,10 @@ services:
     secrets:
       - postgres_password
       - api_db_password
+      # Il servizio `migrate` è l'unico che vede tutte e tre le password: è lui a
+      # impostare quelle dei ruoli di runtime, ed è l'unico che gira come
+      # proprietario dello schema.
+      - worker_db_password
     environment:
       TSM_DB_HOST: db
     read_only: true
@@ -217,6 +228,70 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  # Worker delle notifiche di scadenza (§8.41). Stessa immagine dell'API, altro
+  # comando: il codice è lo stesso, il processo no.
+  #
+  # Perché un servizio a parte e non uno scheduler dentro FastAPI: dentro l'API il
+  # numero di scheduler dipenderebbe dal numero di worker di Uvicorn.
+  # `--workers 4` produrrebbe quattro scheduler e quattro copie di ogni avviso, e
+  # il difetto comparirebbe il giorno in cui qualcuno scala l'API per un motivo
+  # che con le notifiche non c'entra niente.
+  worker:
+    build:
+      context: ./backend
+    image: tsm-api:0.2.0
+    command: ["python", "scripts/worker.py"]
+    # SOLO la rete interna: il worker parla con PostgreSQL e con il relay SMTP.
+    # NESSUNA porta pubblicata — non ha una superficie da raggiungere.
+    networks: [internal]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      # NON `api_db_password`: il worker ha il proprio ruolo, e non avere la
+      # password dell'altro è metà della separazione.
+      - worker_db_password
+      - smtp_password
+    environment:
+      TSM_DB_HOST: db
+      # Ruolo PROPRIO, distinto da quello dell'API (migrazione 0009). Ha `DELETE`
+      # su `photos` — l'unico privilegio di cancellazione di tutto lo schema, e gli
+      # serve per la GC delle foto orfane (§8.5) — e NON ha `INSERT`: il worker non
+      # carica foto. Simmetricamente l'API non può cancellarle.
+      TSM_DB_USER: tsm_worker
+      TSM_DB_PASSWORD_FILE: /run/secrets/worker_db_password
+      TSM_ENV: ${TSM_ENV:-production}
+      # Stesso trasporto dell'invio di prova: gestito dall'operations (§8.38).
+      TSM_SMTP_HOST: ${TSM_SMTP_HOST:-}
+      TSM_SMTP_PORT: ${TSM_SMTP_PORT:-587}
+      TSM_SMTP_TLS_MODE: ${TSM_SMTP_TLS_MODE:-starttls}
+      TSM_SMTP_SENDER: ${TSM_SMTP_SENDER:-}
+      TSM_SMTP_USERNAME: ${TSM_SMTP_USERNAME:-}
+      TSM_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      TSM_SMTP_TLS_VERIFY: ${TSM_SMTP_TLS_VERIFY:-true}
+    # ESATTAMENTE UNO. `deploy.replicas` è la dichiarazione d'intenti; la
+    # garanzia sta nel database, dove un lock consultivo di sessione fa uscire
+    # il secondo worker con un messaggio invece di lasciarlo mandare doppioni
+    # (§8.41). `replicas` da solo non impedisce un `docker compose run` a mano.
+    deploy:
+      replicas: 1
+    healthcheck:
+      # Guarda il BATTITO nel database: non «il processo è vivo» ma «il worker ha
+      # fatto un giro di recente e vede il database». Un processo vivo che non
+      # gira più è il guasto che conta, ed è invisibile a un controllo sul PID.
+      test: ["CMD", "python", "scripts/worker_health.py"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: [ALL]

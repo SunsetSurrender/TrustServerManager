@@ -17,7 +17,13 @@
       "Bash(MSYS_NO_PATHCONV=1 docker run --rm -v c:/Users/matteo.zandonella/Desktop/TrustServerManager:/w -w /w --entrypoint sh docker:28-cli -c ' *)",
       "Bash(python tools/storage-config-test.py)",
       "Bash(MSYS_NO_PATHCONV=1 docker run --rm --network tsm-test-net -v \"c:/Users/matteo.zandonella/Desktop/TrustServerManager:/w\" -w /w/backend -e TSM_DB_URL=\"postgresql+psycopg://tsm:testpw@tsm-test-db:5432/tsm_test\" python:3.13-slim sh -c \"pip install --quiet -r requirements.txt pytest==9.1.1 httpx==0.28.1 2>/dev/null && python -m pytest 2>&1 | grep -E '^[0-9]+ passed|failed|FAILED'\")",
-      "Bash(git check-attr *)"
+      "Bash(git check-attr *)",
+      "Bash(MSYS_NO_PATHCONV=1 docker run --rm --network tsm-test-net -v \"c:/Users/matteo.zandonella/Desktop/TrustServerManager:/w\" -w /w/backend -e TSM_DB_URL=\"postgresql+psycopg://tsm:testpw@tsm-test-db:5432/tsm_test\" python:3.13-slim sh -c \"pip install --quiet -r requirements.txt pytest==9.1.1 httpx==0.28.1 2>/dev/null && python -m pytest tests/test_worker_pg.py -q 2>&1 | tail -12\")",
+      "Bash(docker network *)",
+      "Read(//dev/**)",
+      "Bash(git check-ignore *)",
+      "Bash(python tools/sync-nginx-dev.py)",
+      "PowerShell(cd C:\\\\Users\\\\matteo.zandonella\\\\Desktop\\\\TrustServerManager; docker compose -f compose.yaml -f compose.storage-dev.yaml run --rm -v \"${PWD}/fixtures:/seed:ro\" -e TSM_BOOTSTRAP_PASSWORD=admin-iniziale-1 migrate python scripts/bootstrap.py --seed /seed/seed.json --admin admin --from-legacy 2>&1 | Select-Object -Last 8)"
     ]
   }
 }

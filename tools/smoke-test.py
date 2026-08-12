@@ -201,17 +201,32 @@ priv = exec_in("db", "psql", "-U", "tsm", "-d", "tsm", "-tAc", """
       has_table_privilege('tsm_api','audit','UPDATE'),
       has_table_privilege('tsm_api','audit','DELETE'),
       has_table_privilege('tsm_api','inventory_head','UPDATE'),
-      has_table_privilege('tsm_api','inventory_head','INSERT')
+      has_table_privilege('tsm_api','inventory_head','INSERT'),
+      has_table_privilege('tsm_api','photos','INSERT'),
+      has_table_privilege('tsm_api','photos','DELETE'),
+      has_table_privilege('tsm_worker','photos','DELETE'),
+      has_table_privilege('tsm_worker','photos','INSERT')
 """).stdout.strip()
 flags = priv.split("|") if priv else []
-expected = [("versions INSERT", "t"), ("versions UPDATE", "f"), ("versions DELETE", "f"),
-            ("audit INSERT", "t"), ("audit UPDATE", "f"), ("audit DELETE", "f"),
-            ("head UPDATE", "t"), ("head INSERT", "f")]
+# Il RUOLO fa parte del nome del controllo: da quando ce ne sono due (§8.5), un
+# prefisso fisso `tsm_api:` produceva etichette come «tsm_api: photos DELETE
+# (worker)», che dice una cosa falsa proprio sul privilegio più delicato dello
+# schema.
+expected = [("tsm_api", "versions INSERT", "t"), ("tsm_api", "versions UPDATE", "f"),
+            ("tsm_api", "versions DELETE", "f"),
+            ("tsm_api", "audit INSERT", "t"), ("tsm_api", "audit UPDATE", "f"),
+            ("tsm_api", "audit DELETE", "f"),
+            ("tsm_api", "head UPDATE", "t"), ("tsm_api", "head INSERT", "f"),
+            # Foto: l'API accoda e non cancella; il worker cancella (è la GC) e non
+            # inserisce. `DELETE` su photos è l'unico privilegio di cancellazione
+            # dello schema, e sta solo nel ruolo del worker.
+            ("tsm_api", "photos INSERT", "t"), ("tsm_api", "photos DELETE", "f"),
+            ("tsm_worker", "photos DELETE", "t"), ("tsm_worker", "photos INSERT", "f")]
 if len(flags) != len(expected):
-    check("privilegi del ruolo di runtime leggibili", False, f"psql: {priv!r}")
+    check("privilegi dei ruoli di runtime leggibili", False, f"psql: {priv!r}")
 else:
-    for (name, want), got in zip(expected, flags):
-        check(f"tsm_api: {name} = {want}", got == want, f"trovato {got!r}")
+    for (role, name, want), got in zip(expected, flags):
+        check(f"{role}: {name} = {want}", got == want, f"trovato {got!r}")
 
 # ---- 6. non-root --------------------------------------------------------
 uid = exec_in("api", "id", "-u").stdout.strip()

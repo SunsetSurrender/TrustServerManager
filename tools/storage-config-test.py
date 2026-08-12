@@ -111,6 +111,79 @@ check("il web pubblica SOLO 80 e 443 (porte standard, §8.31)",
       sorted(published(cfg["services"]["web"])) == ["443", "80"],
       str(published(cfg["services"]["web"])))
 
+# ------------------------------------------------------------------ worker
+# Il worker delle notifiche (§8.41) è un servizio a parte con la stessa immagine
+# dell'API. Le proprietà che contano sono dichiarative, quindi si verificano qui.
+worker = cfg["services"].get("worker") or {}
+check("esiste il servizio worker", bool(worker))
+check("il worker non pubblica porte", published(worker) == [],
+      str(published(worker)))
+check("il worker usa la stessa immagine dell'API",
+      worker.get("image") == cfg["services"]["api"].get("image"),
+      f"{worker.get('image')} vs {cfg['services']['api'].get('image')}")
+check("il worker esegue lo script del worker, non uvicorn",
+      "scripts/worker.py" in " ".join(worker.get("command") or []),
+      str(worker.get("command")))
+worker_networks = set((worker.get("networks") or {}).keys()) \
+    if isinstance(worker.get("networks"), dict) else set(worker.get("networks") or [])
+check("il worker è SOLO sulla rete interna, quella di PostgreSQL",
+      worker_networks == {"internal"}, str(worker_networks))
+check("il worker dichiara una sola replica",
+      ((worker.get("deploy") or {}).get("replicas")) == 1,
+      str((worker.get("deploy") or {}).get("replicas")))
+check("il worker ha un healthcheck proprio",
+      "worker_health.py" in json.dumps(worker.get("healthcheck") or {}),
+      json.dumps(worker.get("healthcheck") or {})[:200])
+check("il worker riceve il secret SMTP",
+      "smtp_password" in json.dumps(worker.get("secrets") or []),
+      json.dumps(worker.get("secrets") or []))
+check("il worker NON riceve la password del proprietario dello schema",
+      "postgres_password" not in json.dumps(worker.get("secrets") or []))
+
+# ---- ruolo di database del worker, distinto da quello dell'API (§8.5) ----
+#
+# La GC delle foto ha bisogno di `DELETE` su `photos`, che è l'unico privilegio di
+# cancellazione dello schema. Con un ruolo unico finirebbe anche a chi serve
+# richieste HTTP, e un difetto in una rotta potrebbe cancellare byte che una
+# versione storica dell'inventario referenzia.
+worker_secrets = json.dumps(worker.get("secrets") or [])
+check("il worker gira con il PROPRIO ruolo di database, non con quello dell'API",
+      (worker.get("environment") or {}).get("TSM_DB_USER") == "tsm_worker",
+      str((worker.get("environment") or {}).get("TSM_DB_USER")))
+check("il worker riceve il secret del proprio ruolo",
+      "worker_db_password" in worker_secrets, worker_secrets)
+check("il worker NON riceve la password del ruolo dell'API",
+      "api_db_password" not in worker_secrets, worker_secrets)
+check("il worker legge la password dal secret del proprio ruolo",
+      (worker.get("environment") or {}).get("TSM_DB_PASSWORD_FILE")
+      == "/run/secrets/worker_db_password",
+      str((worker.get("environment") or {}).get("TSM_DB_PASSWORD_FILE")))
+
+api_secrets = json.dumps(cfg["services"]["api"].get("secrets") or [])
+check("l'API NON riceve la password del ruolo del worker",
+      "worker_db_password" not in api_secrets, api_secrets)
+
+# Il servizio `migrate` è l'unico che vede tutte e tre le password: è lui a
+# impostare quelle dei ruoli di runtime, e gira come proprietario dello schema.
+migrate_secrets = json.dumps(cfg["services"]["migrate"].get("secrets") or [])
+for s in ("postgres_password", "api_db_password", "worker_db_password"):
+    check(f"migrate riceve {s}", s in migrate_secrets, migrate_secrets)
+
+check("il secret worker_db_password è dichiarato",
+      "worker_db_password" in (cfg.get("secrets") or {}),
+      str(list((cfg.get("secrets") or {}).keys())))
+check("il worker ha il filesystem in sola lettura",
+      worker.get("read_only") is True)
+
+# `/api/ready` non deve dipendere dal worker: l'API resta pronta con il worker
+# fermo. Il controllo è che `api` non lo aspetti in avvio.
+api_deps = cfg["services"]["api"].get("depends_on") or {}
+check("l'API non dipende dal worker per partire",
+      "worker" not in api_deps, str(list(api_deps)))
+check("il worker dipende dal database e dalle migrazioni",
+      set(worker.get("depends_on") or {}) == {"db", "migrate"},
+      str(list(worker.get("depends_on") or {})))
+
 # ==================================================================
 # 3. le immagini restano sul disco di sistema
 # ==================================================================
@@ -302,6 +375,80 @@ for rel in ("deploy/preflight.sh", "deploy/tsm.service", "tools/storage-e2e-test
 check("esiste .gitattributes che impone LF agli script",
       (ROOT / ".gitattributes").is_file()
       and "*.sh    text eol=lf" in (ROOT / ".gitattributes").read_text(encoding="utf-8"))
+
+
+# ==================================================================
+# 9. foto: i due limiti di dimensione e le rotte che NON esistono (§8.5)
+# ==================================================================
+#
+# Nginx ha un limite grossolano, l'applicazione quelli precisi. Se il primo fosse
+# più stretto del secondo, il caricamento di un'immagine ammessa dall'applicazione
+# fallirebbe nel proxy con un errore che non spiega niente — e solo per chi passa
+# dal proxy, cioè per tutti tranne chi prova dalla rete interna.
+nginx_conf = (ROOT / "web" / "nginx.conf").read_text(encoding="utf-8")
+nginx_dev = (ROOT / "web" / "nginx.dev.conf").read_text(encoding="utf-8")
+check("nginx accetta un corpo abbastanza grande per una foto da 10 MB",
+      "client_max_body_size 11m" in nginx_conf,
+      [l for l in nginx_conf.splitlines() if "client_max_body_size" in l])
+check("la configurazione di sviluppo ha lo STESSO limite di quella di produzione",
+      "client_max_body_size 11m" in nginx_dev,
+      "le due configurazioni devono differire solo nei listener "
+      "(tools/sync-nginx-dev.py)")
+
+def code_only(path) -> str:
+    """Il sorgente Python SENZA i commenti.
+
+    ⚠ Cercare una parola nel testo grezzo di un file è la trappola in cui questo
+    controllo è già caduto una volta: i commenti spiegano proprio ciò che il codice
+    NON fa, quindi contengono le parole che si stanno cercando. «nessun `filename`
+    nelle intestazioni» falliva per via del commento che dice perché non c'è.
+
+    `ast.unparse` ricostruisce il sorgente dall'albero sintattico, e i commenti non
+    ci sono: quello che resta è codice. Le stringhe letterali sopravvivono — sono
+    codice — quindi i confronti su di esse vanno scritti senza le virgolette
+    esterne, perché la ricostruzione può normalizzarle.
+    """
+    import ast
+    return ast.unparse(ast.parse(path.read_text(encoding="utf-8")))
+
+
+photos_api = code_only(ROOT / "backend" / "app" / "api" / "photos.py")
+check("non esiste una rotta di cancellazione delle foto",
+      "router.delete" not in photos_api,
+      "le versioni storiche referenziano le foto: cancellarne i byte da HTTP "
+      "romperebbe il ripristino di un'altra persona (§8.5)")
+check("il caricamento è riservato agli amministratori",
+      "Depends(require_admin)" in photos_api)
+check("la lettura pretende una sessione non ristretta",
+      "Depends(require_actor)" in photos_api)
+check("le foto si servono con cache privata e immutabile",
+      "private, max-age=31536000, immutable" in photos_api)
+check("le foto si servono con nosniff",
+      "X-Content-Type-Options" in photos_api and "nosniff" in photos_api)
+check("nessun nome di file del chiamante finisce nelle intestazioni",
+      "filename" not in photos_api,
+      "né Content-Disposition né altro devono offrire un posto per il testo del "
+      "chiamante, e `file.filename` non deve essere letto affatto")
+
+gc_src = code_only(ROOT / "backend" / "app" / "photos" / "gc.py")
+check("la GC pretende ENTRAMBE le condizioni: nessun riferimento e età",
+      "NOT EXISTS" in gc_src and "created_at < :cutoff" in gc_src)
+check("la GC non guarda soltanto l'inventario corrente",
+      "inventory_photo_refs" in gc_src and "inventory_head" not in gc_src,
+      "una foto referenziata solo da una versione vecchia è viva (§8.5)")
+
+migration = (ROOT / "backend" / "migrations" / "versions"
+             / "0009_photos.py").read_text(encoding="utf-8")
+check("il ruolo dell'API non può cancellare foto",
+      "REVOKE UPDATE, DELETE, TRUNCATE ON photos FROM {API_ROLE}" in migration
+      or 'REVOKE UPDATE, DELETE, TRUNCATE ON photos FROM {API_ROLE}"' in migration
+      or "photos FROM {API_ROLE}" in migration)
+check("il ruolo del worker non può inserire foto",
+      "REVOKE INSERT, UPDATE, TRUNCATE ON photos FROM {WORKER_ROLE}" in migration)
+check("la chiave esterna dei riferimenti è senza ON DELETE",
+      'sa.ForeignKey("photos.id")' in migration,
+      "senza ON DELETE il database rifiuta di cancellare una foto referenziata: "
+      "è la difesa che regge se la query della GC viene riscritta male")
 
 
 if __name__ == "__main__":

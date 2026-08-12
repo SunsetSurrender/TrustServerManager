@@ -123,37 +123,45 @@ def _connect(s, context: ssl.SSLContext | None):
     return smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout_seconds)
 
 
-def send_test_message(recipients: list[str], *, actor_username: str) -> SendOutcome:
-    """Invia UN messaggio di prova. Solleva con una categoria, mai con un testo."""
+def tls_context(s) -> "ssl.SSLContext | None":
+    """Contesto TLS secondo la modalità configurata, oppure None."""
+    if s.smtp_tls_mode not in ("tls", "starttls"):
+        return None
+    context = ssl.create_default_context()
+    if not s.smtp_tls_verify:
+        # Deroga esplicita dell'operations, per un relay interno con certificato
+        # non riconosciuto. Non è un ripiego automatico: senza la variabile
+        # impostata, un certificato non valido fa fallire l'invio invece di
+        # farlo passare in silenzio.
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
+def deliver(msg: EmailMessage, *, what: str = "invio") -> None:
+    """Consegna UN messaggio già composto. Solleva `SmtpSendFailed` con una
+    CATEGORIA, mai con il testo dell'errore.
+
+    È l'unico punto che parla con il relay: lo usano sia l'invio di prova
+    interattivo sia il worker delle scadenze. Una seconda copia di questa
+    scala di `except` divergerebbe dalla prima al primo caso nuovo, e a divergere
+    sarebbe la classificazione degli errori — cioè proprio ciò su cui si basa la
+    diagnosi di chi opera.
+
+    ⚠ L'ORDINE DELLE CLAUSOLE È SOSTANZIALE, non stilistico.
+    `smtplib.SMTPException` DERIVA DA `OSError`, e così `ssl.SSLError` e
+    `TimeoutError`. Una clausola `except OSError` messa troppo in alto
+    intercetta anche gli errori di protocollo e li etichetta «connessione non
+    riuscita»: la risposta manderebbe chi legge a controllare la rete mentre il
+    relay ha risposto benissimo, dicendo no. Il caso è stato trovato da un test,
+    non a ragionamento — dal più specifico al più generico, con `OSError` per
+    ultimo.
+    """
     s = get_settings()
     if not s.smtp_configured():
         raise SmtpNotConfigured()
-    targets = choose_test_recipients(recipients)
-    if not targets:
-        raise NoRecipients()
+    context = tls_context(s)
 
-    context: ssl.SSLContext | None = None
-    if s.smtp_tls_mode in ("tls", "starttls"):
-        context = ssl.create_default_context()
-        if not s.smtp_tls_verify:
-            # Deroga esplicita dell'operations, per un relay interno con
-            # certificato non riconosciuto. Non è un ripiego automatico: senza
-            # la variabile impostata, un certificato non valido fa fallire
-            # l'invio invece di farlo passare in silenzio.
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-
-    msg = build_test_message(s.smtp_sender, targets, actor_username=actor_username)
-
-    # ⚠ L'ORDINE DELLE CLAUSOLE È SOSTANZIALE, non stilistico.
-    #
-    # `smtplib.SMTPException` DERIVA DA `OSError`, e così `ssl.SSLError` e
-    # `TimeoutError`. Una clausola `except OSError` messa troppo in alto
-    # intercetta quindi anche gli errori di protocollo e li etichetta come
-    # «connessione non riuscita»: la risposta manda chi legge a controllare la
-    # rete mentre il relay ha risposto benissimo, dicendo no. Il caso è stato
-    # trovato da un test, non a ragionamento — dal più specifico al più generico,
-    # con `OSError` per ultimo.
     try:
         with _connect(s, context) as server:
             if s.smtp_tls_mode == "starttls":
@@ -163,42 +171,54 @@ def send_test_message(recipients: list[str], *, actor_username: str) -> SendOutc
                 server.login(s.smtp_username, s.smtp_password())
             server.send_message(msg)
     except smtplib.SMTPAuthenticationError:
-        log.exception("invio di prova: autenticazione SMTP rifiutata")
+        log.exception("%s: autenticazione SMTP rifiutata", what)
         raise SmtpSendFailed("auth_failed",
                              "il server di posta ha rifiutato le credenziali") from None
     except smtplib.SMTPRecipientsRefused:
-        log.exception("invio di prova: destinatari rifiutati")
+        log.exception("%s: destinatari rifiutati", what)
         raise SmtpSendFailed("recipients_refused",
                              "il server di posta ha rifiutato i destinatari") from None
     except smtplib.SMTPSenderRefused:
-        log.exception("invio di prova: mittente rifiutato")
+        log.exception("%s: mittente rifiutato", what)
         raise SmtpSendFailed("sender_refused",
                              "il server di posta ha rifiutato il mittente") from None
     except (ssl.SSLError, smtplib.SMTPNotSupportedError):
-        log.exception("invio di prova: negoziazione TLS non riuscita")
+        log.exception("%s: negoziazione TLS non riuscita", what)
         raise SmtpSendFailed("tls_failed",
                              "negoziazione TLS con il server di posta non riuscita") from None
     except TimeoutError:
         # `socket.timeout` È `TimeoutError` da Python 3.10.
-        log.exception("invio di prova: timeout verso il server di posta")
+        log.exception("%s: timeout verso il server di posta", what)
         raise SmtpSendFailed("timeout",
                              "il server di posta non ha risposto entro il tempo massimo") from None
     except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected):
-        log.exception("invio di prova: connessione al server di posta non riuscita")
+        log.exception("%s: connessione al server di posta non riuscita", what)
         raise SmtpSendFailed("connection_failed",
                              "server di posta non raggiungibile") from None
     except smtplib.SMTPException:
         # Il relay ha risposto, e ha risposto no. Va distinto dal non averlo
         # raggiunto: sono due indagini diverse per chi deve rimediare.
-        log.exception("invio di prova: errore di protocollo SMTP")
+        log.exception("%s: errore di protocollo SMTP", what)
         raise SmtpSendFailed("protocol_error",
                              "il server di posta ha risposto con un errore") from None
     except OSError:
         # Livello socket: connessione rifiutata, DNS, rete irraggiungibile.
         # ULTIMA clausola, perché è la più generica delle tre famiglie.
-        log.exception("invio di prova: connessione al server di posta non riuscita")
+        log.exception("%s: connessione al server di posta non riuscita", what)
         raise SmtpSendFailed("connection_failed",
                              "server di posta non raggiungibile") from None
 
+
+def send_test_message(recipients: list[str], *, actor_username: str) -> SendOutcome:
+    """Invia UN messaggio di prova ai primi destinatari configurati."""
+    s = get_settings()
+    if not s.smtp_configured():
+        raise SmtpNotConfigured()
+    targets = choose_test_recipients(recipients)
+    if not targets:
+        raise NoRecipients()
+
+    msg = build_test_message(s.smtp_sender, targets, actor_username=actor_username)
+    deliver(msg, what="invio di prova")
     log.info("invio di prova riuscito verso %d destinatari", len(targets))
     return SendOutcome(recipients=len(targets))

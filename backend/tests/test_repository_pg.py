@@ -87,7 +87,7 @@ def conn(engine):
     """Connessione con transazione annullata alla fine: ogni test parte pulito."""
     with engine.connect() as c:
         trans = c.begin()
-        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY"))
+        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY CASCADE"))
         yield c
         trans.rollback()
 
@@ -395,7 +395,7 @@ def test_failure_at_audit_insert_leaves_nothing_behind(engine, monkeypatch):
     """Se l'audit fallisce non deve sopravvivere la versione: una modifica non
     tracciata è esattamente il buco che spostare l'audit sul server ha chiuso."""
     with engine.connect() as c:
-        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY"))
+        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY CASCADE"))
         c.commit()
 
     with engine.begin() as c:
@@ -423,7 +423,7 @@ def test_failure_at_head_update_leaves_nothing_behind(engine, monkeypatch):
     versione né l'audit: sarebbero un registro che racconta una modifica mai
     avvenuta."""
     with engine.connect() as c:
-        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY"))
+        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY CASCADE"))
         c.commit()
 
     with engine.begin() as c:
@@ -453,7 +453,7 @@ def test_concurrent_writers_same_base_version(engine):
     il secondo, che poi rilegge la testa aggiornata — invece di scoprire il
     problema come violazione di chiave primaria, cioè un 500 travestito."""
     with engine.connect() as c:
-        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY"))
+        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY CASCADE"))
         c.commit()
     with engine.begin() as c:
         v1 = InventoryRepository(c).bootstrap(base_doc(), ADMIN).version
@@ -501,7 +501,7 @@ def test_concurrent_writers_same_base_version(engine):
 
 def test_sequential_writers_both_succeed_with_fresh_base(engine):
     with engine.connect() as c:
-        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY"))
+        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY CASCADE"))
         c.commit()
     with engine.begin() as c:
         v = InventoryRepository(c).bootstrap(base_doc(), ADMIN).version
@@ -523,7 +523,7 @@ def test_current_read_uses_head_not_max_version(engine):
     """Inserire a mano una versione più alta senza spostare la testa: la lettura
     corrente deve continuare a restituire quella in testa."""
     with engine.connect() as c:
-        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY"))
+        c.execute(text("TRUNCATE audit, inventory_head, inventory_versions RESTART IDENTITY CASCADE"))
         c.commit()
     with engine.begin() as c:
         repo = InventoryRepository(c)

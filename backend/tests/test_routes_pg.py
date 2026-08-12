@@ -338,7 +338,24 @@ def test_api_surface_is_the_expected_set():
         # (§8.38). Se qui comparisse una rotta di invio con parametri, sarebbe
         # un relay di posta autenticato.
         "/api/notifications/test",
+        # Due rotte per le foto, e NESSUN `DELETE` (§8.5): le versioni storiche
+        # dell'inventario referenziano le foto, quindi cancellarne i byte
+        # trasformerebbe un rollback in un riquadro rotto. I byte li libera la
+        # garbage collection nel worker, con un ruolo di database che l'API non ha.
+        "/api/photos", "/api/photos/{photo_id}",
     }
+
+
+def test_no_photo_delete_route_exists():
+    """La verifica esplicita, perché è una rotta che qualcuno aggiungerà per
+    comodità: «l'admin vuole poter rimuovere una foto». Rimuoverla dal rack è un
+    salvataggio dell'inventario; cancellarne i byte romperebbe la storia di
+    qualcun altro (§8.5)."""
+    for path, ops in app.openapi()["paths"].items():
+        if path.startswith("/api/photos"):
+            assert "delete" not in ops, f"{path}: {sorted(ops)}"
+    assert set(app.openapi()["paths"]["/api/photos"]) == {"post"}
+    assert set(app.openapi()["paths"]["/api/photos/{photo_id}"]) == {"get"}
 
 
 # ==================================================================

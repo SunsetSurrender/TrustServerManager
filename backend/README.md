@@ -32,6 +32,11 @@ dietro autenticazione nello stesso commit in cui arrivano gli endpoint reali.
 #   Linux/macOS
 openssl rand -base64 24 | tr -d '\n+/=' > secrets/postgres_password
 openssl rand -base64 24 | tr -d '\n+/=' > secrets/api_db_password
+# Ruolo del worker, DISTINTO da quello dell'API: la garbage collection delle foto
+# ha bisogno di DELETE su `photos` e l'API non deve averlo (§8.5). Serve una
+# password propria, altrimenti i due ruoli sarebbero separati nel database e
+# indistinguibili nelle credenziali.
+openssl rand -base64 24 | tr -d '\n+/=' > secrets/worker_db_password
 #   Windows PowerShell — vedi la nota sul newline più sotto
 
 # Password del relay SMTP. Il file deve ESISTERE, ma può essere VUOTO: un relay

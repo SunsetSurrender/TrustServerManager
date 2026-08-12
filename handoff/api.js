@@ -30,6 +30,10 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
  * @param {object} [opts]
  *  - headers      intestazioni aggiuntive (es. `If-Match`)
  *  - withHeaders  restituisce `{ data, etag }` invece del solo corpo
+ *  - raw          il corpo si invia COSÌ COM'È e senza `Content-Type` nostro.
+ *                 Serve al `FormData` del caricamento delle foto: il confine del
+ *                 multipart lo genera il browser, e imporre un `Content-Type`
+ *                 senza `boundary` renderebbe la richiesta illeggibile al server.
  */
 async function request(method, path, body, opts = {}) {
   let res;
@@ -38,10 +42,12 @@ async function request(method, path, body, opts = {}) {
       method,
       credentials: 'same-origin',
       cache: 'no-store',
-      headers: body === undefined
+      headers: (body === undefined || opts.raw)
         ? (opts.headers || undefined)
         : { ...JSON_HEADERS, ...(opts.headers || {}) },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined
+        ? undefined
+        : (opts.raw ? body : JSON.stringify(body)),
     });
   } catch (err) {
     // Rete assente, DNS, TLS: non è una risposta del server e va distinta.
@@ -157,6 +163,40 @@ export const putSettings = (etag, notifications) =>
 
 /** Invia un messaggio di prova ai destinatari configurati. */
 export const testNotification = () => request('POST', '/api/notifications/test', {});
+
+// ------------------------------------------------------------------ foto
+//
+// Le foto NON stanno nel documento: nel documento c'è il loro UUID, e i byte
+// vivono in una tabella a parte (§8.5). Il prototipo le teneva come `data:` URL
+// dentro il JSON, e il server oggi rifiuta un documento che lo faccia — ogni
+// versione ne duplicherebbe i byte, e il documento è versionato per sempre.
+//
+// Non esiste una funzione di cancellazione, e non è una dimenticanza: le versioni
+// storiche referenziano le foto, quindi cancellarne i byte trasformerebbe un
+// ripristino in un riquadro rotto. Togliere una foto da un rack significa salvare
+// una versione nuova senza quel riferimento; i byte li libera la manutenzione
+// lato server quando nessuna versione conservata li usa più.
+
+/** URL da cui il browser carica una foto. Sempre relativa e sempre `/api/photos`. */
+export const photoUrl = (id) => `/api/photos/${encodeURIComponent(id)}`;
+
+/**
+ * Carica un'immagine e restituisce `{ id, mime, sizeBytes, sha256, url }`.
+ *
+ * **Non aggancia la foto a niente.** L'aggancio è il normale `PUT` versionato
+ * dell'inventario, e finché quello non conferma la modifica del rack NON è
+ * salvata. È il motivo per cui questa funzione non tocca il documento: chi la
+ * chiama deve mettere l'UUID nella bozza e passare dalla coda di scrittura.
+ *
+ * Il nome del file locale non si invia: al server non serve — l'identità della
+ * foto è un UUID che genera lui — e un nome di file è testo che l'utente non ha
+ * scelto di condividere (percorsi, cognomi, nomi di clienti).
+ */
+export function uploadPhoto(file) {
+  const form = new FormData();
+  form.append('file', file, 'foto');
+  return request('POST', '/api/photos', form, { raw: true });
+}
 
 // ------------------------------------------------------------- inventario
 
@@ -327,11 +367,30 @@ export function describeError(err) {
                     + 'Ricarico i dati aggiornati: le tue modifiche non salvate '
                     + 'andranno riapplicate.',
                azione: 'ricarica' };
+    case 404:
+      if (err.code === 'photo_not_found') {
+        return { titolo: 'Foto non disponibile',
+                 testo: 'L\'immagine non è più presente sul server.', azione: null };
+      }
+      return { titolo: 'Non trovato',
+               testo: err.message || 'La risorsa richiesta non esiste.', azione: null };
     case 413:
+      if (err.code === 'photo_too_large') {
+        return { titolo: 'Immagine troppo grande',
+                 testo: 'Il limite è 10 MB. Riducila o salvala come JPEG.',
+                 azione: null };
+      }
       return { titolo: 'Dati troppo grandi',
                testo: 'Il documento supera il limite consentito. '
                     + 'Le foto vanno caricate separatamente.', azione: null };
     case 422:
+      // Le foto hanno codici propri: dire PERCHÉ un'immagine è stata rifiutata è
+      // la differenza fra un messaggio utile e «file non valido», che lascia la
+      // persona a riprovare con lo stesso file.
+      if (_PHOTO_ERRORS[err.code]) {
+        return { titolo: 'Immagine non accettata',
+                 testo: _PHOTO_ERRORS[err.code], azione: null };
+      }
       // Le impostazioni hanno codici propri e un campo: dire QUALE campo è
       // sbagliato è la differenza fra un messaggio utile e «dati non accettati».
       if (_SETTINGS_ERRORS[err.code]) {
@@ -386,6 +445,21 @@ const _SETTINGS_ERRORS = {
   if_match_malformed: 'Ricarico le impostazioni: riprova a salvare.',
   invalid_body: 'Il server non ha potuto leggere la richiesta.',
   unexpected_fields: 'Questa operazione non accetta parametri.',
+};
+
+/** Rifiuti di un'immagine → cosa deve fare la persona. */
+const _PHOTO_ERRORS = {
+  photo_format_not_allowed: 'Sono ammessi solo JPEG, PNG e WebP. '
+                          + 'I disegni vettoriali (SVG) non sono accettati.',
+  photo_type_mismatch: 'Il contenuto del file non corrisponde al suo tipo. '
+                     + 'Rinominare un file non ne cambia il formato: '
+                     + 'riesporta l\'immagine.',
+  photo_malformed: 'L\'immagine è danneggiata o incompleta.',
+  photo_too_many_pixels: 'L\'immagine ha troppi pixel: ridimensionala '
+                       + '(massimo circa 40 megapixel).',
+  photo_empty: 'Il file è vuoto.',
+  photo_id_malformed: 'Riferimento a un\'immagine non valido.',
+  photo_not_found: 'L\'immagine non è più sul server: ricaricala.',
 };
 
 /** Esiti di un invio SMTP → una spiegazione, senza dettagli del server di posta. */

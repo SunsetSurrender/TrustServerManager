@@ -24,3 +24,16 @@ argon2-cffi==25.1.0
 # guasto si manifesterebbe come «Europe/Rome non è un fuso valido» in produzione,
 # dove non c'è modo di installare un pacchetto (§8.38).
 tzdata==2026.1
+# Lettura del multipart, per il caricamento delle foto (§8.5). Dipendenza di
+# FastAPI ma NON installata da lui: senza, `UploadFile` fa sollevare all'avvio con
+# un messaggio che parla di «form data», e il difetto comparirebbe alla prima
+# richiesta invece che al build.
+python-multipart==0.0.32
+# Decodifica delle immagini. Serve a RIFIUTARE, non ad abbellire: un file che
+# dichiara di essere un JPEG e non lo è, un PNG che annuncia 40000×40000 pixel, un
+# SVG con dentro uno script. Nessuna di queste cose si riconosce dall'estensione o
+# dal Content-Type dichiarato dal browser, che sono entrambi scelti da chi carica.
+#
+# È anche ciò che ricodifica l'immagine, e quindi ciò che toglie i metadati EXIF —
+# la posizione GPS del CED compresa.
+pillow==12.3.0

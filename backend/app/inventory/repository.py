@@ -15,7 +15,8 @@ preferenza (BACKEND-PLAN.md §8.11):
   6. validazione della transizione di identità
   7. generazione degli eventi
   8. autorizzazione dell'insieme COMPLETO
-  9. inserimento della versione e dell'audit
+  8-bis. esistenza delle foto referenziate dal candidato (§8.5)
+  9. inserimento della versione, dell'audit e dei riferimenti alle foto
  10. aggiornamento della testa
  11. commit
 
@@ -59,6 +60,8 @@ from app.inventory.errors import (
     NotBootstrappedError,
     VersionConflictError,
 )
+from app.photos import refs as photo_refs
+from app.photos.refs import photo_ids
 
 #: Il testo che il client allega al salvataggio è solo di comodo per la lettura
 #: del registro. Va troncato: è una stringa non attendibile che finisce in una
@@ -208,9 +211,16 @@ class InventoryRepository:
                 [e.as_dict() for e in errors])
 
         canonical = canonicalise(doc)
+        # Anche il bootstrap dichiara i suoi riferimenti alle foto. Il seed non ne
+        # ha (le foto legacy erano dataURL e lo schema congelato le rifiuta, §8.16),
+        # ma non registrarli qui vorrebbe dire che una versione 1 con foto sarebbe
+        # invisibile alla GC — cioè byte cancellabili al primo giro.
+        refs = photo_ids(canonical)
+        photo_refs.require_existing(self.conn, refs)
         version = self._insert_version(canonical, actor)
         self._insert_audit(version, actor, action="bootstrap", scopes=["structure"],
                            events=[], client_hint=None)
+        photo_refs.record(self.conn, version, refs)
         self._insert_head(version)
         return SaveResult(version=version, created=True,
                           events=(), scopes=("structure",))
@@ -320,11 +330,25 @@ class InventoryRepository:
                 f"({len(decision.violations)} violazioni)",
                 [v.as_dict() for v in decision.violations])
 
-        # --- 9. versione e audit, nella stessa transazione ---
+        # --- 8-bis. le foto referenziate devono esistere ---
+        #
+        # Prima di scrivere qualsiasi cosa. Un documento che punta a una foto
+        # inesistente non è un documento a cui manca un pezzo: è un documento non
+        # valido, e accettarlo produrrebbe una versione che mostra un riquadro
+        # rotto per sempre. Il caricamento del binario e il salvataggio del rack
+        # sono due richieste, e questo è il controllo che le lega (§8.5).
+        refs = photo_ids(candidate)
+        photo_refs.require_existing(self.conn, refs)
+
+        # --- 9. versione, audit e riferimenti, nella stessa transazione ---
         scopes = scopes_touched(events)
         version = self._insert_version(candidate, actor, sha=candidate_sha)
         self._insert_audit(version, actor, action="inventory.save", scopes=scopes,
                            events=event_dicts, client_hint=client_hint)
+        # I riferimenti stanno o cadono con la versione che li dichiara: scritti
+        # senza di essa autorizzerebbero la GC a cancellare byte ancora usati,
+        # oppure a non liberarli mai.
+        photo_refs.record(self.conn, version, refs)
 
         # --- 10. testa ---
         self._update_head(version)

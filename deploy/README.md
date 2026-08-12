@@ -237,11 +237,20 @@ API_UID=$(docker image inspect --format '{{.Config.User}}' tsm-api:0.2.0 | cut -
 
 openssl rand -base64 24 | tr -d '\n+/=' > secrets/postgres_password
 openssl rand -base64 24 | tr -d '\n+/=' > secrets/api_db_password
+# Ruolo del worker, distinto da quello dell'API: la GC delle foto ha bisogno di
+# DELETE su `photos`, che è l'unico privilegio di cancellazione dello schema, e
+# l'API non deve averlo (§8.5). Il preflight si ferma se questo file manca.
+openssl rand -base64 24 | tr -d '\n+/=' > secrets/worker_db_password
 : > secrets/smtp_password          # può restare VUOTO se il relay non autentica
 
-chown "${API_UID}:${API_UID}" secrets/postgres_password secrets/api_db_password secrets/smtp_password
-chmod 0400 secrets/postgres_password secrets/api_db_password secrets/smtp_password
+SECRETS="secrets/postgres_password secrets/api_db_password \
+secrets/worker_db_password secrets/smtp_password"
+chown "${API_UID}:${API_UID}" $SECRETS
+chmod 0400 $SECRETS
 ```
+
+> L'uid è lo stesso per API e worker: girano dalla stessa immagine. Sono i
+> **privilegi nel database** a distinguerli, non l'utente del sistema operativo.
 
 Certificato aziendale, con la chiave leggibile dall'utente di nginx (uid 101):
 
@@ -318,6 +327,89 @@ TSM_BOOTSTRAP_PASSWORD='<password iniziale>' \
 docker compose run --rm -v /opt/tsm/fixtures:/seed:ro migrate \
   python scripts/bootstrap.py --seed /seed/seed.json --admin admin --from-legacy
 ```
+
+### 3.6 Worker delle notifiche
+
+Parte insieme allo stack: è un servizio Compose (`worker`) con la stessa immagine
+dell'API e un comando diverso. Non pubblica porte e vive solo sulla rete interna.
+
+```bash
+docker compose ps worker
+docker compose logs -f worker
+
+# stato leggibile da un sistema di monitoraggio
+docker compose exec -T worker python scripts/worker_health.py --json
+# {"healthy": true, "state": "running", "ageSeconds": 12.4, "lastRunDate": "2026-08-11", ...}
+```
+
+**Deve esistere un solo worker.** `replicas: 1` è una dichiarazione d'intenti; la
+garanzia è un lock consultivo nel database, quindi un secondo processo — anche
+lanciato a mano con `docker compose run` — esce dicendo perché invece di mandare
+avvisi doppi.
+
+Le notifiche si configurano dall'interfaccia (Impostazioni → Notifiche scadenze):
+destinatari, finestre di preavviso, fuso orario e ora di invio. Con
+`notifications.enabled = false` il worker gira e non manda niente.
+
+Verifica dell'invio senza aspettare l'ora pianificata: il pulsante «Invia
+messaggio di prova» nell'interfaccia (limitato, §8.38). Per un giro reale forzato
+in diagnostica:
+
+```bash
+docker compose exec -T worker python -c "
+from datetime import datetime, timezone
+from app.db import get_engine
+from app.notifications.worker import run_once
+print(run_once(get_engine(), now_utc=datetime.now(timezone.utc)))"
+```
+
+Un giro già eseguito oggi risponde `already_ran_today` e non manda niente: la
+protezione è nel database, non nella memoria del processo.
+
+### 3.7 Manutenzione: garbage collection delle foto
+
+Lo stesso processo `worker` esegue anche la raccolta delle foto orfane (§8.5), ma
+è un lavoro **indipendente**: tabella di esecuzioni propria (`maintenance_runs`),
+orario proprio (03:30 locali), e nessuna dipendenza dallo stato delle notifiche —
+spegnere gli avvisi non deve riempire il disco.
+
+Cancella solo una foto che soddisfa **entrambe** le condizioni:
+
+```text
+    nessuna versione dell'inventario la referenzia (inventory_photo_refs)
+  E è più vecchia di 24 ore
+```
+
+La finestra di grazia copre le foto legittimamente orfane: caricate e non ancora
+salvate nel rack — cosa che succede a ogni conflitto sul salvataggio e a ogni
+modulo chiuso a metà. **Una foto referenziata da una versione vecchia è viva**,
+anche se l'inventario corrente non la usa più: serve a un eventuale ripristino.
+
+```bash
+# ultimo giro di GC
+docker compose exec -T worker python scripts/worker_health.py --json
+# ... "photoGc": {"lastRunDate": "2026-08-11", "examined": 12, "deleted": 2, ...}
+
+# spazio occupato dalle foto, e quante sono orfane
+docker compose exec -T db psql -U tsm -d tsm -c "
+  SELECT count(*) AS foto,
+         pg_size_pretty(sum(size_bytes)) AS spazio,
+         count(*) FILTER (WHERE NOT EXISTS (
+           SELECT 1 FROM inventory_photo_refs r WHERE r.photo_id = p.id)) AS orfane
+    FROM photos p"
+```
+
+⚠ **Non cancellare righe da `photos` a mano.** Il ruolo dell'API non ne ha il
+privilegio, e la chiave esterna dei riferimenti rifiuta comunque la cancellazione
+di una foto ancora usata — anche al proprietario dello schema. Se serve liberare
+spazio, il modo è la potatura delle versioni storiche (non ancora implementata):
+eliminando una versione se ne eliminano i riferimenti, e solo allora le sue foto
+diventano raccoglibili.
+
+Se un salvataggio dell'inventario risponde `photo_not_found`, il documento
+referenzia una foto che non esiste: non è un guasto del server, è un client che
+sta salvando un UUID che non ha caricato (o che la GC ha già raccolto perché il
+salvataggio era rimasto indietro di più di ventiquattro ore).
 
 ---
 
@@ -414,6 +506,12 @@ se `dmesg` mostra errori di I/O o se `xfs_repair` è stato necessario.
 ### Controlli di monitoraggio da configurare
 
 ```bash
+# 0. il worker delle notifiche fa ancora giri?  (§8.41)
+#    Esce 1 se il battito è vecchio o lo stato non è sano. NON va legato alla
+#    prontezza dell'API: un worker fermo non è un'interruzione di servizio.
+docker compose exec -T worker python scripts/worker_health.py \
+  || alert "TSM: worker delle notifiche fermo"
+
 # 1. è ancora un mount dedicato?  (critico, immediato)
 findmnt -M /srv/tsm-data >/dev/null || alert "TSM: /srv/tsm-data non è montato"
 

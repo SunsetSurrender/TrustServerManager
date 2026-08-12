@@ -39,6 +39,7 @@ from app.inventory import (
     NotBootstrappedError,
     VersionConflictError,
 )
+from app.photos.errors import PhotoNotFound
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +150,22 @@ def http_error_for(exc: Exception) -> HTTPException:
                                      "message": "documento non accettabile",
                                      "problems": _sanitise(exc.details)},
                              headers=NO_STORE)
+    if isinstance(exc, PhotoNotFound):
+        # 422 e non 404: qui non manca una risorsa che il client ha chiesto, è il
+        # DOCUMENTO a essere non valido perché referenzia una foto che non esiste
+        # (§8.5). Il 404 lo dà `GET /api/photos/{id}`, che costruisce la propria
+        # risposta invece di passare da qui — sono due domande diverse con la stessa
+        # causa, e appiattirle su uno stato solo direbbe una cosa falsa a una delle
+        # due.
+        return HTTPException(422,
+                             detail={"code": exc.code,
+                                     "message": "il documento referenzia una foto "
+                                                "inesistente: caricare l'immagine "
+                                                "prima di salvare",
+                                     "problems": [{"code": exc.code,
+                                                   "path": "locations[].sale[].racks[].foto"}]},
+                             headers=NO_STORE)
+
     if isinstance(exc, IdentityRejectedError):
         return HTTPException(422,
                              detail={"code": exc.code,

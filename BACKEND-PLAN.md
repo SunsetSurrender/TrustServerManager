@@ -764,28 +764,163 @@ distribuire link salvati agli utenti.
 
 ### 8.5 Foto immutabili con garbage collection degli orfani
 
-Le foto sono content-addressed su `sha256` e **immutabili**: nessun `UPDATE`. Caricare due
-volte la stessa immagine restituisce la stessa riga.
+Le foto sono indirizzate dal contenuto (`sha256` **univoco**) e **immutabili**: nessun
+`UPDATE`. Caricare due volte la stessa immagine restituisce la stessa riga — non è una
+gentilezza, è ciò che evita che un giro di controllo in sala raddoppi lo spazio.
 
-Non possono avere un `DELETE` su richiesta: le **versioni storiche dell'inventario le
-referenziano**, e cancellare i byte trasformerebbe un rollback in una foto rotta. Togliere
-una foto da un rack significa togliere il riferimento nella versione nuova; le versioni
-vecchie continuano a puntare ai byte.
+L'identità applicativa è un **UUID**; nel documento versionato c'è solo quello. Mai base64,
+mai `data:` URL, mai percorsi di filesystem, mai URL fornite dal client, mai il nome del file
+originale — che è testo scelto da chi carica e non deve arrivare né in una colonna né in
+un'intestazione. Lo schema congelato (§8.16) continua a rifiutare un `foto` che contenga un
+`data:` URL o un valore che non sia un UUID.
 
-I byte li libera un job periodico:
+#### Riferimenti espliciti, non una scansione del documento
 
-```sql
-DELETE FROM photos p
-WHERE p.created_at < now() - interval '24 hours'     -- grazia per gli upload in corso
-  AND NOT EXISTS (
-    SELECT 1 FROM inventory i
-    WHERE i.doc::text LIKE '%' || p.id::text || '%'  -- in fase 2: JOIN su racks.photo_id
-  );
+```text
+inventory_photo_refs (inventory_version, photo_id)   PK su entrambi
 ```
 
-La finestra di grazia serve perché una foto caricata è orfana fino al `PUT` che la
-referenzia: senza, la GC cancella gli upload appena fatti. La retention delle versioni
-determina di fatto quella delle foto — vanno decise insieme, non separatamente.
+Ogni volta che si committa una versione si estraggono gli UUID referenziati, si verifica che
+esistano tutti — altrimenti `photo_not_found`, 422, e **nessuna** versione né audit — e si
+inseriscono le righe **nella stessa transazione** di versione, audit e testa.
+
+Due motivi, il secondo dei quali è il difetto peggiore possibile qui:
+
+1. La GC deve poter chiedere «serve ancora?» in modo esatto. Una scansione del testo
+   (`doc::text LIKE '%uuid%'`) dipende dalla serializzazione, costa la lettura di tutte le
+   versioni, e sbaglia in silenzio il giorno in cui un UUID compare in un campo di testo.
+2. **Le versioni storiche contano.** Guardare solo l'inventario corrente sembrerebbe
+   naturale:
+
+   ```text
+   v20 → foto A          v21 → foto B (sostituita)
+   ```
+
+   Con la sola testa, A «non serve più» e la GC ne cancella i byte. Poi qualcuno torna alla
+   v20 e trova un riquadro rotto — e i byte non si ricostruiscono. Un ritorno alla v20 deve
+   mostrare A **senza ripristinare né ricostruire niente**.
+
+La camminata che estrae gli UUID è **generica** (qualunque chiave `foto` a qualsiasi
+profondità), non strutturale: un riferimento dimenticato significa una foto viva che diventa
+cancellabile, mentre un riferimento in più costa una riga. La direzione dell'errore non è
+simmetrica, e la camminata segue quella asimmetria.
+
+⚠ La chiave esterna `inventory_photo_refs.photo_id → photos(id)` è **senza `ON DELETE`**:
+il database RIFIUTA di cancellare una foto referenziata. È la difesa che regge se la query
+della GC viene riscritta male, e copre anche l'intreccio con una scrittura concorrente —
+sotto READ COMMITTED la sottoquery potrebbe non vedere un riferimento appena inserito, e in
+quel caso è il vincolo a far fallire la cancellazione. Un giro di GC fallito si ripete
+domani; dei byte cancellati non tornano.
+
+#### Caricare non aggancia
+
+```text
+POST /api/photos (multipart, SOLO admin) → UUID
+  → l'UUID entra nella bozza del rack
+    → PUT /api/inventory normale, versionato
+      → SOLO ADESSO la modifica del rack è salvata
+```
+
+Il caricamento è riservato agli **amministratori**: le foto appartengono alla gestione dei
+rack, che è già amministrativa, e un operatore che non può creare un armadio non deve poter
+consumare spazio binario con immagini che non riesce nemmeno a collegare.
+
+Un `PUT` fallito o in conflitto lascia una foto orfana. È previsto, e l'interfaccia non deve
+dire «salvato» dopo il solo caricamento: la modifica del rack è salvata quando
+`/api/inventory` conferma la versione nuova.
+
+#### Validazione: tre livelli di sfiducia
+
+L'estensione non si guarda mai; il `Content-Type` del multipart si usa solo per pretendere
+che sia **coerente** con i byte (un disaccordo si rifiuta, non si corregge in silenzio); i
+byte si annusano e poi si decodificano con una libreria vera.
+
+Elenco chiuso: **JPEG, PNG, WebP**. L'SVG è escluso e non è pignoleria — è un documento XML
+che il browser esegue, e servito dalla nostra origine parlerebbe con la sessione dell'utente.
+Una fotografia di un armadio non è mai un SVG.
+
+Limiti: 10 MB per il file, ~40 megapixel per l'immagine **decodificata**. Il secondo non è il
+primo: un PNG di 40 kB può dichiarare 40000×40000 pixel e pretendere gigabyte per essere
+aperto, quindi il controllo si fa sull'intestazione, prima di allocare.
+
+Si **ricodifica sempre**: i byte conservati sono quelli che abbiamo prodotto noi. Ne
+seguono tre cose volute — i metadati sparaiscono (GPS compreso: la foto di un rack scattata
+col telefono porta la posizione del CED), l'orientamento EXIF viene applicato ai pixel invece
+di restare un campo da onorare, e il tipo dichiarato nella risposta è quello del nostro
+codificatore, quindi non è influenzabile dal chiamante.
+
+#### Lettura
+
+`GET /api/photos/{uuid}` pretende una sessione autenticata non ristretta (§8.26); qualunque
+ruolo può leggere. Nessuna URL pubblica: «tanto l'UUID non è indovinabile» non è controllo
+d'accesso, è un segreto che finisce nella cronologia del browser e nei log di un proxy.
+
+```text
+Cache-Control: private, max-age=31536000, immutable
+X-Content-Type-Options: nosniff
+Content-Disposition: inline            (senza filename)
+```
+
+`immutable` si può dichiarare perché l'identità È il contenuto: sostituire la foto di un rack
+significa un UUID diverso, quindi una URL diversa — la cache non va invalidata, va ignorata.
+`private` è la parte che conta: un proxy aziendale condiviso non deve conservare una copia di
+fotografie dell'infrastruttura di un cliente servibile a chiunque passi da lì.
+
+#### Nessun `DELETE` via HTTP
+
+Non esiste `DELETE /api/photos/{id}`. Le azioni dell'utente cambiano solo i riferimenti; la
+cancellazione fisica appartiene esclusivamente alla GC. Così un amministratore non può
+rompere il ripristino di un altro.
+
+#### Garbage collection
+
+Due condizioni, entrambe necessarie:
+
+```text
+    nessuna riga in inventory_photo_refs
+  E created_at più vecchio della finestra di grazia (24 ore)
+```
+
+La grazia copre la finestra in cui una foto è legittimamente orfana: caricata e non ancora
+referenziata. Succede a ogni conflitto sul salvataggio, a ogni modulo chiuso senza salvare, a
+ogni sessione interrotta. **Mai** cancellare una foto solo perché la testa non la referenzia
+più. Se un giorno si introduce la potatura delle versioni, eliminare una versione porta via i
+suoi riferimenti (`ON DELETE CASCADE`) e solo allora la foto può diventare eleggibile: la
+retention delle versioni determina di fatto quella delle foto.
+
+Gira nel `tsm-worker` (§8.41) ma è un lavoro **logicamente indipendente**: tabella
+`maintenance_runs` propria con la stessa forma di `scheduler_runs` (chiave sulla data locale,
+quindi recupero e protezione dall'ora ripetuta), orario proprio, e nessuna dipendenza da
+`notifications.enabled` — spegnere gli avvisi non deve riempire il disco. Una volta al giorno
+basta; non gira a ogni richiesta HTTP.
+
+#### Due ruoli di database, non uno
+
+```text
+tsm_api     photos: SELECT, INSERT          (mai UPDATE, mai DELETE)
+tsm_worker  photos: SELECT, DELETE          (mai INSERT, mai UPDATE)
+```
+
+`DELETE` su `photos` è l'**unico privilegio di cancellazione di tutto lo schema**, e sta solo
+nel ruolo del worker. Con un ruolo unico finirebbe anche a chi serve richieste HTTP, e un
+difetto in una rotta potrebbe cancellare byte che una versione storica referenzia. Nessuno
+dei due riceve la password del proprietario dello schema; l'API non ha alcun privilegio su
+`maintenance_runs`. Le concessioni che la 0008 aveva dato a `tsm_api` sulle tabelle del
+worker vengono ritirate.
+
+#### Audit
+
+Eventi derivati dal server: `photos.uploaded`, `photos.deduplicated` (due azioni distinte —
+una sola direbbe che sono stati conservati byte nuovi anche quando non è vero) e
+`photos.gc.collected`, **una riga per giro** con conteggio esatto ed elenco troncato. Mai i
+byte, mai base64, mai i metadati EXIF, mai il nome del file locale. Che il riferimento `foto`
+di un rack è cambiato lo dice l'audit dell'inventario, come per ogni altro campo.
+
+⚠ Asimmetria deliberata rispetto all'audit del worker delle notifiche: là un guasto del
+registro si ingoia, perché la posta è già partita e fingere il contrario farebbe rimandare il
+messaggio. Qui l'audit sta nella stessa transazione della cancellazione, e se non si scrive la
+cancellazione non avviene: cancellare byte senza lasciarne traccia è esattamente ciò che un
+registro esiste per impedire.
 
 ### 8.6 Utenze disattivate, non cancellate
 
@@ -2481,6 +2616,224 @@ CRLF, e `set -o pipefail` è diventato `set -o pipefail\r` → «invalid option 
 Il repository si modifica su Windows e si esegue su Oracle Linux: la regola non è
 una preferenza di stile.
 
+### 8.41 Worker delle notifiche di scadenza
+
+`tsm-worker`: servizio Compose a parte, stessa immagine dell'API, comando
+diverso. Manda **un digest** al giorno con le scadenze in avvicinamento.
+
+#### Processo separato, e uno solo
+
+Dentro FastAPI, il numero di scheduler dipenderebbe dal numero di worker di
+Uvicorn: `--workers 4` produrrebbe quattro copie di ogni avviso, e il difetto
+comparirebbe il giorno in cui qualcuno scala l'API per un motivo che con le
+notifiche non c'entra niente.
+
+`replicas: 1` è una dichiarazione d'intenti — non impedisce un
+`docker compose run` a mano né due host puntati allo stesso database. La garanzia
+è un **lock consultivo di sessione**: il secondo worker esce con un messaggio
+invece di restare vivo e silenzioso.
+
+⚠ `conn.close()` di SQLAlchemy **non** rilascia il lock: restituisce la
+connessione al pool e la sessione col database resta aperta. In un processo che
+muore non fa differenza, ma il lock sopravviveva alla fine del test che l'aveva
+preso e faceva fallire il successivo. Da qui `release_singleton()`, chiamato
+anche all'uscita ordinata del worker.
+
+`/api/ready` **non** guarda il worker. Con il worker fermo l'applicazione resta
+usabile: non partono gli avvisi, che è un guasto diverso. Legarli significherebbe
+che un worker fermo fa togliere l'API dal bilanciatore. Il worker ha un battito
+suo in `worker_heartbeat`, letto da `scripts/worker_health.py` — che è anche
+l'healthcheck del container, quindi verifica «ha fatto un giro di recente **e**
+vede il database», non «il processo è vivo».
+
+#### Perché non APScheduler
+
+La sostanza della richiesta — processo a parte, `zoneinfo`, recupero delle
+esecuzioni perdute, nessuna dipendenza dal «misfire» in memoria — è rispettata,
+ma senza la libreria. Con APScheduler la pianificazione vivrebbe in **due** posti:
+la sua idea in memoria di «prossima esecuzione» e il registro durevole
+`scheduler_runs`, che è quello che decide davvero. Due fonti di verità sullo
+stesso fatto divergono, e quella che si legge nel codice non sarebbe quella che
+comanda. Il ciclo è un `sleep` ogni cinque minuti; la domanda «tocca eseguire?»
+ha una sola risposta, nel database.
+
+#### Il calendario è locale, e il registro è per data locale
+
+`garanzia` e `supporto` sono valori con la sola data. Si confrontano con la data
+di calendario nel **fuso configurato**: a Roma le 00:30 locali sono ancora «ieri»
+in UTC, e un promemoria a 30 giorni scatterebbe il giorno sbagliato per metà
+dell'anno.
+
+`scheduler_runs` ha la **data locale come chiave primaria**. Da questa forma
+seguono tre comportamenti, senza codice dedicato:
+
+| Situazione | Cosa accade |
+|---|---|
+| macchina spenta all'ora prevista | alla riaccensione la riga di oggi non c'è → il giro parte (recupero) |
+| 29 marzo, le 02:30 locali **non esistono** | alle 03:05 l'orologio da parete ha superato 02:30 → il giro parte lo stesso giorno |
+| 25 ottobre, le 02:30 accadono **due volte** | la seconda trova la riga di oggi conclusa → un digest, non due |
+
+Il conflitto sulla chiave non è un `DO NOTHING`: riprende una riga rimasta **non
+conclusa**. Un giro interrotto a metà lascerebbe la riga di oggi senza
+`finished_at`, e un `DO NOTHING` direbbe «già fatto» perdendo l'intera giornata.
+
+#### Recupero e precedenza fra soglie
+
+Una scadenza è dovuta quando `0 <= giorni_rimanenti <= N` per almeno una soglia
+`N` — **non** `giorni_rimanenti == N`. Pretendere il giorno esatto significherebbe
+che una macchina spenta quel giorno perde il promemoria per sempre; il recupero è
+una conseguenza della disuguaglianza, non un meccanismo a parte.
+
+Da sola, però, la disuguaglianza produrrebbe tre email dopo un'assenza lunga. Per
+ogni gruppo `(dispositivo, tipo, data)` si manda quindi **la soglia più urgente
+fra quelle applicabili e non ancora inviate**, e le più larghe si marcano
+`superseded`:
+
+```text
+warningDays = [90, 30, 7]      macchina spenta dal giorno 35 al giorno 5
+→ la 90 era già stata mandata
+→ parte la 7 (una email)
+→ la 30 diventa «superata»
+```
+
+La più urgente è anche la più informativa: contiene i giorni che restano davvero.
+Senza assenze, le tre soglie producono tre avvisi in tre momenti diversi — la
+precedenza non sopprime il progresso normale, e un test lo fissa.
+
+**Elementi già scaduti** (`giorni_rimanenti < 0`): esclusi. Un avviso su una
+scadenza passata è un prodotto diverso — si ripete ogni giorno per sempre, o no? —
+e questo commit non lo decide. Restano nella vista Scadenze. `warningDays = 0`
+resta vietato da un `CHECK`: sarebbe un cambiamento di prodotto, non un effetto
+collaterale.
+
+#### Idempotenza durevole
+
+Lo stato «già inviato» è nel database, non nella memoria del processo — che si
+azzera precisamente quando la domanda diventa importante.
+
+```text
+UNIQUE (entity_uid, expiry_kind, expiry_date, threshold_days)
+```
+
+Il vincolo fa due lavori. Impedisce a due worker di creare lo stesso promemoria; e
+poiché la **data** è parte della chiave, cambiare la scadenza di un dispositivo
+apre un ciclo di vita nuovo senza una riga di codice dedicata.
+
+#### Con SMTP non esiste esattamente-una-volta
+
+```text
+il relay accetta il messaggio
+↓
+il processo muore
+↓
+il database non ha ancora registrato «inviato»
+```
+
+Al ritentativo può partire un duplicato. **Non si dichiara
+esattamente-una-volta**: si preferisce *almeno una volta* a una scadenza mai
+comunicata. Il rischio si riduce, non si elimina:
+
+- `Message-ID` generato dal server e **riusato a ogni ritentativo**, così un
+  client di posta riconosce il duplicato invece di mostrare un secondo avviso;
+- una consegna logica per digest, mai una nuova a ogni tentativo;
+- tentativi contati **prima** dell'invio — contarli dopo renderebbe illimitati i
+  tentativi proprio nel caso in cui l'invio fa morire il processo;
+- attesa crescente e massimo cinque tentativi, poi la consegna passa a
+  `retry_exhausted` e i promemoria tornano liberi con un'attesa di sei ore: un
+  relay rotto non deve far ricomporre un digest a ogni giro, per sempre.
+
+Lo stato si chiamava `abandoned`, e il nome diceva una cosa falsa. Chiude la
+**consegna**, non il promemoria: passata l'attesa il promemoria torna eleggibile
+e finisce in un digest nuovo, con un `Message-ID` nuovo — perché è un avviso
+nuovo, non il ritentativo di quello vecchio. Un nome che promette la fine di
+qualcosa che riprende sei ore dopo porta chi legge il registro a concludere che
+un avviso è stato perso. Il test
+`test_retry_exhausted_is_not_terminal_the_reminder_comes_back` fissa la
+differenza: prima dell'attesa non parte niente, dopo parte una consegna nuova, e
+quella vecchia resta chiusa.
+
+Un fallimento di posta **non** marca i promemoria come inviati, e un fallimento
+del database non fa dichiarare un invio che non è avvenuto.
+
+#### Il digest, e il testo non attendibile
+
+Un messaggio, non uno per dispositivo: trenta avvisi rendono la casella
+inutilizzabile proprio quando c'è più da guardare, e la prima cosa che fa chi li
+riceve è creare una regola che li sposta in una cartella — cioè disattivare la
+notifica senza dirlo a nessuno. Raggruppato per tipo (garanzia, supporto) e per
+urgenza.
+
+Solo i campi che servono: nome, posizione, data, giorni rimanenti, soglia.
+**Non** le note, che sono testo libero che nessuno ha chiesto di spedire.
+
+Nomi di dispositivo, rack, sala e sito li scrive un utente. Non finiscono **mai**
+in un'intestazione, e i caratteri di controllo si sostituiscono prima di comporre
+il corpo. Un dispositivo chiamato `<b>srv-x</b>\r\nBcc: qualcuno@altrove.example`
+compare nel corpo con quel nome — non si censura, è il suo nome — e non aggiunge
+nessun destinatario: verificato con un server di posta vero, che ha visto
+esattamente cinque `RCPT TO`.
+
+#### Destinatari
+
+Il worker usa **tutti** i destinatari salvati. Il tetto di tre è una misura
+anti-abuso del solo endpoint di prova interattivo (§8.38): omettere destinatari da
+un avviso reale significherebbe che qualcuno non riceve la notifica che ha
+chiesto. Un test mette i due limiti a confronto nello stesso stato.
+
+#### Impostazioni
+
+Rilette a ogni giro. Con `enabled = false` non si manda niente **e non si registra
+niente**: nemmeno righe «in attesa», così riaccendendo le notifiche si rivaluta da
+zero e parte una sola email — la soglia più urgente — invece di uno scarico di
+arretrati.
+
+Cambiare i destinatari non fa rimandare ciò che è già stato consegnato: l'identità
+del promemoria è la scadenza, non la configurazione. L'istantanea dei destinatari
+si registra sulla consegna come **impronta e conteggio**, non come elenco: a chi
+legge il registro serve sapere se la configurazione era quella, non avere una
+seconda copia di indirizzi di persone.
+
+#### Sorgente dei dati
+
+Fase 1: si legge `inventory_head`, si guardano i dispositivi canonici in Python e
+si estraggono `garanzia` e `supporto`. Nessuna tabella di dispositivi in SQL: la
+fase 2 potrà sostituire la scansione con query indicizzate **senza cambiare la
+semantica delle notifiche**, che è la ragione per cui le due cose restano
+separate.
+
+⚠ Il seed di produzione **non ha nessuna data di scadenza** — verificato. Un
+worker che gira sul seed e non manda niente non dimostra di funzionare: dimostra
+che non ci sono dati. Da qui `fixtures/expiry/build.py`, che genera un inventario
+con date **relative** a una data di riferimento (le date fisse smettono di provare
+ciò che dicono il giorno dopo) e copre: scadenza oggi, soglia esatta, dentro la
+finestra senza il giorno esatto, già scaduto, scaduto ieri, campi vuoti, date
+illeggibili, un nome ostile, e **due dispositivi con lo stesso `id` di business e
+`_uid` diversi** — perché l'identità è l'`_uid`, e negli inventari importati da
+fogli di calcolo gli `id` ripetuti sono la norma.
+
+#### Test
+
+`backend/tests/test_expiry_scan.py` (50, pura) e `test_worker_pg.py`
+(52, PostgreSQL reale con finto server di posta). Più una verifica end-to-end sullo
+stack reale: worker in container, PostgreSQL vero, server di posta vero, digest
+consegnato a cinque destinatari, secondo giro che non manda niente, secondo worker
+che rifiuta il lock.
+
+Tre cose imparate scrivendo i test:
+
+- **Un test passava per il motivo sbagliato.** «Un promemoria già consegnato non
+  si rimanda» girava con tutte e tre le finestre, e il giorno dopo partiva
+  comunque un digest — corretto! — perché `srv-91` entra nella finestra da 90.
+  Il test ora isola la variabile con una finestra sola, e un test nuovo fissa il
+  comportamento giusto: la voce che entra in finestra si manda una volta, senza
+  ripetere quelle già avvisate.
+- **Il lock consultivo sopravvive a `close()`** (sopra): il difetto era nel test,
+  il fatto meritava una funzione.
+- **`last_run_date` restava sempre NULL.** Il giro non riportava la propria data
+  locale, quindi il campo che il monitoraggio guarda non si popolava mai:
+  invisibile ai test di invio, visibile solo leggendo lo stato. Ora `TickResult`
+  la porta e due test la fissano.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -2539,9 +2892,17 @@ una preferenza di stile.
     preflight che fallisce chiuso, unità systemd con `RequiresMountsFor` (§8.40)~~
     ✔ **fatto** — `deploy/`, `compose.storage-dev.yaml`,
     `tools/storage-config-test.py`, `tools/storage-e2e-test.sh`
-11. Foto su `/api/photos` + GC (§8.5), poi lo **scheduler** delle scadenze con lock
-    e idempotenza (§8.8), che ora ha una configurazione da cui partire (§8.38) e un
-    disco su cui scrivere (§8.40). **Prossimo commit.**
+11. ~~**Worker delle notifiche di scadenza** con lock, idempotenza durevole,
+    digest e recupero (§8.8, §8.41)~~ ✔ **fatto** —
+    `backend/app/notifications/{expiry,reminders,digest,worker}.py`,
+    `0008_reminders`, servizio Compose `worker`, `fixtures/expiry/`
+12. ~~Foto su `/api/photos` + GC (§8.5): riferimenti espliciti per versione,
+    validazione e ricodifica delle immagini, deduplicazione sul contenuto, GC nel
+    worker con ruolo di database separato, integrazione frontend~~ ✔ **fatto** —
+    `backend/app/photos/`, `backend/app/api/photos.py`, `0009_photos`,
+    `tools/photos-ui-test.py`
+13. Normalizzazione dell'inventario di fase 2 (tabelle `racks`/`devices`): **non
+    iniziata**, e non va iniziata insieme a nient'altro.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

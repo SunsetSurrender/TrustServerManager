@@ -396,20 +396,33 @@ check("la configurazione di sviluppo ha lo STESSO limite di quella di produzione
       "(tools/sync-nginx-dev.py)")
 
 def code_only(path) -> str:
-    """Il sorgente Python SENZA i commenti.
+    """Il sorgente Python senza commenti E senza docstring.
 
     ⚠ Cercare una parola nel testo grezzo di un file è la trappola in cui questo
-    controllo è già caduto una volta: i commenti spiegano proprio ciò che il codice
-    NON fa, quindi contengono le parole che si stanno cercando. «nessun `filename`
-    nelle intestazioni» falliva per via del commento che dice perché non c'è.
+    controllo è già caduto DUE volte, e per lo stesso motivo: la prosa spiega
+    proprio ciò che il codice NON fa, quindi contiene le parole che si stanno
+    cercando. «nessun `filename` nelle intestazioni» falliva per il commento che
+    dice perché non c'è; «la mappa è pura: nessun SQLAlchemy» falliva per la
+    docstring che dice «Nessun database, nessun SQLAlchemy».
 
-    `ast.unparse` ricostruisce il sorgente dall'albero sintattico, e i commenti non
-    ci sono: quello che resta è codice. Le stringhe letterali sopravvivono — sono
-    codice — quindi i confronti su di esse vanno scritti senza le virgolette
-    esterne, perché la ricostruzione può normalizzarle.
+    Quindi via i commenti (`ast.unparse` li perde) e via le docstring (che invece
+    sopravvivono, perché sono letterali). Le altre stringhe restano — sono codice —
+    quindi i confronti su di esse vanno scritti senza le virgolette esterne, perché
+    la ricostruzione può normalizzarle.
     """
     import ast
-    return ast.unparse(ast.parse(path.read_text(encoding="utf-8")))
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", [])
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            del body[0]
+    return ast.unparse(tree)
 
 
 photos_api = code_only(ROOT / "backend" / "app" / "api" / "photos.py")
@@ -449,6 +462,64 @@ check("la chiave esterna dei riferimenti è senza ON DELETE",
       'sa.ForeignKey("photos.id")' in migration,
       "senza ON DELETE il database rifiuta di cancellare una foto referenziata: "
       "è la difesa che regge se la query della GC viene riscritta male")
+
+
+# ==================================================================
+# 10. fase 2A: lo schema normalizzato esiste e NESSUNO lo scrive (§8.42)
+# ==================================================================
+#
+# L'affermazione centrale del commit della fase 2A. I test su PostgreSQL provano che
+# un salvataggio reale non tocca le tabelle; questo controllo prova la stessa cosa
+# un livello più su, sul SORGENTE: nessun modulo dell'applicazione le scrive. È il
+# controllo che regge quando qualcuno, fra un mese, aggiunge una `INSERT` «tanto per
+# provare» — e i test di comportamento la vedrebbero solo se passasse dal
+# salvataggio.
+NORMALISED_TABLES = ("inventory_locations", "inventory_rooms", "inventory_racks",
+                     "inventory_devices", "inventory_manual_entries",
+                     "inventory_state")
+
+_WRITE = ("insert into ", "update ", "delete from ", "truncate ")
+app_sources = sorted((ROOT / "backend" / "app").rglob("*.py"))
+check("i sorgenti dell'applicazione sono leggibili", len(app_sources) > 20,
+      f"trovati {len(app_sources)} file")
+
+scritture = []
+for path in app_sources:
+    lowered = path.read_text(encoding="utf-8").lower()
+    for table in NORMALISED_TABLES:
+        for verb in _WRITE:
+            if f"{verb}{table}" in lowered:
+                scritture.append(f"{path.name}: {verb}{table}")
+check("nessun modulo dell'applicazione scrive le tabelle normalizzate",
+      not scritture,
+      f"la sincronizzazione è la fase 2C: {scritture}")
+
+rel = code_only(ROOT / "backend" / "app" / "inventory" / "relational.py")
+check("la mappa relazionale è pura: nessun SQL, nessun SQLAlchemy",
+      "sqlalchemy" not in rel.lower() and "text(" not in rel,
+      "la parte che va provata è la mappa, e provarla contro un database "
+      "significherebbe provarla insieme a un database")
+check("la mappa canonicalizza in ingresso",
+      "canonicalise(doc)" in rel,
+      "senza, i default (§8.14) non sarebbero materializzati e le colonne "
+      "resterebbero vuote per campi già valorizzati")
+
+mig10 = (ROOT / "backend" / "migrations" / "versions"
+         / "0010_normalised.py").read_text(encoding="utf-8")
+check("i vincoli con ambito sono differibili",
+      mig10.count("deferrable=True") >= 9,
+      "scambiare due codici in una transazione è legittimo e a metà collide")
+check("i ruoli di runtime hanno solo lettura sulle tabelle normalizzate",
+      "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {table} " in mig10
+      and "GRANT SELECT ON {table} TO {role}" in mig10,
+      "i privilegi di scrittura li concede la fase 2C, con il codice che li usa")
+check("i dispositivi NON hanno un vincolo di unicità sul codice",
+      "uq_device_code" not in mig10,
+      "l'import tabellare produce identificativi ripetuti nello stesso rack, e "
+      "vincolarli farebbe rifiutare alla fase 2C documenti che la fase 1 accetta")
+check("i vani restano JSONB e non una tabella",
+      'sa.Column("vani", pg.JSONB)' in mig10
+      and "create_table(\n        \"inventory_vani" not in mig10)
 
 
 if __name__ == "__main__":

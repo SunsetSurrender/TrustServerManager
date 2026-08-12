@@ -12,7 +12,14 @@
 # è passata alla 1.x, che pretende `httpx2`, e la suite non si è più nemmeno
 # raccolta.
 #
-# Uso:  .\tools\run-backend-tests.ps1  [-KeepDb]
+# Uso:
+#   .\tools\run-backend-tests.ps1 [-KeepDb]
+#   .\tools\run-backend-tests.ps1 -- tests/test_x.py -k nome --tb=long
+#
+# ⚠ Il `--` non è decorativo: senza, PowerShell prova ad associare gli argomenti ai
+# parametri di questo script per prefisso, e un `-k` finisce su `-KeepDb` con un
+# «parameter specified more than once» che non parla di pytest. Dopo `--` tutto
+# arriva a pytest così com'è.
 
 param([switch]$KeepDb)
 

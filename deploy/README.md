@@ -411,6 +411,36 @@ referenzia una foto che non esiste: non è un guasto del server, è un client ch
 sta salvando un UUID che non ha caricato (o che la GC ha già raccolto perché il
 salvataggio era rimasto indietro di più di ventiquattro ore).
 
+### 3.8 Tabelle normalizzate: presenti e VUOTE (fase 2A)
+
+La migrazione `0010_normalised` crea le tabelle dello stato operativo
+(`inventory_locations`, `inventory_rooms`, `inventory_racks`,
+`inventory_devices`, `inventory_manual_entries`, `inventory_state`). **Nessuno le
+popola e nessuno le legge**: `GET` e `PUT` continuano a lavorare sull'istantanea
+JSON, come prima (§8.42).
+
+Non c'è niente da fare in fase di deployment, e vedere le tabelle vuote è lo stato
+corretto:
+
+```bash
+docker compose exec -T db psql -U tsm -d tsm -c "
+  SELECT count(*) AS siti FROM inventory_locations"
+# 0
+
+docker compose exec -T db psql -U tsm -d tsm -c "
+  SELECT count(*) AS stato FROM inventory_state"
+# 0   -- nessuna riga = la proiezione non rispecchia nessuna versione
+```
+
+I ruoli di runtime hanno **solo `SELECT`** su queste tabelle: i privilegi di
+scrittura arrivano con la fase 2C, insieme al codice che sincronizza. Il
+popolamento della fase 2B girerà come proprietario dello schema e si fermerà da
+sé se il documento riassemblato da SQL non darà lo stesso digest dell'istantanea
+in testa.
+
+⚠ Non popolarle a mano. La verifica del digest è la sola prova che la proiezione è
+fedele, e una `INSERT` fatta a mano la salta.
+
 ---
 
 ## 4. Il caso che conta: disco dei dati assente

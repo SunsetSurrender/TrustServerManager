@@ -1,7 +1,16 @@
-"""Inventario: schema congelato del documento e repository atomico.
+"""Inventario: schema congelato del documento, repository atomico, mappa relazionale.
 
-Nessun endpoint HTTP, nessuna autenticazione: le rotte e le sessioni sono commit
-successivi (BACKEND-PLAN.md §9, punti 5-6).
+Nessun endpoint HTTP, nessuna autenticazione: le rotte e le sessioni stanno in
+`app/api/` (BACKEND-PLAN.md §8.22).
+
+    document.py             schema congelato del percorso normale (§8.16)
+    repository.py           scritture atomiche e serializzate (§8.11)
+    relational.py           mappa pura documento ↔ modello relazionale (§8.42)
+    relational_validate.py  coerenza del modello, errori e avvisi
+
+⚠ `relational*` NON è agganciato a niente: la fase 2A crea lo schema e la mappa,
+la sincronizzazione è la fase 2C. `repository.py` continua a essere l'unico
+scrittore, e scrive soltanto istantanee JSON, audit e riferimenti alle foto.
 """
 from .document import (
     ALLOWED_ROOT_KEYS,

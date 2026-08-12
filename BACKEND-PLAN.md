@@ -2834,6 +2834,249 @@ Tre cose imparate scrivendo i test:
   invisibile ai test di invio, visibile solo leggendo lo stato. Ora `TickResult`
   la porta e due test la fissano.
 
+---
+
+### 8.42 Fase 2: normalizzazione relazionale
+
+#### L'architettura, congelata
+
+```text
+tabelle normalizzate     → stato operativo CORRENTE, autorevole
+inventory_versions.doc   → istantanee storiche canoniche, immutabili, per sempre
+```
+
+La fase 2 **non cancella la storia in JSON**, e non la riscrive. Un ripristino
+carica un'istantanea storica, sincronizza le tabelle correnti su di essa e crea
+una versione **nuova**: la storia non si modifica, ci si aggiunge. È
+l'append-only (§8.19) applicato un livello più su.
+
+Le due rappresentazioni rispondono a due domande diverse. «Com'è l'inventario
+adesso, e quali dispositivi scadono entro trenta giorni?» è una query, e vuole
+tabelle e indici. «Com'era il 14 marzo, e chi l'ha cambiato?» è un'istantanea, e
+vuole un documento intero che nessuno può aver alterato dopo.
+
+#### Fase 2A — schema e mappa pura ✔ fatto
+
+Migrazione `0010_normalised` (tabelle, vincoli, privilegi di sola lettura) e
+`app/inventory/relational.py` + `relational_validate.py` (mappa pura). **`GET` e
+`PUT` non cambiano**, niente popola le tabelle, niente le legge.
+
+##### L'identità è l'`_uid`
+
+Chiave primaria di ogni entità identificata: siti, sale, rack, dispositivi, voci
+di manuale. Codice del rack e identificativo del dispositivo restano **attributi
+mutabili**: una rinomina è un `rename` che conserva l'identità, e una chiave
+primaria sul codice trasformerebbe ogni rinomina in «entità diversa», spezzando la
+storia proprio nel caso che §8.4 esiste per proteggere.
+
+##### Unicità con AMBITO, e differibile
+
+```text
+inventory_locations       UNIQUE (code)                    ambito: documento
+inventory_rooms           UNIQUE (location_uid, code)      ambito: sito
+inventory_racks           UNIQUE (room_uid, code)          ambito: sala
+inventory_manual_entries  UNIQUE (code)                    ambito: documento
++ UNIQUE (genitore, ordinal) su ogni collezione
+```
+
+Tutti `DEFERRABLE INITIALLY IMMEDIATE`. Scambiare il codice di due rack è
+legittimo e a metà transazione i due valori collidono; senza `DEFERRABLE` l'unica
+via sarebbe un valore di comodo intermedio, cioè uno stato che non è mai stato
+vero scritto nel database per aggirare un vincolo. `INITIALLY IMMEDIATE` resta il
+default perché un errore che compare sullo statement colpevole si diagnostica, uno
+che compare al commit no.
+
+⚠ **Nessun vincolo su `(rack_uid, code)` per i dispositivi**, e non è una
+dimenticanza. L'identificativo arriva dall'import tabellare, dove due righe con lo
+stesso identificativo di asset nello stesso rack sono un caso reale; il validatore
+di identità le tollera da sempre e l'interfaccia non le impedisce. Vincolarle
+farebbe rifiutare alla fase 2C documenti che la fase 1 accetta — un cambio di
+comportamento introdotto di straforo. `validate_model` lo segnala come **avviso**,
+e diventerà una decisione di prodotto quando qualcuno vorrà prenderla.
+
+##### L'ordine è un dato
+
+Colonna `ordinal` esplicita su ogni collezione, e `assemble` ordina per quella.
+L'ordine delle righe che PostgreSQL restituisce senza `ORDER BY` non è definito, e
+un riordino è un evento di dominio (§8.10): affidarsi all'ordine fisico
+produrrebbe eventi `reorder` che nessuno ha causato, al primo `VACUUM`.
+
+##### I vani restano un value object
+
+Sono già stati classificati così (§8.12) e la classificazione regge: nessuna
+identità immutabile visibile all'utente, nessun CRUD indipendente, nessuna
+semantica di spostamento, nessuna interrogazione globale. Restano **JSONB
+posseduto dalla sala**, e la geometria della porta resta annidata nel vano — che
+può averne due (`porta`, `porta2`): il seed di produzione ne contiene già un caso.
+
+Una tabella `vani` più una tabella `porte` costerebbero due join per disegnare una
+pianta, un ordinale in più da mantenere e due cascate da gestire, in cambio di
+nessuna garanzia: non esiste alcun vincolo di integrità fra un vano e il resto del
+mondo. **Normalizzare serve all'integrità e all'interrogabilità, non a trasformare
+ogni oggetto annidato in una tabella.** Stessa regola per i `blocchi` di una voce
+di manuale.
+
+##### Il documento è APERTO: la conseguenza che decide il progetto
+
+Lo schema congelato (§8.16) vincola le chiavi di **radice**, non i campi delle
+entità: `validate_document` pretende un `_uid` valido e univoco e non dice nulla
+sulle altre chiavi. Il frontend, di suo, deriva ogni entità dall'esistente proprio
+perché «i campi sconosciuti e i metadati futuri sopravvivono» (§8.4).
+
+Una mappa che elencasse le colonne e buttasse il resto sarebbe quindi **lossy per
+costruzione**: basterebbe un campo aggiunto dall'interfaccia perché l'invariante
+cada, e cadrebbe in produzione, sul documento di un cliente. Ogni entità ha perciò
+una colonna `extra` (JSONB) che porta ciò che le colonne non rappresentano, più una
+regola che vale nei due versi:
+
+```text
+la colonna vale NULL  ⇔  la chiave è in `extra`
+```
+
+Un documento aperto può contenere `u: "45"` o `seriali: ["ok", 12345]`. Una colonna
+NOT NULL con un valore di comodo più la copia in `extra` darebbe una tabella
+interrogabile che risponde il falso, che è peggio di una che dichiara di non
+sapere. Le uniche colonne sempre valorizzate sono quelle che generiamo noi: `uid`,
+il riferimento al genitore, `ordinal`.
+
+Sul seed di produzione **nessun campo finisce in `extra`** — verificato da un
+test: la normalizzazione è completa sui dati veri, e il carrello serve ai casi che
+non ci sono ancora.
+
+##### `garanzia` e `supporto` sono TESTO, non `date`
+
+L'inventario reale contiene «in attesa», date malformate e caselle vuote. Una
+colonna `date` costringerebbe a scartare o a reinterpretare quei valori, cioè a
+perdere il dato per farlo entrare in un tipo. Il posto dove si decide che una data
+non è leggibile è già lo scanner delle scadenze (§8.41), e la validazione del
+modello **usa il suo parser**: così l'avviso significa esattamente «il worker
+ignorerà questa data» invece di essere una seconda idea di «data valida» che
+divergerà sui casi limite.
+
+##### L'invariante
+
+```text
+canonicalise(assemble(normalise(doc))) == canonicalise(doc)
+⇒ canonical_sha256 uguale
+⇒ diff_documents(originale, giro completo) == []
+```
+
+Le tre asserzioni non sono ridondanti: la prima confronta strutture, la seconda la
+serializzazione canonica (ordine delle chiavi, forma dei numeri), la terza il
+significato secondo il motore di diff — cioè ciò che l'utente vedrebbe nel
+registro. Più una quarta, meno ovvia: **anche il MODELLO deve tornare identico**.
+Se il giro perdesse un valore da una colonna e lo ritrovasse in `extra`, i due
+documenti resterebbero uguali e le tabelle no — il difetto sarebbe invisibile
+esattamente dove conta.
+
+##### Due gravità nella validazione
+
+`ERROR` — il modello non rappresenta fedelmente lo stato: `_uid` duplicati o
+malformati, genitori inesistenti, codici duplicati dove è vietato, ordinali
+duplicati, `extra` che ombreggia una colonna, foto inesistente, `schemaVersion`
+assente. Un `ERROR` deve fermare una migrazione o una scrittura.
+
+`WARNING` — lo stato è rappresentato correttamente ma la tabella non lo può
+interrogare (`carried_verbatim`), o il valore è fuori da un vocabolario noto
+(`invalid_enum`, `invalid_date`), o è un identificativo di dispositivo ripetuto.
+Un `WARNING` non ferma niente: l'inventario reale è pieno di caselle scritte a
+mano, e rifiutarle vorrebbe dire perdere il dato invece di correggerlo.
+
+#### Fase 2B — popolamento del solo head, con confronto dei digest ⟵ prossimo
+
+**Non eseguita in questo commit.** La procedura, in ordine:
+
+1. leggere `inventory_head` e la versione che indica;
+2. popolare le tabelle normalizzate da quell'istantanea;
+3. riassemblare il documento **da SQL**;
+4. canonicalizzare il risultato;
+5. confrontare il digest del repository con quello dell'istantanea in testa;
+6. **abortire** — transazione intera in rollback — se differiscono.
+
+Solo la testa viene normalizzata. Le versioni storiche restano istantanee JSON e
+**non vengono riscritte**: sono immutabili per definizione, e riscriverle
+significherebbe cambiare la storia per farla combaciare con una mappa nuova, che è
+l'esatto contrario del motivo per cui esistono.
+
+Il passo 6 è la ragione di tutto il resto. Un popolamento che «sembra andato bene»
+non vale niente: l'unica prova che la proiezione è fedele è che il documento
+riassemblato **da SQL** dia lo stesso digest del documento che il database già
+conserva. `inventory_state.head_version` registra quale versione la proiezione
+rispecchia, così la domanda si può porre di nuovo in qualunque momento invece di
+fidarsi di un'esecuzione andata bene mesi prima.
+
+⚠ Chi leggerà le righe dovrà **convertire gli `uuid` in stringhe**: una colonna
+`uuid` letta con una query testuale torna come `uuid.UUID`, e `assemble`
+metterebbe quegli oggetti nel campo `_uid` — non serializzabili in JSON e diversi
+dalla stringa a cui il digest si aspetta di corrispondere. Il sintomo sarebbe «il
+digest non torna», che non fa pensare a un tipo.
+
+La migrazione richiederà anche i privilegi di scrittura sulle tabelle, che la
+`0010` **non** concede: oggi entrambi i ruoli di runtime hanno solo `SELECT`, e le
+`REVOKE` esplicite mettono l'intenzione nello schema. Il popolamento gira come
+proprietario, come le migrazioni e il bootstrap.
+
+#### Fase 2C — il `PUT` sincronizza, in una transazione sola
+
+Un salvataggio dovrà, **atomicamente**: validare e canonicalizzare come oggi,
+sincronizzare le tabelle normalizzate, inserire l'istantanea immutabile, scrivere
+l'audit e registrare i riferimenti alle foto (§8.5). Se una qualsiasi di queste
+scritture non riesce, non ne sopravvive nessuna — è lo stesso ordine di §8.11, con
+un passo in più.
+
+Qui servirà `SET CONSTRAINTS ALL DEFERRED` sui rinomini e sui riordini, ed è il
+momento in cui i vincoli differibili guadagnano il loro costo.
+
+#### Fase 2D — il `GET` legge da SQL, ma non subito
+
+Il passaggio avviene **solo dopo** che la rappresentazione in ombra ha dimostrato
+ripetutamente di essere uguale alla testa canonica. Prima la proiezione si
+mantiene e si confronta senza servirla; poi, quando il confronto è verde da
+abbastanza tempo e su dati veri, `GET` passa all'assemblaggio da SQL.
+
+Non è prudenza generica: un `GET` che assembla male restituisce un documento
+plausibile, il client lo rimanda con un `PUT`, e la differenza diventa una
+versione nuova con un contenuto che nessuno ha scritto. Il confronto in ombra è
+ciò che rende quel guasto visibile mentre è ancora innocuo.
+
+#### Test
+
+`backend/tests/test_relational_mapper.py` (pura) e `test_relational_schema_pg.py`
+(PostgreSQL reale). Ventuno documenti sotto esame, fra cui il **seed di
+produzione** (nelle due forme: come sta nel repository, con le radici legacy, e
+come sta nel database dopo il bootstrap), l'**inventario delle scadenze**, e le
+varianti che coprono rinomine, spostamenti, riordini, default espliciti e
+impliciti, stringhe vuote/zeri/`False`, `manuale` assente contro vuoto, rack con e
+senza foto, `foto: null` esplicito, campi ignoti a ogni livello, valori non
+tipizzabili, date rotte, vocabolari sconosciuti, codici duplicati e geometria di
+sala complicata.
+
+Tre cose che i test hanno trovato:
+
+- **La mappa era lossy su `seriali`.** `isinstance(v, list)` diceva
+  «rappresentabile» per una colonna `text[]`, ma `["ok", 12345]` in un `text[]`
+  diventa `{"ok","12345"}`: il numero torna indietro come stringa e l'invariante
+  cade **in silenzio**. Da qui i predicati espliciti al posto degli elenchi di
+  tipi, e `_is_str_list` distinto da `_is_json_list`.
+- **`bool` è un `int` in Python.** Senza cura, `u: True` sarebbe finito in una
+  colonna intera come 1, e il diff l'avrebbe riportato come una modifica
+  dell'utente.
+- **La riga di `inventory_state` sparisce con `TRUNCATE inventory_versions
+  CASCADE`**, perché `head_version` la referenzia. Invece di seminarla e vederla
+  scomparire, la tabella è a zero-o-una riga e **l'assenza è il dato**: senza
+  versioni non c'è niente da rispecchiare.
+
+Più il test che tiene insieme i due file — colonne SQL contro campi delle
+dataclass, confrontati per ogni entità — e quello che prova la cosa centrale del
+commit **provando a violarla**: dopo un salvataggio reale le tabelle normalizzate
+restano vuote e `inventory_state` non registra niente.
+
+E la controprova del metodo: `test_the_invariant_is_capable_of_failing` costruisce
+una mappa che butta `extra` e pretende che l'invariante **cada**. Senza di esso, un
+invariante scritto male — che confronta la cosa sbagliata, o due volte lo stesso
+oggetto — sarebbe indistinguibile da un invariante soddisfatto, e tutta la suite
+passerebbe senza dimostrare niente.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -2901,8 +3144,17 @@ Tre cose imparate scrivendo i test:
     worker con ruolo di database separato, integrazione frontend~~ ✔ **fatto** —
     `backend/app/photos/`, `backend/app/api/photos.py`, `0009_photos`,
     `tools/photos-ui-test.py`
-13. Normalizzazione dell'inventario di fase 2 (tabelle `racks`/`devices`): **non
-    iniziata**, e non va iniziata insieme a nient'altro.
+13. ~~**Fase 2A**: schema relazionale (`0010_normalised`) e mappa pura
+    documento ↔ modello, con l'invariante del giro completo (§8.42). `GET` e `PUT`
+    invariati, niente popola e niente legge le tabelle~~ ✔ **fatto** —
+    `backend/app/inventory/relational{,_validate}.py`, `fixtures/relational/`,
+    `test_relational_mapper.py`, `test_relational_schema_pg.py`
+14. **Fase 2B**: popolamento della sola testa con confronto dei digest e abort
+    (§8.42). **Prossimo commit.** Le versioni storiche non si riscrivono.
+15. **Fase 2C**: il `PUT` sincronizza le tabelle e inserisce istantanea, audit e
+    riferimenti alle foto in una transazione sola.
+16. **Fase 2D**: il `GET` assembla da SQL, solo dopo che la rappresentazione in
+    ombra ha dimostrato ripetutamente di combaciare con la testa canonica.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

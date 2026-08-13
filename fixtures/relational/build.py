@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Documenti di prova per la mappa relazionale (fase 2A, §8.42).
+"""Documenti di prova per la mappa relazionale (fasi 2A e 2B, §8.42).
 
 Si GENERANO invece di stare come JSON nel repository, per la stessa ragione delle
 fixture delle scadenze: un file statico smette di provare ciò che dice appena il
@@ -424,6 +424,93 @@ def variant_deep_room_geometry() -> dict:
     return doc
 
 
+def variant_hostile_numbers() -> dict:
+    """I numeri che si rompevano legando il float al posto del `Decimal`.
+
+    Misurati contro PostgreSQL vero, non supposti (§8.42):
+
+      10.0                 tornava `10` — intero, cioè `json.dumps` diverso
+      0.30000000000000004  tornava `0.3`
+      1e-9                 esponente negativo: la scala regge, e deve tornare
+
+    Tutti e tre ATTRAVERSANO anche JSONB senza danni, quindi questo documento deve
+    superare il giro completo dal database vero come tutti gli altri.
+    """
+    doc = base()
+    room = doc["locations"][0]["sale"][0]
+    room["w"] = 10.0                       # deve tornare 10.0, non 10
+    room["h"] = 0.30000000000000004        # deve tornare tutte le cifre
+    rack = _find_rack(doc, K1)
+    rack["w"] = 1e-9
+    return doc
+
+
+def variant_jsonb_hostile_numbers() -> dict:
+    """⚠ Numeri che nemmeno JSONB conserva — quindi il confine NON è la proiezione.
+
+    Trovati dal confronto dei digest della fase 2B, e vale la pena essere precisi su
+    dove sta il problema. Misurato:
+
+      1e+20  →  jsonb  →  100000000000000000000   (int: `json.dumps` diverso)
+      -0.0   →  jsonb  →  0.0                     (`numeric` non ha il segno dello
+                                                    zero, e `jsonb` usa `numeric`)
+
+    `inventory_versions.doc` È jsonb: un documento con questi valori viene salvato,
+    ma il digest REGISTRATO al salvataggio non corrisponde più al documento che si
+    rilegge. Non è un difetto introdotto dalla proiezione — è una proprietà del
+    magazzino delle istantanee, che il controllo dei digest ha reso visibile.
+
+    La mappa, di suo, li porta in `extra` e li restituisce identici: l'invariante in
+    memoria vale. È il giro attraverso il database che no, e per questo il documento
+    è escluso dalla passata su PostgreSQL, dove ha un test suo che pretende l'abort.
+    """
+    doc = base()
+    rack = _find_rack(doc, K1)
+    rack["x"] = 1e20
+    rack["y"] = -0.0
+    return doc
+
+
+def variant_oversized_integers() -> dict:
+    """Interi più grandi di una colonna `integer`.
+
+    `u` e `h` sono `integer`, cioè int32. Un `u: 3_000_000_000` non è un valore da
+    difendersi in teoria: è un `INSERT` che fallisce con «integer out of range» a
+    metà del popolamento, cioè una migrazione che aborta per un dato che la fase 1
+    ha sempre accettato. Deve viaggiare in `extra`, dove non ha limiti.
+    """
+    doc = base()
+    rack = _find_rack(doc, K1)
+    rack["u"] = 3_000_000_000
+    rack["devices"][0]["u"] = -3_000_000_000
+    return doc
+
+
+def variant_dated_devices() -> dict:
+    """Ogni dispositivo con date di garanzia e supporto leggibili.
+
+    Serve alle colonne derivate: il seed di produzione non ha nessuna data, quindi
+    senza questo documento i test sulle date girerebbero tutti su colonne vuote e
+    non proverebbero niente.
+    """
+    doc = base()
+    date_per_uid = {
+        D1: ("2026-08-31", "2027-01-15"),
+        D2: ("2026-09-01", "2026-09-01"),
+        D3: ("2030-12-31", "2020-01-01"),   # una molto lontana, una già passata
+        D4: ("2026-02-29", "2026-2-3"),     # 29 febbraio inesistente; non ISO
+        D5: (" 2026-10-10 ", "2026-10-10"),  # spazi: il parser li tollera
+    }
+    for location in doc["locations"]:
+        for room in location["sale"]:
+            for rack in room["racks"]:
+                for device in rack["devices"]:
+                    pair = date_per_uid.get(device["_uid"])
+                    if pair:
+                        device["garanzia"], device["supporto"] = pair
+    return doc
+
+
 VARIANTS = {
     "base": base,
     "renamed": variant_renamed,
@@ -443,6 +530,10 @@ VARIANTS = {
     "same-code-same-rack": variant_same_code_same_rack,
     "swapped-codes": variant_swapped_codes,
     "deep-room-geometry": variant_deep_room_geometry,
+    "hostile-numbers": variant_hostile_numbers,
+    "jsonb-hostile-numbers": variant_jsonb_hostile_numbers,
+    "oversized-integers": variant_oversized_integers,
+    "dated-devices": variant_dated_devices,
 }
 
 

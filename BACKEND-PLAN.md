@@ -2982,41 +2982,168 @@ interrogare (`carried_verbatim`), o il valore è fuori da un vocabolario noto
 Un `WARNING` non ferma niente: l'inventario reale è pieno di caselle scritte a
 mano, e rifiutarle vorrebbe dire perdere il dato invece di correggerlo.
 
-#### Fase 2B — popolamento del solo head, con confronto dei digest ⟵ prossimo
+#### Fase 2B — popolamento del solo head, con confronto dei digest ✔ fatto
 
-**Non eseguita in questo commit.** La procedura, in ordine:
+Migrazione `0011_projection` (colonne data derivate, stato della proiezione),
+`app/inventory/projection.py` (costruzione, rilettura, verifica) e
+`backend/scripts/project.py` (il comando). **`GET`, `PUT`, readiness, scheduler e
+frontend non cambiano di una riga, e nessuno di loro consuma la proiezione.**
 
-1. leggere `inventory_head` e la versione che indica;
-2. popolare le tabelle normalizzate da quell'istantanea;
-3. riassemblare il documento **da SQL**;
-4. canonicalizzare il risultato;
-5. confrontare il digest del repository con quello dell'istantanea in testa;
-6. **abortire** — transazione intera in rollback — se differiscono.
+##### La procedura, in ordine
+
+1. **lock** della riga di testa (`FOR UPDATE`), come fa un salvataggio (§8.11);
+2. lettura del documento e del digest **registrato** di quella versione;
+3. il digest registrato deve combaciare con quello ricalcolato;
+4. `normalise` + `validate_model`: nessun errore, o si aborta **prima di scrivere**;
+5. si svuota la proiezione e la si riscrive per intero, riga di stato compresa;
+6. si rilegge **da SQL** e si riassembla;
+7. il modello riletto deve essere uguale a quello scritto **e** il digest del
+   documento riassemblato deve combaciare con quello registrato.
+
+Il passo 1 è ciò che rende «atomica sotto la testa bloccata» una frase con un
+significato: un `PUT` concorrente aspetta lì, quindi la proiezione non può
+rispecchiare una testa cambiata sotto di lei. Due test lo provano nei due sensi, con
+`lock_timeout` per trasformare l'attesa in un errore osservabile invece di un test
+che si blocca.
+
+Il passo 7 è la ragione di tutto il resto: un popolamento «che sembra andato bene»
+non vale niente. E sono **due** confronti, non uno. Il digest dice che il documento
+è quello; il modello dice che le TABELLE sono quelle. Se un valore uscisse da una
+colonna e rientrasse in `extra`, i due documenti resterebbero identici e il digest
+combacerebbe — mentre la parte interrogabile, che è il motivo per cui la
+normalizzazione esiste, sarebbe diversa.
 
 Solo la testa viene normalizzata. Le versioni storiche restano istantanee JSON e
 **non vengono riscritte**: sono immutabili per definizione, e riscriverle
 significherebbe cambiare la storia per farla combaciare con una mappa nuova, che è
 l'esatto contrario del motivo per cui esistono.
 
-Il passo 6 è la ragione di tutto il resto. Un popolamento che «sembra andato bene»
-non vale niente: l'unica prova che la proiezione è fedele è che il documento
-riassemblato **da SQL** dia lo stesso digest del documento che il database già
-conserva. `inventory_state.head_version` registra quale versione la proiezione
-rispecchia, così la domanda si può porre di nuovo in qualunque momento invece di
-fidarsi di un'esecuzione andata bene mesi prima.
+##### Un comando, non una migrazione di dati e non un servizio
 
-⚠ Chi leggerà le righe dovrà **convertire gli `uuid` in stringhe**: una colonna
-`uuid` letta con una query testuale torna come `uuid.UUID`, e `assemble`
-metterebbe quegli oggetti nel campo `_uid` — non serializzabili in JSON e diversi
-dalla stringa a cui il digest si aspetta di corrispondere. Il sintomo sarebbe «il
-digest non torna», che non fa pensare a un tipo.
+```text
+python scripts/project.py --status     che versione rispecchia (sola lettura)
+python scripts/project.py --verify     riassembla da SQL e confronta (sola lettura)
+python scripts/project.py --rebuild    ricostruisce, e aborta se non torna
+```
 
-La migrazione richiederà anche i privilegi di scrittura sulle tabelle, che la
-`0010` **non** concede: oggi entrambi i ruoli di runtime hanno solo `SELECT`, e le
-`REVOKE` esplicite mettono l'intenzione nello schema. Il popolamento gira come
-proprietario, come le migrazioni e il bootstrap.
+Gira come **proprietario dello schema**: la `0011` non concede scrittura a nessun
+ruolo di runtime, e le `REVOKE` esplicite mettono l'intenzione nello schema. Un test
+prova che `tsm_api` e `tsm_worker`, provandoci, ottengono «permission denied».
 
-#### Fase 2C — il `PUT` sincronizza, in una transazione sola
+Una migrazione di dati si esegue una volta sola, all'avvio, senza che nessuno la
+guardi, e se aborta ferma il deployment. Questo popolamento deve poter essere
+rieseguito, deve confrontare un digest, deve poter dire di no, e il suo esito deve
+essere **letto** da una persona. Un servizio, dall'altra parte, lo eseguirebbe da
+solo: manterrebbe aggiornata una rappresentazione che nessuno legge, e i guasti si
+scoprirebbero il giorno in cui qualcuno comincia a leggerla.
+
+I codici di uscita distinguono due domande diverse. `--verify` vale 0 se le tabelle
+riassemblano **la versione che dichiarano di rispecchiare** (fedeltà) e 1 altrimenti;
+una proiezione **vecchia** non è un errore e non cambia il codice, perché in fase 2B
+non esserlo è normale — la sincronizzazione a ogni salvataggio è la 2C. Confondere
+attualità e fedeltà significherebbe far suonare un allarme a ogni `PUT`.
+
+##### Una proiezione vecchia si vede
+
+`inventory_state` è diventata `inventory_projection_state`: il nome vecchio diceva
+«stato dell'inventario», che è falso — lo stato dell'inventario è la testa. La riga
+registra `head_version` **e** `head_sha256`, entrambi `NOT NULL`, e l'assenza della
+riga resta il modo di dire «non rispecchia nulla». La versione dice *quale*
+istantanea; il digest dice *che cosa* si è verificato in quel momento, ed è il
+confronto che scopre una proiezione modificata a mano o un ripristino parziale.
+
+Dopo un `PUT` la proiezione resta indietro **per progetto**, con il documento vecchio
+e non con metà del nuovo, e `--status` lo dice in italiano citando la fase 2C, così
+chi legge non va a cercare un guasto che non c'è.
+
+##### `garanzia_date` e `supporto_date`: colonne derivate
+
+`garanzia` e `supporto` restano **testo** (§8.42 sopra). Ma finché la data esiste
+solo come testo, «quali dispositivi scadono entro trenta giorni» non è una query: è
+la scansione dell'intero documento in Python che fa lo scanner delle scadenze
+(§8.41). Le due colonne aggiungono la forma interrogabile senza toccare quella
+autorevole:
+
+```text
+garanzia       testo dell'utente, autorevole, torna nel documento
+garanzia_date  data interpretata, derivata, NON torna nel documento
+```
+
+L'interpretazione usa **il parser dello scanner**, non uno scritto in SQL. Una colonna
+`GENERATED ALWAYS AS` o un `CHECK` con l'espressione sarebbero stati la scelta ovvia e
+sbagliata: una seconda idea di «data valida» diverge dalla prima, e diverge proprio
+sui casi limite, che sono i valori che l'inventario reale contiene. Il `CHECK` si
+limita a ciò che si può dire senza reimplementare il parser: `garanzia_date IS NULL OR
+garanzia IS NOT NULL` — una data interpretata non può sopravvivere al testo da cui è
+stata interpretata. Gli indici sono **parziali** (`WHERE ... IS NOT NULL`): la domanda
+implica il non-nullo, e nel seed reale la maggior parte dei dispositivi non ha date.
+
+⚠ **L'invariante del giro completo non può vedere una data derivata sbagliata**: non
+tornando nel documento, lascia il digest identico. La vede solo `validate_model`, che
+la chiama `derived_mismatch` — ed è un `ERROR`. Per la stessa ragione `verify()` non
+guarda solo i digest: se lo facesse, l'unico difetto che l'invariante non copre
+sarebbe anche l'unico che lo strumento fatto per coprirlo non guarda.
+
+Un test prova che la query SQL sulle date restituisce **esattamente** lo stesso
+insieme di `due_items`: se divergessero, il giorno in cui la vista Scadenze passerà a
+SQL gli avvisi cambierebbero senza che nessuno abbia cambiato niente.
+
+##### Quattro cose che questo commit ha trovato
+
+- **Legare un `float` a una colonna `numeric` è lossy.** Misurato con una sonda
+  contro PostgreSQL vero, non ragionato: `10.0` torna `10` (intero!) e
+  `0.30000000000000004` torna `0.3`. psycopg lo manda come `float8`, e la
+  conversione a `numeric` perde la scala. Si lega `Decimal(repr(v))`, e la scala
+  conservata è ciò che permette di sapere, rileggendo, se il valore era un intero o
+  un float. Le due metà del contratto (`to_column_number` /
+  `from_column_number`) stanno accanto al predicato che le giustifica, perché
+  separarle vorrebbe dire che `_is_num` promette una fedeltà che dipende da codice
+  scritto altrove.
+- **Restano due numeri che `numeric` non può restituire**, e stanno in `extra`: i
+  float che `repr` scrive con esponente positivo (`1e+16`, `1e+20`), che tornerebbero
+  interi, e `-0.0`, perché `numeric` non ha il segno dello zero. Il secondo lo aveva
+  dichiarato «fedele» la prima versione della sonda, che confrontava con `==`:
+  `-0.0 == 0.0` è vero, e `json.dumps` scrive due cose diverse — cioè due digest
+  diversi.
+- **`u` e `h` sono `integer`, cioè int32.** `u: 3000000000` non è un caso teorico da
+  cui difendersi: è un `INSERT` che fallisce con «integer out of range» a metà del
+  popolamento, per un dato che la fase 1 ha sempre accettato.
+- ⚠ **JSONB perde `1e+20` e `-0.0`, e `inventory_versions.doc` È jsonb.** Misurato:
+  diventano `100000000000000000000` e `0.0`. Quindi un documento con quei valori
+  viene salvato, ma il digest **registrato** al salvataggio non corrisponde più al
+  documento che si rilegge. **Non è un difetto della proiezione**: è una proprietà
+  del magazzino delle istantanee, che il confronto dei digest ha reso visibile. Il
+  passo 3 aborta dicendo esattamente questo, invece di ricalcolare il digest in
+  silenzio — che sarebbe coprire il caso in cui un'istantanea immutabile non
+  corrisponde al suo digest. Il difetto a monte (un `PUT` con quei numeri restituisce
+  al client un documento diverso da quello inviato) resta **aperto**: il posto dove
+  si chiude è la validazione dello schema congelato, non qui.
+
+Più il difetto trovato dal primo tentativo: la riga di stato era scritta **alla
+fine**, e sembrava più prudente — «nessuna riga dichiara una proiezione fedele finché
+non lo è». Era sbagliato, perché quella riga porta anche `schemaVersion`, `has_manual`
+e `root_extra`, cioè la radice del documento: scritta dopo la rilettura, il passo 6
+rileggeva una radice vuota e il confronto falliva su una differenza che il popolamento
+non aveva commesso. La prudenza non serviva — un abort SOLLEVA e la transazione va in
+rollback, quindi una riga che esiste è una riga la cui verifica è passata. È il
+rollback a garantirlo, non l'ordine degli statement.
+
+##### E chi non deve consumarla
+
+Un controllo statico verifica che **soltanto `projection.py`** scriva le tabelle, e
+che né le rotte, né la readiness, né il worker nominino la proiezione o le sue
+tabelle. `projection` **non** è riesportata da `app/inventory/__init__.py`, che
+`app/api/inventory.py` importa: riesportarla la renderebbe raggiungibile dal percorso
+delle richieste con un `import` scritto per sbaglio.
+
+I test di comportamento provano la stessa cosa dal lato opposto, e nel modo più
+forte possibile: si ricostruisce la proiezione del seed, si **cancella un sito dalle
+tabelle**, e `GET /api/inventory` restituisce ancora tutti e 102 i rack. La readiness
+resta a tre condizioni (§8.23) con la proiezione vuota e con la proiezione vecchia:
+farla diventare la quarta significherebbe che il servizio non parte perché una
+rappresentazione che nessuno legge non è aggiornata.
+
+#### Fase 2C — il `PUT` sincronizza, in una transazione sola ⟵ prossimo
 
 Un salvataggio dovrà, **atomicamente**: validare e canonicalizzare come oggi,
 sincronizzare le tabelle normalizzate, inserire l'istantanea immutabile, scrivere
@@ -3041,17 +3168,29 @@ ciò che rende quel guasto visibile mentre è ancora innocuo.
 
 #### Test
 
-`backend/tests/test_relational_mapper.py` (pura) e `test_relational_schema_pg.py`
-(PostgreSQL reale). Ventuno documenti sotto esame, fra cui il **seed di
-produzione** (nelle due forme: come sta nel repository, con le radici legacy, e
-come sta nel database dopo il bootstrap), l'**inventario delle scadenze**, e le
-varianti che coprono rinomine, spostamenti, riordini, default espliciti e
-impliciti, stringhe vuote/zeri/`False`, `manuale` assente contro vuoto, rack con e
-senza foto, `foto: null` esplicito, campi ignoti a ogni livello, valori non
-tipizzabili, date rotte, vocabolari sconosciuti, codici duplicati e geometria di
-sala complicata.
+```text
+test_relational_mapper.py     puro         la mappa, i predicati, le derivate
+test_relational_schema_pg.py  PostgreSQL   forma, vincoli, privilegi
+test_projection_pg.py         PostgreSQL   popolamento, rilettura, digest, lock
+```
 
-Tre cose che i test hanno trovato:
+**Ventiquattro documenti** sotto esame, fra cui il **seed di produzione** (nelle due
+forme: come sta nel repository, con le radici legacy, e come sta nel database dopo il
+bootstrap), l'**inventario delle scadenze**, e le varianti che coprono rinomine,
+spostamenti, riordini, default espliciti e impliciti, stringhe vuote/zeri/`False`,
+`manuale` assente contro vuoto, rack con e senza foto, `foto: null` esplicito, campi
+ignoti a ogni livello, valori non tipizzabili, date rotte e date buone, vocabolari
+sconosciuti, codici duplicati, geometria di sala complicata, numeri e interi che le
+colonne non possono contenere.
+
+La suite pura li verifica in memoria; quella su PostgreSQL li fa passare **dal
+database vero**, uno per uno, confrontando il digest riassemblato con quello
+**registrato** nella versione. Sono due prove diverse: la prima dice che la mappa non
+perde niente, la seconda che non lo perde nemmeno il giro attraverso JSONB, i
+`numeric`, i `text[]` e gli `uuid` — che è il passaggio dove un numero cambia forma e
+un `uuid` cambia tipo.
+
+Tre cose che i test della fase 2A hanno trovato:
 
 - **La mappa era lossy su `seriali`.** `isinstance(v, list)` diceva
   «rappresentabile» per una colonna `text[]`, ma `["ok", 12345]` in un `text[]`
@@ -3061,20 +3200,23 @@ Tre cose che i test hanno trovato:
 - **`bool` è un `int` in Python.** Senza cura, `u: True` sarebbe finito in una
   colonna intera come 1, e il diff l'avrebbe riportato come una modifica
   dell'utente.
-- **La riga di `inventory_state` sparisce con `TRUNCATE inventory_versions
-  CASCADE`**, perché `head_version` la referenzia. Invece di seminarla e vederla
-  scomparire, la tabella è a zero-o-una riga e **l'assenza è il dato**: senza
-  versioni non c'è niente da rispecchiare.
+- **La riga di stato sparisce con `TRUNCATE inventory_versions CASCADE`**, perché
+  `head_version` la referenzia. Invece di seminarla e vederla scomparire, la tabella
+  è a zero-o-una riga e **l'assenza è il dato**: senza versioni non c'è niente da
+  rispecchiare.
 
-Più il test che tiene insieme i due file — colonne SQL contro campi delle
-dataclass, confrontati per ogni entità — e quello che prova la cosa centrale del
-commit **provando a violarla**: dopo un salvataggio reale le tabelle normalizzate
-restano vuote e `inventory_state` non registra niente.
+Più il test che tiene insieme i due file — colonne SQL contro campi delle dataclass,
+confrontati per ogni entità, e ogni campo che deve stare in esattamente una categoria
+fra mappato, generato e derivato — e quello che prova la cosa centrale **provando a
+violarla**: dopo un salvataggio reale le tabelle normalizzate restano vuote e lo stato
+della proiezione non registra niente.
 
-E la controprova del metodo: `test_the_invariant_is_capable_of_failing` costruisce
-una mappa che butta `extra` e pretende che l'invariante **cada**. Senza di esso, un
-invariante scritto male — che confronta la cosa sbagliata, o due volte lo stesso
-oggetto — sarebbe indistinguibile da un invariante soddisfatto, e tutta la suite
+E le controprove del metodo, che sono la parte che vale di più:
+`test_the_invariant_is_capable_of_failing` costruisce una mappa che butta `extra` e
+pretende che l'invariante **cada**; `test_a_rebuild_that_does_not_round_trip_aborts`
+rompe `assemble` e pretende l'abort più un database intatto. Senza di loro, un
+confronto scritto male — che confronta la cosa sbagliata, o due volte lo stesso
+oggetto — sarebbe indistinguibile da un confronto soddisfatto, e tutta la suite
 passerebbe senza dimostrare niente.
 
 ## 9. Ordine di lavoro proposto
@@ -3149,10 +3291,13 @@ passerebbe senza dimostrare niente.
     invariati, niente popola e niente legge le tabelle~~ ✔ **fatto** —
     `backend/app/inventory/relational{,_validate}.py`, `fixtures/relational/`,
     `test_relational_mapper.py`, `test_relational_schema_pg.py`
-14. **Fase 2B**: popolamento della sola testa con confronto dei digest e abort
-    (§8.42). **Prossimo commit.** Le versioni storiche non si riscrivono.
+14. ~~**Fase 2B**: popolamento della sola testa con confronto dei digest e abort
+    (§8.42), colonne data derivate, comando esplicito del proprietario~~
+    ✔ **fatto** — `0011_projection`, `app/inventory/projection.py`,
+    `backend/scripts/project.py`, `test_projection_pg.py`. Le versioni storiche non
+    si riscrivono, e niente consuma la proiezione.
 15. **Fase 2C**: il `PUT` sincronizza le tabelle e inserisce istantanea, audit e
-    riferimenti alle foto in una transazione sola.
+    riferimenti alle foto in una transazione sola. **Prossimo commit.**
 16. **Fase 2D**: il `GET` assembla da SQL, solo dopo che la rappresentazione in
     ombra ha dimostrato ripetutamente di combaciare con la testa canonica.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)

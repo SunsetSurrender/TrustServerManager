@@ -7,10 +7,21 @@ Nessun endpoint HTTP, nessuna autenticazione: le rotte e le sessioni stanno in
     repository.py           scritture atomiche e serializzate (§8.11)
     relational.py           mappa pura documento ↔ modello relazionale (§8.42)
     relational_validate.py  coerenza del modello, errori e avvisi
+    projection.py           costruzione, rilettura e verifica della proiezione
 
-⚠ `relational*` NON è agganciato a niente: la fase 2A crea lo schema e la mappa,
-la sincronizzazione è la fase 2C. `repository.py` continua a essere l'unico
-scrittore, e scrive soltanto istantanee JSON, audit e riferimenti alle foto.
+⚠ `relational*` e `projection` NON sono agganciati a niente. La proiezione la
+costruisce un comando esplicito (`scripts/project.py --rebuild`) che gira come
+proprietario dello schema; nessuno la LEGGE — non `GET`, non `PUT`, non la
+readiness, non lo scheduler, non il frontend. La sincronizzazione a ogni
+salvataggio è la fase 2C, il passaggio della lettura la 2D. `repository.py`
+continua a essere l'unico scrittore del percorso di richiesta, e scrive soltanto
+istantanee JSON, audit e riferimenti alle foto.
+
+⚠ `projection` NON è riesportata qui di proposito. Questo pacchetto lo importa
+`app/api/inventory.py`: riesportarla renderebbe la proiezione raggiungibile dal
+percorso delle richieste con un `from app.inventory import projection` scritto per
+sbaglio. Chi le serve la importa per nome, e un controllo statico verifica che a
+farlo non sia nessun modulo dell'API, del worker o della readiness.
 """
 from .document import (
     ALLOWED_ROOT_KEYS,

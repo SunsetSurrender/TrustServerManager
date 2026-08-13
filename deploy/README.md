@@ -411,35 +411,54 @@ referenzia una foto che non esiste: non è un guasto del server, è un client ch
 sta salvando un UUID che non ha caricato (o che la GC ha già raccolto perché il
 salvataggio era rimasto indietro di più di ventiquattro ore).
 
-### 3.8 Tabelle normalizzate: presenti e VUOTE (fase 2A)
+### 3.8 La proiezione relazionale: si costruisce a mano, e nessuno la legge
 
-La migrazione `0010_normalised` crea le tabelle dello stato operativo
-(`inventory_locations`, `inventory_rooms`, `inventory_racks`,
-`inventory_devices`, `inventory_manual_entries`, `inventory_state`). **Nessuno le
-popola e nessuno le legge**: `GET` e `PUT` continuano a lavorare sull'istantanea
-JSON, come prima (§8.42).
+Le migrazioni `0010_normalised` e `0011_projection` creano le tabelle dello stato
+operativo (`inventory_locations`, `inventory_rooms`, `inventory_racks`,
+`inventory_devices`, `inventory_manual_entries`, `inventory_projection_state`).
+**Nessuno le legge**: `GET` e `PUT` continuano a lavorare sull'istantanea JSON, come
+prima, e la readiness non le guarda (§8.42).
 
-Non c'è niente da fare in fase di deployment, e vedere le tabelle vuote è lo stato
-corretto:
+Non c'è niente di obbligatorio da fare in fase di deployment: le tabelle vuote sono
+uno stato corretto. Chi vuole costruire la proiezione lo fa con un comando esplicito,
+che gira come **proprietario dello schema** — cioè dal servizio `migrate`, l'unico che
+ne ha la password:
 
 ```bash
-docker compose exec -T db psql -U tsm -d tsm -c "
-  SELECT count(*) AS siti FROM inventory_locations"
-# 0
+# che versione rispecchia (sola lettura, non cambia niente)
+docker compose run --rm migrate python scripts/project.py --status
 
-docker compose exec -T db psql -U tsm -d tsm -c "
-  SELECT count(*) AS stato FROM inventory_state"
-# 0   -- nessuna riga = la proiezione non rispecchia nessuna versione
+# costruirla, o ricostruirla
+docker compose run --rm migrate python scripts/project.py --rebuild
+
+# riassemblare da SQL e confrontare i digest (sola lettura)
+docker compose run --rm migrate python scripts/project.py --verify
 ```
 
-I ruoli di runtime hanno **solo `SELECT`** su queste tabelle: i privilegi di
-scrittura arrivano con la fase 2C, insieme al codice che sincronizza. Il
-popolamento della fase 2B girerà come proprietario dello schema e si fermerà da
-sé se il documento riassemblato da SQL non darà lo stesso digest dell'istantanea
-in testa.
+`--rebuild` è **atomico e ripetibile**: prende il lock della testa dell'inventario
+(quindi un salvataggio concorrente aspetta), ricostruisce tutto, rilegge da SQL,
+riassembla e confronta il digest con quello registrato nell'istantanea. Se qualcosa
+non torna **aborta e non cambia niente** — nessuna proiezione a metà, e la precedente
+resta buona.
 
-⚠ Non popolarle a mano. La verifica del digest è la sola prova che la proiezione è
-fedele, e una `INSERT` fatta a mano la salta.
+Uscite: `--status` esce sempre 0 (è un rapporto). `--verify` esce 1 solo se le tabelle
+**non** riassemblano la versione che dichiarano di rispecchiare.
+
+⚠ **Una proiezione vecchia è normale, non un guasto.** Ogni salvataggio la lascia
+indietro: la sincronizzazione automatica arriva con la fase 2C. `--status` lo dice
+esplicitamente, confrontando versione e digest dichiarati con quelli della testa vera:
+
+```text
+  testa        versione 42, digest 7fdbf3d8e42c…
+  proiezione   versione 39, digest 1b90a4c5e0aa…, costruita il 2026-08-12 03:31:07 UTC
+  esito        NON aggiornata: rispecchia la 39, la testa è la 42 (3 versioni di
+               scarto). È previsto: la sincronizzazione a ogni salvataggio è la fase 2C
+```
+
+⚠ **Non popolarle a mano.** La verifica del digest è la sola prova che la proiezione è
+fedele, e una `INSERT` scritta a mano la salta. I ruoli di runtime hanno **solo
+`SELECT`**: non potrebbero comunque, e i privilegi di scrittura arriveranno con la
+fase 2C, insieme al codice che sincronizza.
 
 ---
 

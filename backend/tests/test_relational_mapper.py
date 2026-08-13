@@ -700,16 +700,255 @@ def test_normalise_survives_junk(junk):
                               "devices": 0, "manual": 0}
 
 
-def test_every_mapped_column_has_a_document_key_and_vice_versa():
-    """La corrispondenza è dichiarata in un posto solo (`FIELD_MAP`), e questo test
-    la controlla contro i campi delle dataclass: due elenchi in due punti divergono,
-    se nessuno li confronta."""
-    from app.inventory.relational import ROW_CLASS, column_names
+def test_every_dataclass_field_is_mapped_generated_or_derived():
+    """Ogni campo di ogni riga deve stare in ESATTAMENTE una delle tre categorie.
+
+    Un campo che non sta in nessuna non verrebbe mai scritto: la colonna esisterebbe
+    nel database, resterebbe vuota per sempre, e niente lo segnalerebbe — perché
+    l'invariante del giro completo non guarda le colonne che nessuno riempie.
+    """
+    from app.inventory.relational import (GENERATED, ROW_CLASS, column_names,
+                                          derived_names)
     for kind, mapping in FIELD_MAP.items():
         colonne = set(column_names(kind))
         dichiarate = {name for name, _key, _t in mapping}
+        derivate = set(derived_names(kind))
         assert dichiarate <= colonne, (kind, dichiarate - colonne)
-        nostre = colonne - dichiarate
-        assert nostre <= {"uid", "ordinal", "extra", "location_uid", "room_uid",
-                          "rack_uid"}, (kind, nostre)
+        assert derivate <= colonne, (kind, derivate - colonne)
+        assert not (dichiarate & derivate), (
+            kind, "una colonna derivata non può avere anche una chiave del "
+            "documento: tornerebbe indietro come un campo che l'utente non ha "
+            "scritto")
+        senza_categoria = colonne - dichiarate - derivate - set(GENERATED)
+        assert not senza_categoria, (kind, senza_categoria)
         assert ROW_CLASS[kind].__name__.lower().startswith(kind[:4])
+
+
+# ==================================================================
+# 5. colonne DERIVATE
+# ==================================================================
+#
+# `garanzia_date` e `supporto_date` sono l'interpretazione delle due caselle di
+# testo. Non tornano nel documento, quindi l'invariante del giro completo **non può
+# accorgersi se sono sbagliate**: il documento resta identico e il digest uguale.
+# Questa sezione è l'unico posto che le guarda.
+
+
+def test_the_derived_dates_agree_with_the_expiry_scanner(document):
+    """Su OGNI documento sotto esame, non solo su quelli con date belle.
+
+    `garanzia_date` deve significare esattamente «la data che il worker delle
+    scadenze userà» (§8.41). Se qui ci fosse un secondo parser, divergerebbe dal
+    primo sui casi limite — che sono precisamente i valori che l'inventario reale
+    contiene.
+    """
+    from app.notifications.expiry import parse_expiry
+    for device in normalise(document).devices:
+        assert device.garanzia_date == parse_expiry(device.garanzia), device.uid
+        assert device.supporto_date == parse_expiry(device.supporto), device.uid
+
+
+def test_a_date_that_the_scanner_ignores_derives_to_null():
+    model = normalise(FIXTURES["broken-dates"])
+    by_uid = {d.uid: d for d in model.devices}
+    assert by_uid[relbuild.D1].garanzia == "in attesa"
+    assert by_uid[relbuild.D1].garanzia_date is None
+    assert by_uid[relbuild.D1].supporto == "2026-13-45"
+    assert by_uid[relbuild.D1].supporto_date is None
+    assert by_uid[relbuild.D2].garanzia == ""
+    assert by_uid[relbuild.D2].garanzia_date is None
+
+
+def test_a_readable_date_does_derive():
+    """La controprova del test precedente: se nessuna data si interpretasse mai,
+    quello sopra passerebbe comunque e non proverebbe niente."""
+    model = normalise(FIXTURES["dated-devices"])
+    by_uid = {d.uid: d for d in model.devices}
+    assert by_uid[relbuild.D1].garanzia_date == date(2026, 8, 31)
+    assert by_uid[relbuild.D2].supporto_date == date(2026, 9, 1)
+    # 29 febbraio 2026 non esiste, e `2026-2-3` non è `YYYY-MM-DD`: il parser dice
+    # no a entrambi, e la colonna resta vuota.
+    assert by_uid[relbuild.D4].garanzia_date is None
+    assert by_uid[relbuild.D4].supporto_date is None
+    # Spazi attorno: il parser li tollera, quindi la data si interpreta ANCHE se il
+    # testo non è pulito. La colonna di testo conserva gli spazi: è il valore
+    # dell'utente, e la derivata non lo corregge.
+    assert by_uid[relbuild.D5].garanzia == " 2026-10-10 "
+    assert by_uid[relbuild.D5].garanzia_date == date(2026, 10, 10)
+
+
+def test_the_derived_dates_never_reach_the_document(document):
+    """Una colonna derivata che tornasse nel documento sarebbe un campo che l'utente
+    non ha mai scritto — e comparirebbe nel registro come una modifica di
+    qualcuno."""
+    payload = json.dumps(round_trip(document), ensure_ascii=False)
+    assert "garanzia_date" not in payload
+    assert "supporto_date" not in payload
+
+
+def test_a_derived_date_that_disagrees_with_the_text_is_an_error():
+    """⚠ Il controllo che nessun altro può fare.
+
+    Si costruisce a mano una riga con la data derivata sbagliata — quello che
+    succederebbe se qualcuno modificasse la colonna a mano, o se un giorno il parser
+    cambiasse senza ricostruire la proiezione. Il documento riassemblato resta
+    IDENTICO e il digest combacia: senza `derived_mismatch` la differenza sarebbe
+    invisibile fino al giorno in cui un promemoria arriva alla data sbagliata.
+    """
+    from dataclasses import replace
+    from app.inventory.relational_validate import DERIVED_MISMATCH
+
+    buono = normalise(FIXTURES["dated-devices"])
+    device = buono.devices[0]
+    assert device.garanzia_date is not None, "la fixture deve avere una data vera"
+
+    rotto = RelationalModel(
+        schema_version=buono.schema_version, has_manual=buono.has_manual,
+        locations=buono.locations, rooms=buono.rooms, racks=buono.racks,
+        devices=(replace(device, garanzia_date=date(1999, 1, 1)),) + buono.devices[1:],
+        manual=buono.manual, root_extra=buono.root_extra)
+
+    assert DERIVED_MISMATCH in codes(errors(validate_model(rotto)))
+    # E la prova che l'invariante NON se ne accorgerebbe: stesso documento, stesso
+    # digest. È la ragione per cui questo controllo esiste.
+    assert canonical_sha256(assemble(rotto)) == canonical_sha256(assemble(buono))
+
+
+def test_a_correct_derived_date_produces_no_error():
+    """Ogni test negativo deve provare la propria causa: se `validate_model`
+    segnalasse `derived_mismatch` sempre, quello sopra passerebbe per il motivo
+    sbagliato."""
+    from app.inventory.relational_validate import DERIVED_MISMATCH
+    found = validate_model(normalise(FIXTURES["dated-devices"]))
+    assert DERIVED_MISMATCH not in codes(found)
+
+
+def test_a_date_not_representable_as_text_derives_to_nothing():
+    """La derivata si calcola dalla COLONNA, non dal documento.
+
+    Se `garanzia` non è una stringa finisce in `extra` e la colonna di testo resta
+    NULL: la data derivata deve essere NULL con lei, altrimenti il database
+    conterrebbe una data interpretata senza il testo da cui è stata interpretata —
+    ed è esattamente ciò che il `CHECK` `ck_device_garanzia_date_needs_text`
+    rifiuta.
+    """
+    doc = relbuild.base()
+    device = doc["locations"][0]["sale"][0]["racks"][0]["devices"][0]
+    device["garanzia"] = {"scade": "2027-03-14"}     # un oggetto, non una data
+    row = [d for d in normalise(doc).devices if d.uid == relbuild.D1][0]
+    assert row.garanzia is None
+    assert row.garanzia_date is None
+    assert row.extra["garanzia"] == {"scade": "2027-03-14"}
+    assert CARRIED_VERBATIM in codes(warnings(validate_model(normalise(doc))))
+    assert canonical_sha256(round_trip(doc)) == canonical_sha256(doc)
+
+
+# ==================================================================
+# 6. il contratto dei tipi delle colonne
+# ==================================================================
+#
+# Ogni predicato di `FIELD_MAP` è un'affermazione su ciò che una COLONNA può
+# restituire, non sul tipo Python. Tre di queste affermazioni le ha corrette una
+# sonda contro PostgreSQL vero, non il ragionamento — e la sonda ha corretto anche
+# la prima versione di sé stessa, che confrontava con `==` e dichiarava fedele il
+# giro di `-0.0`.
+
+
+@pytest.mark.parametrize("value,representable", [
+    (10, True), (0, True), (-3, True), (2**40, True),
+    (10.0, True),                    # ⚠ tornava `10` legando il float
+    (0.4, True), (0.1, True),
+    (0.30000000000000004, True),     # ⚠ tornava `0.3` legando il float
+    (1e-9, True), (2.5e-05, True),   # esponente negativo: la scala regge
+    (1e16, False), (1e20, False),    # scala 0: tornerebbero `int`
+    (-0.0, False),                   # `numeric` non ha il segno dello zero
+    (float("inf"), False), (float("nan"), False),
+    (True, False), (False, False),   # `bool` è un `int` in Python
+    ("10", False), (None, False),
+])
+def test_which_numbers_a_numeric_column_can_hold(value, representable):
+    from app.inventory.relational import _is_num
+    assert _is_num(value) is representable
+
+
+@pytest.mark.parametrize("value", [10, 0, -3, 2**40, 10.0, 0.4,
+                                   0.30000000000000004, 1e-9, 2.5e-05])
+def test_the_two_halves_of_the_number_contract_compose(value):
+    """`from_column_number(to_column_number(v))` deve dare lo stesso valore E lo
+    stesso tipo. Il tipo conta: `10` e `10.0` sono uguali per `==` e diversi per
+    `json.dumps`, cioè diversi per il digest."""
+    from app.inventory.relational import from_column_number, to_column_number
+    back = from_column_number(to_column_number(value))
+    assert back == value and type(back) is type(value)
+    assert json.dumps(back) == json.dumps(value)
+
+
+def test_a_negative_zero_really_is_a_different_document():
+    """⚠ Perché `-0.0` è escluso, provato invece che affermato.
+
+    `-0.0 == 0.0` è vero in Python, quindi un confronto scritto con `==` dichiarerebbe
+    fedele un giro che trasforma l'uno nell'altro. Il digest no.
+    """
+    assert -0.0 == 0.0
+    a, b = relbuild.base(), relbuild.base()
+    a["locations"][0]["sale"][0]["racks"][0]["x"] = -0.0
+    b["locations"][0]["sale"][0]["racks"][0]["x"] = 0.0
+    assert canonical_sha256(a) != canonical_sha256(b)
+
+
+@pytest.mark.parametrize("value,representable", [
+    (0, True), (45, True), (-1, True), (2147483647, True), (-2147483648, True),
+    (2147483648, False), (3_000_000_000, False), (True, False), (1.5, False),
+])
+def test_which_integers_an_integer_column_can_hold(value, representable):
+    """`u` e `h` sono `integer`, cioè int32. Oltre il limite l'`INSERT` fallisce con
+    «integer out of range» a metà del popolamento: quel valore deve viaggiare in
+    `extra`, dove non ha limiti."""
+    from app.inventory.relational import _is_int
+    assert _is_int(value) is representable
+
+
+def test_the_values_a_column_cannot_hold_travel_in_extra_and_survive():
+    """Le fixture ostili, viste dal lato del modello: ciò che le colonne non possono
+    contenere sta in `extra`, e il documento torna comunque identico — l'invariante
+    generale lo prova già, qui si fissa DOVE finisce."""
+    # `hostile-numbers`: i tre che DEVONO entrare nelle colonne, e che si rompevano
+    # legando il float al posto del `Decimal`.
+    numeri = normalise(FIXTURES["hostile-numbers"])
+    room = [r for r in numeri.rooms if r.uid == relbuild.R1][0]
+    assert room.w == 10.0 and json.dumps(room.w) == "10.0"
+    assert room.h == 0.30000000000000004
+    rack = [r for r in numeri.racks if r.uid == relbuild.K1][0]
+    assert rack.w == 1e-9 and rack.extra == {}
+
+    # `jsonb-hostile-numbers`: quelli che nemmeno JSONB conserva. La mappa li porta
+    # in `extra` e li restituisce identici, quindi l'invariante in memoria vale anche
+    # per loro; il giro attraverso il database no, ed è un confine della fase 1 —
+    # `inventory_versions.doc` è JSONB. Il test su PostgreSQL pretende l'ABORT.
+    jsonb = normalise(FIXTURES["jsonb-hostile-numbers"])
+    rack = [r for r in jsonb.racks if r.uid == relbuild.K1][0]
+    assert rack.x is None and rack.extra["x"] == 1e20
+    assert rack.y is None and json.dumps(rack.extra["y"]) == "-0.0"
+
+    interi = normalise(FIXTURES["oversized-integers"])
+    rack = [r for r in interi.racks if r.uid == relbuild.K1][0]
+    assert rack.u is None and rack.extra["u"] == 3_000_000_000
+    device = [d for d in interi.devices if d.uid == relbuild.D1][0]
+    assert device.u is None and device.extra["u"] == -3_000_000_000
+
+
+def test_a_schema_version_that_is_not_an_integer_travels_in_root_extra():
+    """La colonna è un `integer`, e la regola non cambia per la radice.
+
+    Lo schema congelato (§8.13) non ammette documenti così — ed è esattamente il
+    genere di fatto su cui l'invariante non deve poggiare. `validate_model` continua
+    a chiamarlo `missing_schema_version`, che è la cosa giusta da dire: un documento
+    senza versione di schema si rifiuta, non si normalizza.
+    """
+    doc = relbuild.base()
+    doc["schemaVersion"] = "1"
+    model = normalise(doc)
+    assert model.schema_version is None
+    assert model.root_extra["schemaVersion"] == "1"
+    assert MISSING_SCHEMA_VERSION in codes(errors(validate_model(model)))
+    assert canonical_sha256(round_trip(doc)) == canonical_sha256(doc)

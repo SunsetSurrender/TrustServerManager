@@ -412,7 +412,12 @@ def code_only(path) -> str:
     """
     import ast
 
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    # `utf-8-sig` e non `utf-8`: alcuni sorgenti hanno il BOM (li ha scritti
+    # PowerShell), e `ast.parse` lo rifiuta con «invalid non-printable character
+    # U+FEFF» — un errore che parla di un carattere invisibile e non del fatto che
+    # il file si legge con la codifica sbagliata. Python, importandoli, il BOM lo
+    # gestisce da sé.
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
                                  ast.AsyncFunctionDef)):
@@ -465,18 +470,21 @@ check("la chiave esterna dei riferimenti è senza ON DELETE",
 
 
 # ==================================================================
-# 10. fase 2A: lo schema normalizzato esiste e NESSUNO lo scrive (§8.42)
+# 10. fase 2A: lo schema normalizzato, e UN SOLO scrittore (§8.42)
 # ==================================================================
 #
-# L'affermazione centrale del commit della fase 2A. I test su PostgreSQL provano che
-# un salvataggio reale non tocca le tabelle; questo controllo prova la stessa cosa
-# un livello più su, sul SORGENTE: nessun modulo dell'applicazione le scrive. È il
-# controllo che regge quando qualcuno, fra un mese, aggiunge una `INSERT` «tanto per
-# provare» — e i test di comportamento la vedrebbero solo se passasse dal
-# salvataggio.
+# I test su PostgreSQL provano che un salvataggio reale non tocca le tabelle; questi
+# controlli provano la stessa cosa un livello più su, sul SORGENTE. È ciò che regge
+# quando qualcuno, fra un mese, aggiunge una `INSERT` «tanto per provare» — e i test
+# di comportamento la vedrebbero solo se passasse dal salvataggio.
 NORMALISED_TABLES = ("inventory_locations", "inventory_rooms", "inventory_racks",
                      "inventory_devices", "inventory_manual_entries",
-                     "inventory_state")
+                     "inventory_projection_state")
+
+#: L'UNICO modulo dell'applicazione autorizzato a scrivere la proiezione. Non è
+#: raggiungibile dal percorso delle richieste: lo usa `scripts/project.py`, che gira
+#: come proprietario dello schema.
+ONLY_WRITER = "projection.py"
 
 _WRITE = ("insert into ", "update ", "delete from ", "truncate ")
 app_sources = sorted((ROOT / "backend" / "app").rglob("*.py"))
@@ -485,14 +493,16 @@ check("i sorgenti dell'applicazione sono leggibili", len(app_sources) > 20,
 
 scritture = []
 for path in app_sources:
+    if path.name == ONLY_WRITER:
+        continue
     lowered = path.read_text(encoding="utf-8").lower()
     for table in NORMALISED_TABLES:
         for verb in _WRITE:
             if f"{verb}{table}" in lowered:
                 scritture.append(f"{path.name}: {verb}{table}")
-check("nessun modulo dell'applicazione scrive le tabelle normalizzate",
+check(f"soltanto {ONLY_WRITER} scrive le tabelle normalizzate",
       not scritture,
-      f"la sincronizzazione è la fase 2C: {scritture}")
+      f"la sincronizzazione al salvataggio è la fase 2C: {scritture}")
 
 rel = code_only(ROOT / "backend" / "app" / "inventory" / "relational.py")
 check("la mappa relazionale è pura: nessun SQL, nessun SQLAlchemy",
@@ -520,6 +530,140 @@ check("i dispositivi NON hanno un vincolo di unicità sul codice",
 check("i vani restano JSONB e non una tabella",
       'sa.Column("vani", pg.JSONB)' in mig10
       and "create_table(\n        \"inventory_vani" not in mig10)
+
+
+# ==================================================================
+# 11. fase 2B: si costruisce la proiezione, e NESSUNO la consuma (§8.42)
+# ==================================================================
+#
+# Il requisito di questo commit è asimmetrico: la proiezione si può SCRIVERE (con un
+# comando esplicito) e non si può LEGGERE da nessun percorso di servizio. La seconda
+# metà è quella che un test di comportamento non sa provare: un `import` aggiunto
+# oggi «solo per un contatore» non fa fallire niente, e il giorno in cui la
+# proiezione è vecchia diventa una risposta sbagliata servita a un utente.
+
+#: Chi non deve nemmeno poter raggiungere la proiezione: le rotte, l'avvio, il
+#: worker. La readiness sta in `app/api/health.py`, lo scheduler in
+#: `app/notifications/worker.py`.
+CONSUMERS_FORBIDDEN = (
+    sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
+    + sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py"))
+    + [ROOT / "backend" / "app" / "main.py"]
+)
+
+consumatori = []
+for path in CONSUMERS_FORBIDDEN:
+    source = code_only(path)
+    if "projection" in source:
+        consumatori.append(f"{path.name}: nomina `projection`")
+    for table in NORMALISED_TABLES:
+        if table in source:
+            consumatori.append(f"{path.name}: nomina {table}")
+check("né le rotte, né la readiness, né il worker toccano la proiezione",
+      not consumatori,
+      f"il passaggio della lettura è la fase 2D: {consumatori}")
+
+inv_init = code_only(ROOT / "backend" / "app" / "inventory" / "__init__.py")
+check("il pacchetto inventory non riesporta `projection`",
+      "projection" not in inv_init,
+      "`app/api/inventory.py` importa questo pacchetto: riesportarla la renderebbe "
+      "raggiungibile dal percorso delle richieste con un import scritto per sbaglio")
+
+proj = code_only(ROOT / "backend" / "app" / "inventory" / "projection.py")
+check("la ricostruzione prende il lock della testa",
+      "FOR UPDATE" in proj,
+      "«atomicamente sotto la testa bloccata» deve significare che un PUT "
+      "concorrente aspetta, non che si spera che non arrivi")
+check("la ricostruzione non fa commit: la transazione è del chiamante",
+      ".commit()" not in proj,
+      "un fallimento deve SOLLEVARE e lasciare che il chiamante annulli tutto: "
+      "non esiste un esito «proiezione a metà»")
+check("la ricostruzione confronta il digest REGISTRATO, non solo il ricalcolato",
+      "recorded != recomputed" in proj and "digest != recorded" in proj,
+      "confrontare col ricalcolato sarebbe confrontare il codice con sé stesso")
+check("la verifica guarda anche la coerenza del modello",
+      "validate_model" in proj,
+      "il digest è cieco alle colonne derivate: `garanzia_date` non torna nel "
+      "documento, quindi una data sbagliata lascia il digest identico")
+check("la rilettura converte gli uuid in stringhe",
+      "str(value)" in proj,
+      "un `uuid` letto con una query testuale torna come oggetto, e il sintomo "
+      "sarebbe «il digest non torna» — che non fa pensare a un tipo")
+
+check("le colonne data derivate usano il parser dello scanner delle scadenze",
+      "from app.notifications.expiry import parse_expiry" in rel,
+      "un secondo parser sarebbe una seconda idea di «data valida», e divergerebbe "
+      "sui casi limite — che sono i valori che l'inventario reale contiene")
+check("la mappa dichiara i limiti delle colonne intere",
+      "INT32_MIN" in rel and "2147483647" in rel,
+      "`u: 3000000000` non è un caso teorico: è un INSERT che fallisce a metà del "
+      "popolamento per un dato che la fase 1 ha sempre accettato")
+check("la mappa dichiara il contratto di legatura dei numeric",
+      "to_column_number" in rel and "from_column_number" in rel
+      and "Decimal(repr(value))" in rel,
+      "legando il float invece del Decimal, 10.0 torna 10 e 0.30000000000000004 "
+      "torna 0.3: misurato contro PostgreSQL, non supposto")
+
+mig11 = (ROOT / "backend" / "migrations" / "versions"
+         / "0011_projection.py").read_text(encoding="utf-8")
+check("lo stato della proiezione ha un nome che dice la verità",
+      'op.rename_table("inventory_state"' in mig11,
+      "«stato dell'inventario» era falso: lo stato dell'inventario è la testa")
+check("lo stato registra ANCHE il digest verificato",
+      '"head_sha256"' in mig11,
+      "la versione dice quale istantanea; il digest dice che cosa si è verificato")
+check("una riga di stato scritta a metà è impossibile",
+      'alter_column(STATE_TABLE, "head_version", nullable=False)' in mig11
+      and 'alter_column(STATE_TABLE, "head_sha256", nullable=False)' in mig11)
+check("le colonne data derivate esistono con il loro CHECK",
+      "garanzia_date" in mig11 and "supporto_date" in mig11
+      and "IS NULL OR" in mig11,
+      "una data interpretata non può esistere senza il testo da cui è stata "
+      "interpretata")
+check("gli indici sulle scadenze sono parziali",
+      "postgresql_where" in mig11,
+      "la domanda implica IS NOT NULL, e nel seed reale la maggior parte dei "
+      "dispositivi non ha date")
+check("la 0011 non concede scrittura ai ruoli di runtime",
+      "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {STATE_TABLE} " in mig11
+      and "GRANT INSERT" not in mig11 and "GRANT ALL" not in mig11,
+      "il popolamento gira come proprietario; i privilegi di scrittura li concede "
+      "la fase 2C, con il codice che li usa")
+# ⚠ Sul CODICE, non sul testo grezzo: la docstring della 0011 spiega perché il
+# popolamento non sta lì e cita `scripts/project.py --rebuild`. È la terza volta che
+# questo controllo cade nella stessa trappola — la prosa contiene le parole che si
+# stanno cercando proprio perché descrive ciò che il codice non fa.
+mig11_code = code_only(ROOT / "backend" / "migrations" / "versions"
+                       / "0011_projection.py")
+#: Le CHIAMATE che una migrazione di dati dovrebbe fare. Si cercano queste e non le
+#: parole «rebuild»/«normalise» sciolte: `down_revision = '0010_normalised'` contiene
+#: la seconda, e un controllo che fallisce per il nome della migrazione precedente
+#: non sta controllando quello che dice di controllare.
+check("il popolamento NON è una migrazione di dati",
+      "normalise(" not in mig11_code and "rebuild(" not in mig11_code
+      and "insert into inventory_" not in mig11_code.lower(),
+      "una migrazione si esegue una volta sola, senza che nessuno la guardi, e se "
+      "aborta ferma il deployment")
+
+cli = code_only(ROOT / "backend" / "scripts" / "project.py")
+check("il comando pretende un'azione esplicita",
+      "required=True" in cli and "--rebuild" in cli and "--status" in cli
+      and "--verify" in cli,
+      "una ricostruzione non deve poter partire perché qualcuno ha lanciato il "
+      "comando senza argomenti")
+check("il comando distingue fedeltà e attualità nei codici di uscita",
+      "faithful" in cli,
+      "una proiezione vecchia in fase 2B è NORMALE: un codice di errore lì "
+      "insegnerebbe a ignorarlo")
+
+handoff = ""
+for path in sorted((ROOT / "handoff").rglob("*.js")):
+    handoff += path.read_text(encoding="utf-8")
+check("il frontend non sa che la proiezione esista",
+      all(t not in handoff for t in NORMALISED_TABLES)
+      and "garanzia_date" not in handoff,
+      "il contratto del frontend è il documento (§8.22), e questo commit non lo "
+      "cambia di una riga")
 
 
 if __name__ == "__main__":

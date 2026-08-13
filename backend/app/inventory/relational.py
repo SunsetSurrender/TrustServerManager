@@ -53,11 +53,26 @@ quella. L'ordine delle righe che PostgreSQL restituisce senza `ORDER BY` non è
 definito, e un `reorder` è un evento di dominio (§8.10): affidarsi all'ordine
 fisico significherebbe generare eventi di riordino fantasma al primo `VACUUM`.
 
+Colonne DERIVATE: fuori dal giro completo, di proposito
+-------------------------------------------------------
+`garanzia_date` e `supporto_date` sono l'interpretazione delle due caselle di
+testo (§8.42). Non compaiono in `FIELD_MAP`, quindi `assemble` non le rimette nel
+documento e non partecipano all'invariante — e non devono: sarebbero un campo che
+l'utente non ha mai scritto.
+
+Ne segue una cosa da tenere presente: **l'invariante del giro completo non può
+accorgersi di una data derivata sbagliata.** Una colonna derivata rotta lascia il
+documento identico e il digest uguale. È `validate_model` a confrontarla con il
+parser, e l'unico posto dove quella differenza si vede.
+
 Riferimento: BACKEND-PLAN.md §8.42.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, fields
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from app.identity import canonicalise
@@ -173,6 +188,12 @@ class DeviceRow:
     note: Any = None
     u: Any = None
     h: Any = None
+    #: DERIVATE dalle due precedenti col parser dello scanner delle scadenze
+    #: (§8.41). Non tornano nel documento: sono la forma interrogabile di un
+    #: valore che resta autorevole nella sua colonna di testo. `None` significa
+    #: «quel testo non è una data», ed è il caso normale.
+    garanzia_date: Any = None
+    supporto_date: Any = None
     extra: dict = field(default_factory=dict)
 
 
@@ -218,8 +239,9 @@ class RelationalModel:
 # «rappresentabile»: una domanda sul TIPO DELLA COLONNA, non sul tipo Python
 # ------------------------------------------------------------------
 #
-# Sono predicati e non elenchi di tipi, perché due casi non si esprimono con
-# `isinstance`:
+# Sono predicati e non elenchi di tipi, perché quattro casi non si esprimono con
+# `isinstance`, e tre dei quattro li ha trovati una sonda contro PostgreSQL vero
+# invece del ragionamento:
 #
 #  - `bool` è un `int` in Python (`isinstance(True, int)` è vero). Senza cura,
 #    `u: True` finirebbe in una colonna intera come 1 e tornerebbe indietro come
@@ -232,7 +254,17 @@ class RelationalModel:
 #    accettava la lista, e la colonna non l'avrebbe potuta contenere. Serve
 #    «lista di sole stringhe», che `isinstance(v, list)` non sa dire.
 #
+#  - ⚠ `u` e `h` sono `integer`, cioè int32. `u: 99999999999` non è un valore
+#    assurdo da difendersi in teoria: è un `INSERT` che fallisce con «integer out
+#    of range» a metà del popolamento. Sta in `extra`, dove non ha limiti.
+#
+#  - ⚠ le colonne geometriche sono `numeric`, e il giro attraverso `numeric` NON
+#    è fedele per tutti i float. Vedi la nota sul contratto di legatura qui sotto.
+#
 # I `vani` e i `blocchi` invece SONO JSONB, e reggono qualunque struttura.
+
+#: Estremi di una colonna `integer`.
+INT32_MIN, INT32_MAX = -2147483648, 2147483647
 
 
 def _is_str(v: Any) -> bool:
@@ -240,11 +272,46 @@ def _is_str(v: Any) -> bool:
 
 
 def _is_int(v: Any) -> bool:
-    return isinstance(v, int) and not isinstance(v, bool)
+    return (isinstance(v, int) and not isinstance(v, bool)
+            and INT32_MIN <= v <= INT32_MAX)
 
 
 def _is_num(v: Any) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    """⚠ Il predicato che dipende da un CONTRATTO DI LEGATURA, e va letto.
+
+    La colonna è `numeric`. Chi la scrive **deve legare `Decimal(repr(v))`, non il
+    float**: passando il float, psycopg lo manda come `float8` e la conversione a
+    `numeric` di PostgreSQL è lossy. Misurato, non supposto:
+
+        10.0                  →  numeric 10                  → torna 10 (int!)
+        0.30000000000000004   →  numeric 0.3                 → torna 0.3
+
+    Legando `Decimal(repr(v))` PostgreSQL conserva le cifre e la SCALA, e il giro
+    torna fedele. Restano due casi che non tornano comunque, ed è questo predicato
+    a tenerli fuori (finiscono in `extra`, che è lossless):
+
+      - i float che `repr` scrive in notazione esponenziale POSITIVA (`1e+16`,
+        `1e+20`): PostgreSQL li memorizza per esteso con scala 0, e tornerebbero
+        come `int`. Quelli con esponente negativo (`1e-09`, `2.5e-05`) tornano
+        fedeli, perché la scala resta;
+      - `-0.0`: `numeric` non ha il segno dello zero, quindi torna `0.0`. Sembra
+        innocuo perché `-0.0 == 0.0` è vero in Python — e infatti la prima sonda
+        lo dichiarava fedele — ma `json.dumps` scrive `-0.0` e `0.0`, cioè due
+        digest diversi. Un confronto scritto con `==` invece che sulla
+        serializzazione non l'avrebbe visto.
+
+    `int` non ha bisogno di limiti: `numeric` è a precisione arbitraria, e un
+    intero torna intero con scala 0.
+    """
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return True
+    if not isinstance(v, float) or not math.isfinite(v):
+        return False
+    if v == 0.0 and math.copysign(1.0, v) < 0:
+        return False
+    return Decimal(repr(v)).as_tuple().exponent < 0
 
 
 def _is_bool(v: Any) -> bool:
@@ -326,9 +393,42 @@ FIELD_MAP: dict[str, tuple[tuple[str, str, Any], ...]] = {
     ),
 }
 
+#: Colonne DERIVATE: (nome della colonna, colonna di origine, come si deriva).
+#:
+#: Non stanno in `FIELD_MAP` di proposito — non hanno una chiave del documento e
+#: non tornano indietro. Il valore si calcola da un'ALTRA COLONNA e non dal
+#: documento grezzo, così una `garanzia` non rappresentabile (finita in `extra`)
+#: non produce una data derivata: colonna NULL, data NULL, e il `CHECK`
+#: `ck_device_garanzia_date_needs_text` resta soddisfatto.
+DERIVED: dict[str, tuple[tuple[str, str, Any], ...]] = {}
+
+
+def _parse_expiry(value: Any) -> date | None:
+    """⚠ Import LOCALE, e non è pigrizia.
+
+    Si usa il parser dello scanner delle scadenze (§8.41), non un secondo parser
+    scritto qui: così `garanzia_date` significa esattamente «la data che il worker
+    userà», e non «la data secondo un'altra idea di data valida». Due idee di data
+    valida in due moduli divergono, e divergono sui casi limite.
+
+    L'import è dentro la funzione perché `from app.notifications.expiry import ...`
+    esegue prima `app/notifications/__init__.py`, che importa il limitatore e quindi
+    **SQLAlchemy**. Al livello del modulo la mappa pura si porterebbe dietro il
+    database per una funzione di dieci righe che non ne ha bisogno.
+    """
+    from app.notifications.expiry import parse_expiry
+    return parse_expiry(value)
+
+
+DERIVED["device"] = (("garanzia_date", "garanzia", _parse_expiry),
+                     ("supporto_date", "supporto", _parse_expiry))
+
 #: Campi che generiamo noi e che non vengono dal documento: non finiscono mai in
-#: `extra` e non compaiono nel documento riassemblato.
-_OURS = ("uid", "ordinal", "extra", "location_uid", "room_uid", "rack_uid")
+#: `extra` e non compaiono nel documento riassemblato. Un test pretende che ogni
+#: campo di ogni dataclass stia o qui, o fra i derivati, o in `FIELD_MAP` — una
+#: colonna che non sta in nessuno dei tre non verrebbe mai scritta, e resterebbe
+#: vuota per sempre senza che niente lo segnali.
+GENERATED = ("uid", "ordinal", "extra", "location_uid", "room_uid", "rack_uid")
 
 ROW_CLASS = {"location": LocationRow, "room": RoomRow, "rack": RackRow,
              "device": DeviceRow, "manual": ManualRow}
@@ -340,6 +440,50 @@ def document_key(kind: str, column: str) -> str | None:
         if name == column:
             return key
     return None
+
+
+def derived_names(kind: str) -> tuple[str, ...]:
+    return tuple(name for name, _source, _fn in DERIVED.get(kind, ()))
+
+
+# ------------------------------------------------------------------
+# il contratto di legatura delle colonne `numeric`
+# ------------------------------------------------------------------
+#
+# Le due metà stanno qui, accanto al predicato che le giustifica, e non in chi
+# scrive il database: separarle vorrebbe dire che `_is_num` promette una fedeltà
+# che dipende da codice scritto altrove. Sono pure, quindi si provano senza
+# database — ed è la prova che serve, perché il difetto che coprono si manifesta
+# come «il digest non torna».
+
+
+def to_column_number(value: Any) -> Any:
+    """Valore del documento → parametro per una colonna `numeric`.
+
+    `Decimal` SEMPRE, anche per gli interi. Non è pedanteria: la scrittura è un
+    `executemany`, e legare a volte un `int` e a volte un `Decimal` per la stessa
+    colonna farebbe variare i tipi dei parametri fra le righe dello stesso
+    statement. Un tipo unico per colonna è una cosa in meno che può dipendere
+    dall'ordine delle righe.
+    """
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return Decimal(repr(value))
+    if isinstance(value, int):
+        return Decimal(value)
+    return value
+
+
+def from_column_number(value: Any) -> Any:
+    """Valore letto da una colonna `numeric` → valore del documento.
+
+    `Decimal` con scala 0 era un intero, con scala > 0 era un float. È
+    l'informazione che `numeric` conserva e che `float8` avrebbe perso.
+    """
+    if isinstance(value, Decimal):
+        return int(value) if value.as_tuple().exponent >= 0 else float(value)
+    return value
 
 
 # ==================================================================
@@ -374,6 +518,20 @@ def _split(kind: str, obj: dict) -> tuple[dict, dict]:
     return columns, extra
 
 
+def _derived(kind: str, columns: dict) -> dict:
+    """Colonne derivate da altre colonne. Vedi `DERIVED`.
+
+    Si legge da `columns` e non dal documento: una `garanzia` che non è una
+    stringa è finita in `extra`, la colonna di testo è NULL, e la data derivata
+    deve essere NULL insieme a lei — altrimenti il database avrebbe una data
+    interpretata senza il testo da cui è stata interpretata.
+    """
+    out = {}
+    for name, source, derive in DERIVED.get(kind, ()):
+        out[name] = derive(columns.get(source))
+    return out
+
+
 def normalise(doc: Any) -> RelationalModel:
     """Documento → modello relazionale. Pura, totale, deterministica.
 
@@ -393,6 +551,17 @@ def normalise(doc: Any) -> RelationalModel:
         canonical = {}
 
     root_extra = {k: v for k, v in canonical.items() if k not in ROOT_KEYS}
+
+    # `schemaVersion` segue la stessa regola di tutte le altre colonne: la colonna
+    # è un `integer`, quindi un valore che non ci sta viaggia in `root_extra`. Con
+    # lo schema congelato (§8.13) non ci sono documenti così — ed è esattamente il
+    # genere di fatto su cui l'invariante non deve poggiare. `validate_model`
+    # continua a chiamarlo `missing_schema_version`, che è la cosa giusta da dire:
+    # un documento senza versione di schema va rifiutato, non normalizzato.
+    raw_schema = canonical.get("schemaVersion")
+    schema_version = raw_schema if _is_int(raw_schema) else None
+    if raw_schema is not None and schema_version is None:
+        root_extra["schemaVersion"] = raw_schema
 
     locations: list[LocationRow] = []
     rooms: list[RoomRow] = []
@@ -419,7 +588,8 @@ def normalise(doc: Any) -> RelationalModel:
                     cols, extra = _split("device", V)
                     devices.append(DeviceRow(uid=V.get("_uid"),
                                              rack_uid=K.get("_uid"),
-                                             ordinal=di, extra=extra, **cols))
+                                             ordinal=di, extra=extra,
+                                             **_derived("device", cols), **cols))
 
     manual: list[ManualRow] = []
     has_manual = canonical.get("manuale") is not None
@@ -431,7 +601,7 @@ def normalise(doc: Any) -> RelationalModel:
                                     extra=extra, **cols))
 
     return RelationalModel(
-        schema_version=canonical.get("schemaVersion"),
+        schema_version=schema_version,
         has_manual=has_manual,
         locations=tuple(locations),
         rooms=tuple(rooms),

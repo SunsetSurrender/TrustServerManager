@@ -166,6 +166,32 @@ La stringa di connessione non è in `alembic.ini`: `migrations/env.py` la prende
 `app.config`, che legge la password dal secret. In un file di configurazione finirebbe
 nell'immagine e nel repository.
 
+## Comandi del proprietario dello schema
+
+Girano dal servizio `migrate`, l'unico che ha la password del proprietario.
+
+```bash
+# inizializzazione una-volta-sola (§8.1)
+docker compose run --rm migrate python scripts/bootstrap.py --seed ... --admin ...
+
+# proiezione relazionale (§8.42): stato, verifica, ricostruzione
+docker compose run --rm migrate python scripts/project.py --status
+docker compose run --rm migrate python scripts/project.py --verify
+docker compose run --rm migrate python scripts/project.py --rebuild
+```
+
+`project.py` **non è una migrazione di dati e non è un servizio**, di proposito. Una
+migrazione si esegue una volta sola, all'avvio, senza che nessuno la guardi, e se
+aborta ferma il deployment; un servizio manterrebbe aggiornata una rappresentazione
+che oggi nessuno legge, e i guasti si scoprirebbero il giorno in cui qualcuno comincia
+a leggerla. Questo comando si lancia quando si vuole, è ripetibile, ed è fatto perché
+il suo esito venga letto.
+
+`--rebuild` è atomico: prende il lock della testa, ricostruisce tutto, rilegge **da
+SQL**, riassembla e confronta il digest con quello registrato nell'istantanea. Se non
+torna, aborta e nel database non cambia niente. Nessun ruolo di runtime ha i privilegi
+per eseguirlo.
+
 ## Test
 
 ```powershell

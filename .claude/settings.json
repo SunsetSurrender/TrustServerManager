@@ -23,7 +23,8 @@
       "Read(//dev/**)",
       "Bash(git check-ignore *)",
       "Bash(python tools/sync-nginx-dev.py)",
-      "PowerShell(cd C:\\\\Users\\\\matteo.zandonella\\\\Desktop\\\\TrustServerManager; docker compose -f compose.yaml -f compose.storage-dev.yaml run --rm -v \"${PWD}/fixtures:/seed:ro\" -e TSM_BOOTSTRAP_PASSWORD=admin-iniziale-1 migrate python scripts/bootstrap.py --seed /seed/seed.json --admin admin --from-legacy 2>&1 | Select-Object -Last 8)"
+      "PowerShell(cd C:\\\\Users\\\\matteo.zandonella\\\\Desktop\\\\TrustServerManager; docker compose -f compose.yaml -f compose.storage-dev.yaml run --rm -v \"${PWD}/fixtures:/seed:ro\" -e TSM_BOOTSTRAP_PASSWORD=admin-iniziale-1 migrate python scripts/bootstrap.py --seed /seed/seed.json --admin admin --from-legacy 2>&1 | Select-Object -Last 8)",
+      "PowerShell(Test-Path \"$env:USERPROFILE\\\\tsmtest\\\\venv\\\\Scripts\\\\python.exe\")"
     ]
   }
 }

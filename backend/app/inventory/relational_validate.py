@@ -18,6 +18,13 @@ deve fermare niente: l'inventario reale è pieno di caselle scritte a mano, e
 rifiutarle vorrebbe dire perdere il dato invece di correggerlo. Serve a sapere
 che quel campo, per quella riga, non risponderà a una query.
 
+⚠ Il controllo che nessun altro può fare
+----------------------------------------
+Le colonne derivate (`garanzia_date`, `supporto_date`) non tornano nel documento,
+quindi l'invariante del giro completo **non le guarda**: una data derivata
+sbagliata lascia il documento identico e il digest uguale. `derived_mismatch` è
+l'unico posto in cui quella differenza si vede, e per questo è un `ERROR`.
+
 ⚠ Perché i codici di dispositivo duplicati NON sono un errore
 -------------------------------------------------------------
 Nella struttura (siti, sale, rack) un codice ripetuto è un errore: l'interfaccia
@@ -41,6 +48,7 @@ from typing import Any, Iterable
 
 from app.identity.model import is_uid
 from app.inventory.relational import (
+    DERIVED,
     DEVICE_STATES,
     DEVICE_TYPES,
     FIELD_MAP,
@@ -63,6 +71,7 @@ MALFORMED_ROW = "malformed_row"
 EXTRA_SHADOWS_COLUMN = "extra_shadows_column"
 PHOTO_NOT_FOUND = "photo_not_found"
 MISSING_SCHEMA_VERSION = "missing_schema_version"
+DERIVED_MISMATCH = "derived_mismatch"
 
 # --- avvisi: rappresentato, ma non interrogabile o fuori vocabolario ---
 CARRIED_VERBATIM = "carried_verbatim"
@@ -242,20 +251,37 @@ def validate_model(model: RelationalModel, *,
                         f"device.stato={device.stato!r} fuori dal vocabolario noto "
                         f"({', '.join(DEVICE_STATES)})",
                         field="stato"))
-        for column in ("garanzia", "supporto"):
-            value = getattr(device, column)
-            if value in (None, ""):
-                continue
-            # ⚠ Si usa il parser dello SCANNER delle scadenze, non un secondo
-            # controllo scritto qui: così l'avviso significa esattamente «il worker
-            # ignorerà questa data» (§8.41). Due idee di «data valida» in due
-            # moduli divergono, e divergerebbero proprio sui casi limite.
-            from app.notifications.expiry import parse_expiry
-            if parse_expiry(value) is None:
+        # Le colonne derivate si controllano leggendo `DERIVED`, non ripetendo qui
+        # l'elenco `("garanzia", "supporto")`: due elenchi divergono, e questo è il
+        # posto dove la divergenza non si vedrebbe.
+        for name, source, derive in DERIVED.get("device", ()):
+            value = getattr(device, source)
+            stored = getattr(device, name)
+            expected = derive(value)
+
+            if stored != expected:
+                # ⚠ L'UNICO controllo che può accorgersene.
+                #
+                # Una colonna derivata sbagliata lascia il documento identico e il
+                # digest uguale — non torna nel documento, quindi l'invariante del
+                # giro completo (§8.42) non la guarda nemmeno. Se questa riga non
+                # ci fosse, una `garanzia_date` scritta male sarebbe invisibile
+                # fino al giorno in cui un promemoria arriva alla data sbagliata.
+                add(Finding(DERIVED_MISMATCH, ERROR, "device", device.uid,
+                            f"device.{name}={stored!r} non corrisponde "
+                            f"all'interpretazione di {source}={value!r} "
+                            f"({expected!r}). La colonna derivata è per interrogare, "
+                            "non una seconda verità: se divergono, quella di testo "
+                            "è quella vera.",
+                            field=name))
+
+            if value not in (None, "") and expected is None:
+                # Si usa il parser dello SCANNER delle scadenze (§8.41), quindi
+                # l'avviso significa esattamente «il worker ignorerà questa data».
                 add(Finding(INVALID_DATE, WARNING, "device", device.uid,
-                            f"device.{column}={value!r} non è una data "
+                            f"device.{source}={value!r} non è una data "
                             "`YYYY-MM-DD`: lo scanner delle scadenze la ignorerà",
-                            field=column))
+                            field=source))
 
     return found
 

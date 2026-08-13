@@ -9,8 +9,11 @@ Due cose che questa suite deve dimostrare più delle altre:
   1. le colonne SQL e i campi delle dataclass coincidono — due elenchi in due file
      divergono, se nessuno li confronta;
   2. `GET` e `PUT` non sono cambiati: dopo un salvataggio le tabelle normalizzate
-     restano VUOTE. È l'affermazione centrale del commit, e l'unico modo di
-     provarla è provare a violarla.
+     restano VUOTE. È l'affermazione centrale, e l'unico modo di provarla è provare
+     a violarla.
+
+Qui si guardano la FORMA e i VINCOLI. Il popolamento, la rilettura e il confronto
+dei digest — la fase 2B — stanno in `test_projection_pg.py`.
 """
 from __future__ import annotations
 
@@ -57,7 +60,7 @@ def db(engine):
         # L'ordine è imposto dalle chiavi esterne; `CASCADE` fa il resto.
         c.execute(text("TRUNCATE inventory_locations, inventory_manual_entries "
                        "RESTART IDENTITY CASCADE"))
-        c.execute(text("DELETE FROM inventory_state"))
+        c.execute(text("DELETE FROM inventory_projection_state"))
     yield engine
 
 
@@ -160,21 +163,62 @@ def test_the_table_columns_match_the_dataclass_fields(engine, kind):
     }
 
 
+def a_version(engine) -> int:
+    """Una versione vera in testa: `head_version` la referenzia ed è `NOT NULL`.
+
+    Una riga di stato senza versione o senza digest non significherebbe niente —
+    «la proiezione rispecchia... boh» — e l'assenza della RIGA è già il modo di dire
+    «non rispecchia nulla». La terza via è impossibile per costruzione (0011), e
+    questi test devono quindi partire da una versione che esiste davvero.
+    """
+    with engine.begin() as c:
+        c.execute(text("TRUNCATE inventory_head, inventory_versions "
+                       "RESTART IDENTITY CASCADE"))
+    with engine.begin() as c:
+        return InventoryRepository(c).bootstrap(
+            document(), Actor(username="capo", role="admin")).version
+
+
+def insert_state(conn, version: int, *, id_value: str = "TRUE") -> None:
+    conn.execute(text(f"""
+        INSERT INTO inventory_projection_state (id, head_version, head_sha256)
+        VALUES ({id_value}, :v, repeat('f', 64))
+    """), {"v": version})
+
+
 def test_the_state_table_holds_at_most_one_row(db, engine):
     """Due stati di radice sarebbero due risposte alla domanda «quale versione
     rispecchiano le tabelle»."""
+    version = a_version(engine)
     with engine.begin() as c:
-        c.execute(text("INSERT INTO inventory_state (id) VALUES (TRUE)"))
+        insert_state(c, version)
     with engine.connect() as c:
         with pytest.raises(Exception) as err:
-            c.execute(text("INSERT INTO inventory_state (id) VALUES (FALSE)"))
+            insert_state(c, version, id_value="FALSE")
         c.rollback()
-    assert "ck_state_singleton" in str(err.value)
+    assert "ck_projection_state_singleton" in str(err.value)
     with engine.connect() as c:
         with pytest.raises(Exception) as err:
-            c.execute(text("INSERT INTO inventory_state (id) VALUES (TRUE)"))
+            insert_state(c, version)
         c.rollback()
-    assert "inventory_state_pkey" in str(err.value)
+    assert "inventory_projection_state_pkey" in str(err.value)
+
+
+@pytest.mark.parametrize("column", ["head_version", "head_sha256"])
+def test_a_half_written_state_row_is_impossible(db, engine, column):
+    """Una riga che dichiara di rispecchiare una versione senza dire quale, oppure
+    senza dire che cosa si è verificato, sarebbe uno stato che nessuno saprebbe
+    interpretare."""
+    version = a_version(engine)
+    values = {"head_version": version, "head_sha256": "f" * 64}
+    values[column] = None
+    with engine.connect() as c:
+        with pytest.raises(Exception) as err:
+            c.execute(text("INSERT INTO inventory_projection_state "
+                           "(id, head_version, head_sha256) "
+                           "VALUES (TRUE, :head_version, :head_sha256)"), values)
+        c.rollback()
+    assert column in str(err.value) and "null" in str(err.value).lower()
 
 
 def test_the_projection_starts_out_mirroring_nothing(db, engine):
@@ -182,7 +226,7 @@ def test_the_projection_starts_out_mirroring_nothing(db, engine):
     versione»: è lo stato in cui la migrazione lascia le tabelle, e la fase 2B è ciò
     che lo cambierà."""
     with engine.begin() as c:
-        assert c.execute(text("SELECT count(*) FROM inventory_state")).scalar_one() == 0
+        assert c.execute(text("SELECT count(*) FROM inventory_projection_state")).scalar_one() == 0
         for table in TABLE.values():
             assert c.execute(text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
 
@@ -190,20 +234,20 @@ def test_the_projection_starts_out_mirroring_nothing(db, engine):
 def test_truncating_the_versions_also_clears_the_projection_state(db, engine):
     """⚠ Conseguenza voluta della chiave esterna, trovata da un test.
 
-    `inventory_state.head_version` referenzia `inventory_versions`, quindi un
+    `inventory_projection_state.head_version` referenzia `inventory_versions`, quindi un
     `TRUNCATE inventory_versions CASCADE` porta via anche lo stato. È coerente con il
     significato — senza versioni non c'è niente da rispecchiare — ed è la ragione per
     cui la migrazione NON semina una riga: la si ritroverebbe misteriosamente
     sparita dopo qualunque ripulitura.
     """
+    version = a_version(engine)
     with engine.begin() as c:
-        c.execute(text("INSERT INTO inventory_state (id, has_manual) "
-                       "VALUES (TRUE, FALSE)"))
+        insert_state(c, version)
     with engine.begin() as c:
         c.execute(text("TRUNCATE inventory_head, inventory_versions "
                        "RESTART IDENTITY CASCADE"))
     with engine.begin() as c:
-        assert c.execute(text("SELECT count(*) FROM inventory_state")).scalar_one() == 0
+        assert c.execute(text("SELECT count(*) FROM inventory_projection_state")).scalar_one() == 0
 
 
 # ==================================================================
@@ -369,6 +413,66 @@ def test_a_negative_ordinal_is_refused(db, engine):
 
 
 # ==================================================================
+# 3-bis. le colonne data DERIVATE (0011)
+# ==================================================================
+
+@pytest.mark.parametrize("column,source", [("garanzia_date", "garanzia"),
+                                           ("supporto_date", "supporto")])
+def test_the_derived_date_columns_are_dates_and_the_text_stays_text(engine,
+                                                                   column, source):
+    """Il testo resta testo, e la data interpretata gli sta accanto.
+
+    Cambiare il tipo di `garanzia` avrebbe costretto a scartare «in attesa» e le
+    date malformate, cioè a perdere il dato per farlo entrare in un tipo (§8.42).
+    """
+    with engine.begin() as c:
+        types = {r[0]: r[1] for r in c.execute(text("""
+            SELECT column_name, data_type FROM information_schema.columns
+             WHERE table_name = 'inventory_devices'
+        """)).all()}
+    assert types[column] == "date"
+    assert types[source] == "text"
+
+
+@pytest.mark.parametrize("column", ["garanzia_date", "supporto_date"])
+def test_a_derived_date_cannot_survive_its_text(db, engine, column):
+    """Il solo `CHECK` che si può scrivere senza reimplementare il parser in SQL.
+
+    Non dice QUALE data debba essere — quello lo dice il parser dello scanner
+    (§8.41), e un'espressione SQL equivalente sarebbe una seconda idea di «data
+    valida» destinata a divergere. Esclude però la deriva più grossa: la colonna
+    derivata che sopravvive alla cancellazione dell'originale.
+    """
+    source = column.removesuffix("_date")
+    with engine.begin() as c:
+        insert_scenario(c)
+        c.execute(text(f"INSERT INTO inventory_devices (uid, rack_uid, code, name, "
+                       f"ordinal, {source}, {column}) "
+                       f"VALUES (:u, :r, 'srv', 'srv', 0, '2027-03-14', "
+                       f"'2027-03-14')"), {"u": DEV_A, "r": RACK_A})
+    with engine.connect() as c:
+        with pytest.raises(Exception) as err:
+            c.execute(text(f"UPDATE inventory_devices SET {source} = NULL "
+                           f"WHERE uid = :u"), {"u": DEV_A})
+        c.rollback()
+    assert f"ck_device_{column}_needs_text" in str(err.value)
+
+
+@pytest.mark.parametrize("column", ["garanzia_date", "supporto_date"])
+def test_the_expiry_query_has_a_partial_index(engine, column):
+    """La domanda è sempre «quali scadenze cadono fra due date», che implica
+    `IS NOT NULL`: nel seed reale la maggior parte dei dispositivi non ha date, e
+    indicizzarne i NULL sarebbe indice sprecato."""
+    with engine.begin() as c:
+        definition = c.execute(text("""
+            SELECT indexdef FROM pg_indexes
+             WHERE tablename = 'inventory_devices' AND indexname = :n
+        """), {"n": f"ix_device_{column}"}).scalar_one()
+    assert column in definition
+    assert "WHERE" in definition and "NOT NULL" in definition
+
+
+# ==================================================================
 # 4. gerarchia e foto
 # ==================================================================
 
@@ -430,7 +534,7 @@ def test_the_current_photo_also_protects_the_bytes(db, engine):
 # ==================================================================
 
 @pytest.mark.parametrize("role", ["tsm_api", "tsm_worker"])
-@pytest.mark.parametrize("table", sorted(set(TABLE.values()) | {"inventory_state"}))
+@pytest.mark.parametrize("table", sorted(set(TABLE.values()) | {"inventory_projection_state"}))
 def test_no_runtime_role_can_write_the_projection(engine, role, table):
     """Le tabelle esistono e nessuno le scrive: la sincronizzazione è la fase 2C, ed
     è quella migrazione a dover concedere i privilegi. Concederli adesso vorrebbe
@@ -449,12 +553,13 @@ def test_no_runtime_role_can_write_the_projection(engine, role, table):
 # ==================================================================
 
 def test_a_real_save_does_not_touch_the_projection(db, engine):
-    """⚠ L'affermazione centrale di questo commit, provata provando a violarla.
+    """⚠ L'affermazione centrale, provata provando a violarla.
 
-    La fase 2A aggiunge uno schema e una mappa. Se un salvataggio popolasse le
-    tabelle, il commit avrebbe cambiato il comportamento di `PUT` — e lo avrebbe
-    fatto senza la transazione unica, senza i riferimenti alle foto e senza il
-    confronto dei digest che la fase 2B pretende prima di fidarsi.
+    Le fasi 2A e 2B aggiungono uno schema, una mappa e un comando esplicito che
+    popola. Se un SALVATAGGIO popolasse le tabelle, il comportamento di `PUT`
+    sarebbe cambiato — e senza la transazione unica, senza i riferimenti alle foto e
+    senza il confronto dei digest. La sincronizzazione al salvataggio è la fase 2C, e
+    fino a quel commit questo test deve restare verde.
     """
     with engine.begin() as c:
         c.execute(text("TRUNCATE inventory_head, inventory_versions "
@@ -475,7 +580,7 @@ def test_a_real_save_does_not_touch_the_projection(db, engine):
         for table in TABLE.values():
             assert c.execute(text(f"SELECT count(*) FROM {table}")).scalar_one() == 0, table
         # E nessuno stato di radice: la proiezione non rispecchia nessuna versione.
-        assert c.execute(text("SELECT count(*) FROM inventory_state")).scalar_one() == 0
+        assert c.execute(text("SELECT count(*) FROM inventory_projection_state")).scalar_one() == 0
 
 
 def test_the_mapper_round_trips_the_document_stored_in_the_database(db, engine):

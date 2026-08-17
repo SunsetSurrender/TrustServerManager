@@ -141,7 +141,7 @@ def main() -> int:
 
             new_password = args.new_password or (args.password + "-cambiata")
             page.get_by_placeholder("password attuale").fill(args.password)
-            page.get_by_placeholder("nuova password (min. 10 caratteri)").fill(new_password)
+            page.get_by_placeholder("nuova password (min. 15 caratteri)").fill(new_password)
             forced.click()
             page.wait_for_timeout(3000)
 

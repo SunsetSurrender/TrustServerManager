@@ -20,7 +20,6 @@ Riferimento: BACKEND-PLAN.md §8.30.
 """
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,11 +27,15 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.auth.audit import record_auth_event
+from app.auth.passwords import (
+    check_policy,
+    generate_temporary_password,
+    hash_password,
+)
 from app.auth.service import (
     ROLES,
     AuthError,
     count_active_admins,
-    hash_password,
     revoke_all_sessions,
 )
 
@@ -41,10 +44,6 @@ USER_UPDATED = "users.updated"
 USER_DISABLED = "users.disabled"
 USER_ENABLED = "users.enabled"
 USER_PASSWORD_RESET = "users.password_reset"
-
-#: Lunghezza della password provvisoria generata. Non viene mai registrata: torna
-#: una volta sola nella risposta all'amministratore che l'ha chiesta.
-TEMP_PASSWORD_BYTES = 12
 
 PROFILE_FIELDS = ("nome", "cognome", "telefono", "team")
 
@@ -118,7 +117,14 @@ def get_user(conn: Connection, user_id: Any) -> UserRow:
 
 
 def _generate_temp_password() -> str:
-    return secrets.token_urlsafe(TEMP_PASSWORD_BYTES)
+    """Password provvisoria. La generazione vive in `app.auth.passwords`.
+
+    Non è un rinvio inutile: la lunghezza di una provvisoria e la lunghezza minima
+    di una password sono la stessa decisione vista da due lati, e tenerle in due
+    file le fa scivolare. Prima erano 12 byte scelti qui — 96 bit, sotto il minimo
+    di 128 — proprio perché questo numero non stava accanto alla politica.
+    """
+    return generate_temporary_password()
 
 
 def create_user(conn: Connection, *, username: str, role: str, actor,
@@ -148,7 +154,11 @@ def create_user(conn: Connection, *, username: str, role: str, actor,
             + (" ed è disattivata: riattivarla invece di ricrearla"
                if existing[1] is not None else ""))
 
-    temp = password or _generate_temp_password()
+    # La politica si applica anche alla provvisoria GENERATA, non solo a una
+    # fornita: costa niente e lega le due cose che devono restare d'accordo. Con lo
+    # `username` in mano si applica anche la regola che vieta la password uguale
+    # all'utenza, che nessun file di lista può contenere.
+    temp = check_policy(password or _generate_temp_password(), username=username)
     row = conn.execute(text("""
         INSERT INTO users (username, role, password_hash, must_change_pw,
                            nome, cognome, telefono, team)

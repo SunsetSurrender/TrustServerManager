@@ -795,5 +795,241 @@ check("nessuno riscrive il digest di una versione già registrata",
       f"{digest_updates}")
 
 
+# ==================================================================
+# 13. password e Argon2id (§8.43)
+# ==================================================================
+#
+#     Le password sono l'unico fattore di autenticazione: la loro politica e i
+#     parametri di Argon2 sono dichiarazioni, e le dichiarazioni si controllano
+#     leggendo il codice.
+#
+# Ciò che i test non possono provare, e che sta qui, è il NEGATIVO: che nessun
+# altro punto costruisca un hasher con parametri propri, che la lista non venga
+# consultata all'accesso, che non ricompaia un numero di lunghezza duplicato in
+# un altro file. Sono tutte cose che un test verifica solo dove guarda, mentre
+# qui si guarda ovunque.
+
+pw_src = code_only(ROOT / "backend" / "app" / "auth" / "passwords.py")
+pw_path = ROOT / "backend" / "app" / "auth" / "passwords.py"
+service_src = code_only(ROOT / "backend" / "app" / "auth" / "service.py")
+
+check("Argon2id è scelto esplicitamente, non per default",
+      "Type.ID" in pw_src and "type=ARGON2_TYPE" in pw_src,
+      "un default di libreria cambia quando cambiano le raccomandazioni, e un "
+      "aggiornamento di dipendenza non deve poter spostare la sicurezza")
+check("i parametri di Argon2 sono fissati nel codice",
+      all(f"ARGON2_{n}" in pw_src for n in
+          ("MEMORY_COST", "TIME_COST", "PARALLELISM", "HASH_LEN", "SALT_LEN"))
+      and "memory_cost=ARGON2_MEMORY_COST" in pw_src,
+      "pinnati, non ereditati")
+check("i parametri superano il minimo richiesto (19456 KiB / t=2 / p=1)",
+      "ARGON2_MIN_MEMORY_COST = 19456" in pw_src
+      and "ARGON2_MIN_TIME_COST = 2" in pw_src
+      and "ARGON2_MIN_PARALLELISM = 1" in pw_src,
+      "le soglie sono costanti SEPARATE: se il test confrontasse i valori con se "
+      "stessi, abbassarli resterebbe verde")
+
+hashers = [p.name for p in app_sources
+           if p.name != "passwords.py" and "PasswordHasher(" in code_only(p)]
+check("un solo posto costruisce l'hasher delle password",
+      not hashers,
+      f"un secondo hasher significa due configurazioni, e la seconda è quella che "
+      f"nessuno aggiorna: {hashers}")
+
+check("il sale non viene scelto a mano",
+      "salt=" not in pw_src and "token_bytes" not in pw_src,
+      "lo genera la libreria per ogni hash e lo scrive dentro l'hash codificato: "
+      "un sale globale o derivato dall'utenza renderebbe confrontabili fra loro gli "
+      "hash di utenti diversi, che è ciò che il sale serve a impedire")
+check("nessun pepper e nessun segreto di ambiente entra nel calcolo",
+      "pepper" not in pw_src.lower() and "environ" not in pw_src
+      and "getenv" not in pw_src,
+      "un segreto operativo senza procedura di rotazione è un debito: il giorno in "
+      "cui va cambiato, ogni hash esistente diventa inservibile (§8.43)")
+
+hash_fn = function_source(pw_path, "hash_password")
+verify_fn = function_source(pw_path, "verify_password")
+check("la normalizzazione avviene DENTRO hash e verifica",
+      "normalise(plain)" in hash_fn and "normalise(plain)" in verify_fn,
+      "se fosse compito del chiamante, basterebbe un punto che se ne dimentica per "
+      "rendere una password impossibile da riusare su un'altra piattaforma — e il "
+      "difetto sarebbe intermittente e invisibile nei test ASCII")
+# Dentro le funzioni che toccano la password, NON nel modulo: `blocklist()` fa
+# `riga.strip()` sulle righe del FILE della lista, che è un'altra cosa. Cercare
+# `.strip()` nel modulo intero è di nuovo il proxy che risponde alla domanda
+# sbagliata — la stessa trappola documentata in `code_only`.
+normalise_fn = function_source(pw_path, "normalise")
+check("la regola non ripulisce la password",
+      all(".strip()" not in fn and ".casefold()" not in fn
+          for fn in (normalise_fn, hash_fn, verify_fn)),
+      "uno spazio ai bordi può far parte della password: toglierlo vorrebbe dire "
+      "accettare all'accesso una password diversa da quella impostata. Il casefold "
+      "esiste SOLO nel confronto con la lista")
+check("nessuna regola di composizione",
+      not re.search(r"isupper|islower|isdigit|[Aa]-[Zz].*0-9", pw_src),
+      "maiuscole e cifre obbligatorie producono `Estate2026!`: il lavoro lo fanno "
+      "la lunghezza minima e la lista")
+check("nessuna scadenza periodica delle password",
+      not re.search(r"expiry|expires_days|max_age|scadenza", pw_src, re.I),
+      "un cambio si impone dopo un evento — reset, provvisoria, sospetto di "
+      "compromissione — non per calendario")
+
+# --- la lista locale ---
+blocklist_path = ROOT / "backend" / "app" / "auth" / "password-blocklist.txt"
+check("la lista delle password vietate è un file locale",
+      blocklist_path.is_file(),
+      "in rete chiusa non c'è nessun servizio da interrogare")
+check("la lista viaggia con l'immagine",
+      blocklist_path.parent.name == "auth"
+      and "COPY --chown=root:root app ./app" in
+          (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8-sig"),
+      "sta dentro `app/`, quindi la COPY che c'è già la porta: un percorso "
+      "configurabile sarebbe un percorso che in produzione può puntare a un file "
+      "assente, cioè un controllo che si disattiva in silenzio")
+if blocklist_path.is_file():
+    voci = [r.strip() for r in blocklist_path.read_text(encoding="utf-8").splitlines()
+            if r.strip() and not r.strip().startswith("#")]
+    check("la lista ha abbastanza voci lunghe da essere utile",
+          len([v for v in voci if len(v) >= 15]) >= 150,
+          f"con un minimo di 15 caratteri le classiche corte cadono già per "
+          f"lunghezza: il lavoro lo fanno le voci lunghe, e ce ne sono "
+          f"{len([v for v in voci if len(v) >= 15])}")
+    check("la lista non ha voci duplicate dopo il casefold",
+          len({v.casefold() for v in voci}) == len(voci),
+          "una riga che non può mai corrispondere sembra proteggere e non protegge")
+
+check("il confronto con la lista è di uguaglianza, non di sottostringa",
+      " in blocklist()" in pw_src and "for voce in blocklist" not in pw_src,
+      "cercare le voci DENTRO la password rifiuterebbe «il gatto dorme sul tetto» "
+      "perché contiene «gatto»: colpirebbe le passphrase che la politica incoraggia")
+
+# --- ordine dei controlli nel cambio password ---
+change_fn = function_source(ROOT / "backend" / "app" / "auth" / "service.py",
+                            "change_own_password")
+check("il cambio verifica la password ATTUALE prima di giudicare la nuova",
+      change_fn.index("verify_password") < change_fn.index("check_policy"),
+      "al contrario, chi possiede una sessione ma non la password potrebbe sondare "
+      "la politica — e la lista — leggendo i codici di errore")
+check("il cambio applica la politica prima di scrivere",
+      change_fn.index("check_policy") < change_fn.index("UPDATE users"),
+      "una password rifiutata non deve lasciare nessuno stato")
+check("il cambio rifiuta la password identica a quella attuale",
+      "PASSWORD_UNCHANGED" in change_fn,
+      "rimettere la provvisoria azzererebbe `must_change_pw` lasciando in uso il "
+      "valore che l'amministratore ha comunicato a voce")
+check("il cambio revoca tutte le sessioni",
+      "revoke_all_sessions" in change_fn)
+
+# --- l'accesso non consulta la lista ---
+login_fn = function_source(ROOT / "backend" / "app" / "auth" / "service.py", "login")
+check("l'accesso NON consulta la lista né la politica",
+      "is_blocklisted" not in login_fn and "check_policy" not in login_fn,
+      "risponderebbe «password_blocklisted» a chi prova, dicendogli due cose: che "
+      "quel valore è in lista e che l'utenza esiste. E chi ha una password di prima "
+      "della politica resterebbe bloccato fuori, senza via d'uscita")
+check("la riscrittura dell'hash avviene solo dopo una verifica riuscita",
+      "needs_rehash" in login_fn
+      and login_fn.index("raise InvalidCredentials") < login_fn.index("needs_rehash"),
+      "è l'unico momento in cui la password in chiaro esiste insieme a un hash "
+      "verificato, e farlo prima significherebbe lavorare per chi prova a caso")
+check("la riscrittura sta nella transazione della richiesta",
+      "_out_of_band" not in login_fn.split("needs_rehash")[1],
+      "o l'accesso riesce e l'hash è aggiornato, o non è cambiato niente: non "
+      "esiste lo stato «hash nuovo, sessione mancante»")
+
+# --- provvisorie ---
+users_src = code_only(ROOT / "backend" / "app" / "auth" / "users.py")
+check("le password provvisorie vengono da un CSPRNG con almeno 128 bit",
+      "TEMP_PASSWORD_BYTES = 24" in pw_src and "secrets.token_urlsafe" in pw_src,
+      "24 byte = 192 bit. `random` è deterministico e non va mai vicino a una "
+      "credenziale")
+check("la generazione della provvisoria vive accanto alla politica",
+      "TEMP_PASSWORD_BYTES" not in users_src
+      and "generate_temporary_password" in users_src,
+      "erano 12 byte — 96 bit, sotto il minimo — proprio perché quel numero stava "
+      "lontano dalla lunghezza minima delle password")
+check("la provvisoria generata passa dalla politica",
+      "check_policy(temp)" in pw_src,
+      "lega per costruzione quanto è lunga una provvisoria e quanto deve essere "
+      "lunga una password")
+
+def class_source(path, name):
+    """Il corpo di UNA classe, senza docstring. Come `function_source`.
+
+    Serve per i modelli di ingresso: cercare `password` nel file di `api/users.py`
+    trova `temporaryPassword` nella risposta e `reset-password` nel percorso di una
+    rotta, che sono entrambi corretti. La domanda è un'altra — se un modello di
+    INGRESSO abbia un campo password — e si può porre solo sulla classe.
+    """
+    import ast
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            body = list(node.body)
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                del body[0]
+            return "\n".join(ast.unparse(stmt) for stmt in body)
+    return ""
+
+
+users_api_path = ROOT / "backend" / "app" / "api" / "users.py"
+ingressi = {n: class_source(users_api_path, n) for n in ("CreateIn", "UpdateIn")}
+check("le rotte non accettano una password scelta dall'amministratore",
+      all(src and "password" not in src.lower() for src in ingressi.values()),
+      "la genera il server: nessun campo del contratto può indebolirla")
+
+# --- il numero della lunghezza minima esiste in un posto solo ---
+min_length = int(re.search(r"^MIN_LENGTH = (\d+)", pw_src, re.M).group(1))
+check("la lunghezza minima è 15 code point",
+      min_length == 15)
+# Sulla CLASSE, non sul file: `LoginIn` usa `min_length=1` sullo username, che è
+# un limite di dimensione e non una regola di politica.
+password_in = class_source(ROOT / "backend" / "app" / "api" / "auth.py", "PasswordIn")
+check("la rotta non duplica la lunghezza minima",
+      bool(password_in) and "min_length" not in password_in
+      and "max_length" in password_in,
+      "pydantic risponderebbe con la propria forma invece del codice stabile, e i "
+      "due numeri divergerebbero — il 10 rimasto nella rotta ne era la prova. "
+      "`max_length` resta: è un limite di dimensione su un input non attendibile, "
+      "molto sopra il massimo consentito, perché a rifiutare deve essere la politica")
+frontend = (ROOT / "handoff" / "Sala Server v2.dc.html").read_text(encoding="utf-8")
+check("il suggerimento del frontend coincide con la politica",
+      f"min. {min_length} caratteri" in frontend
+      and f"nuova.length < {min_length}" in frontend
+      and "min. 10 caratteri" not in frontend and "(min 8)" not in frontend,
+      f"un numero diverso nell'interfaccia fa vedere all'utente un errore che il "
+      f"client non aveva previsto (atteso {min_length})")
+
+# --- che cosa si conserva ---
+migrations = "\n".join(
+    p.read_text(encoding="utf-8-sig")
+    for p in sorted((ROOT / "backend" / "migrations" / "versions").glob("*.py")))
+colonne_sospette = re.findall(
+    r'Column\(\s*"((?:[a-z_]*(?:salt|pepper|plain)[a-z_]*|password(?!_hash)[a-z_]*))"',
+    migrations)
+check("nel database c'è solo password_hash",
+      not colonne_sospette,
+      f"il sale sta dentro l'hash codificato e non è un segreto: una colonna in più "
+      f"sarebbe un posto dove qualcuno, un giorno, scrive la cosa sbagliata "
+      f"{colonne_sospette}")
+sanitize_src = code_only(ROOT / "backend" / "app" / "audit" / "sanitize.py")
+# Senza le virgolette esterne: `ast.unparse` normalizza i letterali di stringa, e
+# `"password"` nel sorgente riappare come `'password'`. È scritto nella docstring di
+# `code_only` e ci sono cascato comunque.
+check("la ripulitura dell'audit tratta ancora password e hash come sensibili",
+      all(t in sanitize_src for t in ("password", "hash", "argon2")),
+      "un hash in un registro consultabile è attaccabile offline")
+check("il bootstrap valida la password che riceve dall'ambiente",
+      "check_policy" in code_only(ROOT / "backend" / "scripts" / "bootstrap.py"),
+      "è la strada che crea il PRIMO amministratore, e `os.environ` decodifica con "
+      "surrogateescape: un byte non UTF-8 diventa un surrogato spaiato")
+check("il bootstrap non contiene una password predefinita",
+      not re.search(r'(admin|password)\s*=\s*["\'](admin|password)',
+                    code_only(ROOT / "backend" / "scripts" / "bootstrap.py")),
+      "il database di produzione non deve nascere con `admin / admin` (§8.43)")
+
+
 if __name__ == "__main__":
     sys.exit(report())

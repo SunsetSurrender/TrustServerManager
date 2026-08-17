@@ -60,7 +60,7 @@
         <div style="text-align:center; font-size:14.5px; font-weight:700; color:#e6ecf2">Imposta una password personale</div>
         <div style="font-size:12px; color:#8a94a2; line-height:1.5">La password attuale è provvisoria. Fino al cambio, la sessione può fare solo questo.</div>
         <input placeholder="password attuale" type="password" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
-        <input placeholder="nuova password (min. 10 caratteri)" type="password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <input placeholder="nuova password (min. 15 caratteri)" type="password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
         <sc-if value="{{ hasPwMsg }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:12px; color:#ffb020">{{ pwMsg }}</div>
         </sc-if>
@@ -528,7 +528,7 @@
             <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
               <div style="font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">SICUREZZA</div>
                 <input type="password" placeholder="Password attuale" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <input type="password" placeholder="Nuova password (min 8)" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <input type="password" placeholder="Nuova password (min 15)" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
                 <div style="display:flex; gap:8px">
                   <button onClick="{{ savePw }}" style="flex:1; background:var(--accent); color:var(--d0c0f13); border:none; border-radius:6px; padding:7px 0; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.15)">Aggiorna</button>
                   <button onClick="{{ resetPw }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 0; font-size:12px; cursor:pointer; font-family:inherit" style-hover="color:var(--dd7dde4)">Reimposta</button>
@@ -1617,10 +1617,10 @@ class Component extends DCLogic {
         B('Gestione delle utenze (Admin)', 'Dal menu Profilo (avatar con le iniziali) → Utenti e privilegi, un amministratore registra le utenze e assegna a ciascuna il livello di accesso appropriato. Le sezioni riservate (notifiche, registro, utenze) non sono visibili agli altri profili, e il server le rifiuta comunque a chi non è amministratore.')
       ]},
       { id: 'accesso', titolo: 'Accesso e profilo', blocchi: [
-        B('Entrare nell\'applicazione', 'Alla schermata di accesso inserisci la tua utenza e la password. Se un amministratore ha appena creato il tuo account, usa la password provvisoria che ti ha comunicato: al primo ingresso l\'app apre da sola il profilo e ti chiede di sostituirla con una personale (almeno 8 caratteri).'),
+        B('Entrare nell\'applicazione', 'Alla schermata di accesso inserisci la tua utenza e la password. Se un amministratore ha appena creato il tuo account, usa la password provvisoria che ti ha comunicato: al primo ingresso l\'app apre da sola il profilo e ti chiede di sostituirla con una personale (almeno 15 caratteri, anche una frase con spazi).'),
         B('La pagina Profilo', 'Si apre dall\'avatar tondo con le tue iniziali, in fondo alla barra in alto. Contiene i tuoi dati personali (nome, cognome, telefono, team), il cambio password e, per gli amministratori, la gestione delle utenze. È sempre accessibile: non dipende dalla modalità Visualizzazione/Editing.'),
         B('Visualizzazione o Editing', 'Il selettore in alto a sinistra riguarda soltanto i dati delle sale: in Visualizzazione consulti senza rischio di modifiche accidentali, in Editing compaiono i comandi di modifica consentiti dal tuo privilegio. Se la tua utenza è di sola lettura, Editing resta disattivato.'),
-        B('Creare e rimuovere utenze (Admin)', 'Nel Profilo, sezione Utenti e privilegi: scrivi il nome utenza, imposta una password provvisoria (il pulsante Genera ne propone una casuale), scegli il privilegio e premi Aggiungi; l\'app mostra le credenziali da consegnare alla persona. Le utenze con password non ancora cambiata sono segnalate come "pw provvisoria". Il pulsante ✕ elimina un\'utenza previa conferma.')
+        B('Creare e rimuovere utenze (Admin)', 'Nel Profilo, sezione Utenti e privilegi: scrivi il nome utenza, scegli il privilegio e premi Aggiungi. La password provvisoria la genera il SERVER, ed è mostrata una volta sola: va annotata subito e consegnata alla persona, che al primo accesso deve sostituirla con una personale. Le utenze con password non ancora cambiata sono segnalate come "pw provvisoria". Un\'utenza non si cancella: si disattiva, perché il registro delle modifiche continua a riferirsi a chi le ha fatte.')
       ]},
       { id: 'dash', titolo: 'Dashboard', blocchi: [
         B('A cosa serve', 'È la prima schermata: un colpo d\'occhio su tutto il CED. La apri e chiudi con il pulsante "Dashboard" in alto o premendo il tasto D.'),
@@ -1818,8 +1818,14 @@ class Component extends DCLogic {
   async _doChangePassword() {
     const cur = this.state.pwCur || '';
     const nuova = this.state.pwNew || '';
-    if (nuova.length < 10) {
-      this.setState({ pwMsg: 'La nuova password deve avere almeno 10 caratteri.' });
+    // Controllo di CORTESIA, non di sicurezza: risparmia un giro di rete a chi
+    // digita troppo poco. La regola vera è del server (§8.43), che rifiuta con
+    // `password_too_short`, e questo numero non deve poter contraddirlo — se
+    // divergono, vince il server e l'utente vede un errore che qui non era stato
+    // previsto. Nessun controllo di composizione: non li chiede nemmeno il server.
+    if (nuova.length < 15) {
+      this.setState({ pwMsg: 'La nuova password deve avere almeno 15 caratteri. '
+                             + 'Una frase con spazi va benissimo.' });
       return;
     }
     try {

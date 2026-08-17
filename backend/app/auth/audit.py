@@ -29,6 +29,14 @@ LOGIN_BLOCKED = "auth.login.blocked"
 LOGOUT = "auth.logout"
 PASSWORD_CHANGED = "auth.password.changed"
 
+#: L'hash è stato ricalcolato con i parametri Argon2 correnti dopo un accesso
+#: riuscito (§8.43). Si registra perché è l'unico modo che ha chi opera di sapere
+#: che la migrazione degli hash sta procedendo, e quando è finita: non ci sono
+#: query che possano dirlo senza leggere i parametri dentro gli hash, cosa che
+#: nessuna rotta fa e non deve fare. Il dettaglio è VUOTO di proposito — né hash,
+#: né parametri di partenza, che direbbero quanto era debole quell'utenza.
+PASSWORD_REHASHED = "auth.password.rehashed"
+
 #: L'utenza tentata arriva dalla richiesta: va limitata come qualsiasi input non
 #: attendibile prima di finire in una colonna.
 MAX_USERNAME_AUDIT_CHARS = 200

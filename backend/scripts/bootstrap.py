@@ -13,15 +13,20 @@ Uso:
     python scripts/bootstrap.py --seed <file> --admin <utente> --from-legacy
 
 La password del primo amministratore si legge da TSM_BOOTSTRAP_PASSWORD, oppure
-viene generata e stampata una volta sola. In entrambi i casi è provvisoria:
-`must_change_pw` è impostato e il primo accesso obbliga a cambiarla (§8.1).
+viene generata da un CSPRNG e stampata una volta sola. In entrambi i casi è
+provvisoria: `must_change_pw` è impostato e il primo accesso obbliga a cambiarla
+(§8.1).
+
+In entrambi i casi deve rispettare la politica delle password (§8.43). Una
+generata la rispetta per costruzione; una fornita dall'ambiente viene VALIDATA, e
+un valore debole fa fallire il bootstrap con un messaggio chiaro invece di creare
+il primo amministratore — quello che conta più di tutti — con `admin`.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import secrets
 import sys
 from pathlib import Path
 
@@ -29,6 +34,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import create_engine, text          # noqa: E402
 
+from app.auth.passwords import (                                # noqa: E402
+    PasswordRejected,
+    check_policy,
+    generate_temporary_password,
+)
 from app.auth.service import count_active_admins, create_user   # noqa: E402
 from app.config import get_settings                             # noqa: E402
 from app.inventory import (                                     # noqa: E402
@@ -51,8 +61,25 @@ def main() -> int:
 
     doc = json.loads(Path(args.seed).read_text(encoding="utf-8"))
 
-    password = os.environ.get("TSM_BOOTSTRAP_PASSWORD") or secrets.token_urlsafe(18)
-    generated = "TSM_BOOTSTRAP_PASSWORD" not in os.environ
+    fornita = os.environ.get("TSM_BOOTSTRAP_PASSWORD")
+    generated = not fornita
+    password = fornita or generate_temporary_password()
+
+    # Si valida PRIMA di aprire la connessione. Un bootstrap che apre la
+    # transazione, crea l'inventario e poi scopre che la password non va bene
+    # lascerebbe l'operatore a chiedersi che cosa è rimasto scritto; qui non è
+    # ancora stato toccato niente.
+    try:
+        check_policy(password, username=args.admin)
+    except PasswordRejected as exc:
+        # Si stampa il CODICE e il motivo, mai il valore: questo output finisce
+        # nella cronologia della shell e nei log di chi installa.
+        print(f"password di bootstrap non accettabile [{exc.code}]: {exc.message}",
+              file=sys.stderr)
+        if not generated:                                   # pragma: no cover
+            print("  → correggere TSM_BOOTSTRAP_PASSWORD, oppure non impostarla "
+                  "affatto e lasciare che venga generata", file=sys.stderr)
+        return 2
 
     engine = create_engine(get_settings().sqlalchemy_url(), future=True)
     try:

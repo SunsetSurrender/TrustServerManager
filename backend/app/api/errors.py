@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from app.auth.passwords import PasswordRejected
 from app.auth.service import (
     AuthError,
     InvalidCredentials,
@@ -91,6 +92,21 @@ def http_error_for(exc: Exception) -> HTTPException:
                              detail={"code": exc.code,
                                      "message": "troppi tentativi di accesso, riprovare più tardi"},
                              headers=headers)
+
+    # --- 422: la password inviata non rispetta la politica (§8.43) ---
+    #
+    # Prima di `AuthError` e con uno stato diverso, perché è una domanda diversa:
+    # non «non ti è permesso» (403) ma «questo valore non è accettabile». Il client
+    # deve poter distinguere «rifà il login» da «scegli un'altra password».
+    #
+    # `exc.message` esce così com'è, ed è sicuro perché per costruzione non contiene
+    # la password rifiutata: nomina il limite (quanti caratteri servono), mai il
+    # valore. È l'unica classe di errore in cui il messaggio del dominio raggiunge
+    # il client, e il motivo per cui `PasswordRejected` non lo costruisce dal valore.
+    if isinstance(exc, PasswordRejected):
+        return HTTPException(422,
+                             detail={"code": exc.code, "message": exc.message},
+                             headers=NO_STORE)
 
     # --- 403 ---
     if isinstance(exc, PasswordChangeRequired):

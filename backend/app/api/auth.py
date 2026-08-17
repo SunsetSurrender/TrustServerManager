@@ -48,8 +48,23 @@ class SessionOut(BaseModel):
 
 
 class PasswordIn(BaseModel):
-    currentPassword: str = Field(min_length=1, max_length=1024)
-    newPassword: str = Field(min_length=10, max_length=1024)
+    """Nessun `min_length` qui, e non è una svista.
+
+    La lunghezza minima è una regola di POLITICA, e vive in `app.auth.passwords`
+    con tutte le altre. Duplicarla qui darebbe due comportamenti per lo stesso
+    rifiuto: pydantic risponde con la propria forma (`detail` come lista di errori
+    di validazione), mentre la politica risponde con un codice stabile e un
+    messaggio utile — e il client non può spiegare all'utente un errore che arriva
+    in due formati diversi a seconda di quanto è corta la password. Peggio: i due
+    numeri divergerebbero, e il 10 rimasto qui dal contratto precedente ne è la
+    prova.
+
+    `max_length` resta, ed è un'altra cosa: non è politica, è un limite di
+    dimensione su un input non attendibile, molto sopra il massimo consentito (128)
+    perché a rifiutare deve essere la politica, con il suo codice.
+    """
+    currentPassword: str = Field(max_length=1024)
+    newPassword: str = Field(max_length=1024)
 
 
 def _set_session_cookie(response: Response, token: str) -> None:

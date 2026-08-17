@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -24,15 +22,20 @@ from app.auth.audit import (
     LOGIN_SUCCESS,
     LOGOUT,
     PASSWORD_CHANGED,
+    PASSWORD_REHASHED,
     record_auth_event,
+)
+from app.auth.passwords import (
+    PASSWORD_UNCHANGED,
+    PasswordRejected,
+    check_policy,
+    hash_password,
+    needs_rehash,
+    verify_password,
 )
 from app.auth.ratelimit import check_rate_limit, record_attempt
 from app.inventory import Actor
 from app.util import safe_ip
-
-#: Parametri di default di argon2-cffi (argon2id). Non si inventano numeri:
-#: la libreria aggiorna i propri default seguendo le raccomandazioni.
-_hasher = PasswordHasher()
 
 #: Durata della sessione. Il cookie non porta scadenza propria: quella che conta
 #: è nel database, così una revoca ha effetto immediato.
@@ -76,10 +79,12 @@ def _out_of_band_best_effort(fn, what: str) -> None:
 
 
 #: Hash di confronto per le utenze inesistenti. Generato all'avvio con gli stessi
-#: parametri di quelli reali, così la verifica costa lo stesso tempo: è ciò che
-#: rende l'enumerazione per tempo di risposta inutile. Non è una password valida
-#: perché il valore in chiaro non esiste da nessuna parte.
-_DUMMY_HASH = _hasher.hash(secrets.token_urlsafe(32))
+#: parametri di quelli reali — passa da `hash_password`, non da un hasher costruito
+#: qui, così i parametri restano quelli pinnati anche se cambiano — perciò la
+#: verifica costa lo stesso tempo: è ciò che rende inutile l'enumerazione per tempo
+#: di risposta. Non è una password valida perché il valore in chiaro non esiste da
+#: nessuna parte: viene generato, usato una volta e dimenticato.
+_DUMMY_HASH = hash_password(secrets.token_urlsafe(32))
 
 
 class AuthError(Exception):
@@ -140,17 +145,6 @@ class AuthenticatedUser:
         return Actor(username=self.username, role=self.role, user_id=self.id, ip=ip)
 
 
-def hash_password(plain: str) -> str:
-    return _hasher.hash(plain)
-
-
-def verify_password(stored_hash: str, plain: str) -> bool:
-    try:
-        return _hasher.verify(stored_hash, plain)
-    except (VerifyMismatchError, InvalidHashError, ValueError):
-        return False
-
-
 def _token_hash(token: str) -> str:
     """Nel database va l'hash del token, non il token.
 
@@ -169,9 +163,18 @@ def _now() -> datetime:
 
 def create_user(conn: Connection, username: str, password: str, role: str, *,
                 must_change_pw: bool = True, **profile) -> Any:
-    """Crea un'utenza. Usata dalla CLI di bootstrap e (in seguito) dagli admin."""
+    """Crea un'utenza. Usata dalla CLI di bootstrap e (in seguito) dagli admin.
+
+    La politica si applica anche qui, e non solo sulle rotte HTTP. Questa funzione
+    riceve una password ESPLICITA — dal bootstrap, da `TSM_BOOTSTRAP_PASSWORD`,
+    dai test — ed è quindi l'unico punto in cui una password scelta a mano entra
+    nel sistema senza passare da un cambio. Validarla solo nell'adattatore HTTP
+    lascerebbe scoperta la strada che crea il PRIMO amministratore, cioè quella
+    che conta più di tutte.
+    """
     if role not in ROLES:
         raise ValueError(f"ruolo non valido: {role!r}")
+    password = check_policy(password, username=username)
     row = conn.execute(text("""
         INSERT INTO users (username, role, password_hash, must_change_pw,
                            nome, cognome, telefono, team)
@@ -244,6 +247,27 @@ def login(conn: Connection, username: str, password: str, *,
         # Un solo errore per utenza inesistente, password errata e utenza
         # disabilitata: distinguerli direbbe a chi prova quali utenze esistono.
         raise InvalidCredentials()
+
+    # --- riscrittura dell'hash se i parametri sono invecchiati (§8.43) ---
+    #
+    # Qui, e solo qui, la password in chiaro esiste insieme a un hash verificato:
+    # è l'unico momento in cui si può ricalcolare. Sta DENTRO la transazione della
+    # richiesta, quindi o l'accesso riesce e l'hash è aggiornato, o non è cambiato
+    # niente: non esiste lo stato in cui l'hash è nuovo e la sessione non c'è.
+    #
+    # Per l'utente non cambia nulla — nessun errore, nessun obbligo di cambio,
+    # nessuna latenza percepibile oltre a un secondo calcolo Argon2. Chi ha una
+    # password valida non deve pagare in usabilità il fatto che i parametri di
+    # ieri fossero più deboli di quelli di oggi.
+    if needs_rehash(str(row[3])):
+        conn.execute(text(
+            "UPDATE users SET password_hash = :pw, updated_at = now() WHERE id = :uid"),
+            {"pw": hash_password(password), "uid": row[0]})
+        # Nel registro va il FATTO, non il materiale: né l'hash vecchio, né quello
+        # nuovo, né i parametri di partenza — che direbbero a chi legge il registro
+        # quanto era debole quell'utenza fino a un istante prima.
+        record_auth_event(conn, PASSWORD_REHASHED, username=str(row[1]),
+                          user_id=row[0], role=row[2], ip=ip)
 
     token = secrets.token_urlsafe(TOKEN_BYTES)
     conn.execute(text("""
@@ -327,15 +351,45 @@ def revoke_all_sessions(conn: Connection, user_id: Any) -> int:
 
 def change_own_password(conn: Connection, user_id: Any,
                         current_password: str, new_password: str) -> None:
-    """Cambio password proprio. Azzera `must_change_pw` e revoca le altre
-    sessioni."""
+    """Cambio password proprio. Azzera `must_change_pw` e revoca TUTTE le sessioni.
+
+    Unica strada per cambiare la propria password, sia dopo una provvisoria sia in
+    un cambio ordinario. Non sono due flussi: le regole sono le stesse, e averne
+    due li farebbe divergere: il ramo «provvisoria» è quello che si scrive in
+    fretta, ed è quello dove un controllo si dimentica.
+
+    L'ordine dei controlli è deliberato:
+
+      1. la password ATTUALE, per prima. Senza, chi si impossessa di una sessione
+         aperta — un portatile lasciato sbloccato — cambierebbe la password senza
+         conoscere quella vecchia, e l'accesso diventerebbe suo;
+
+      2. la politica completa sulla nuova;
+
+      3. che non sia identica a quella attuale.
+
+    Rimettere la stessa password non è un cambio. Rifiutarlo conta soprattutto nel
+    caso della provvisoria: senza, `must_change_pw` si azzererebbe lasciando in uso
+    esattamente il valore che l'amministratore ha comunicato a voce, ha scritto in
+    un messaggio, e che quindi conosce anche lui.
+    """
     row = conn.execute(text(
-        "SELECT password_hash FROM users WHERE id = :uid AND disabled_at IS NULL"),
+        "SELECT password_hash, username FROM users "
+        " WHERE id = :uid AND disabled_at IS NULL"),
         {"uid": user_id}).first()
     if row is None or not verify_password(row[0], current_password):
+        # Un solo errore, senza dire se l'utenza esiste, se è disattivata o se è
+        # solo la password a essere sbagliata.
         raise InvalidCredentials("password attuale errata")
-    if not new_password or len(new_password) < 10:
-        raise AuthError("la nuova password deve avere almeno 10 caratteri")
+
+    new_password = check_policy(new_password, username=str(row[1]))
+    if verify_password(row[0], new_password):
+        # Si confronta con l'HASH memorizzato, non con `current_password`: copre
+        # anche il caso in cui le due arrivino in forme Unicode diverse ma siano la
+        # stessa password.
+        raise PasswordRejected(
+            PASSWORD_UNCHANGED,
+            "la nuova password deve essere diversa da quella attuale")
 
     conn.execute(text("""
         UPDATE users SET password_hash = :pw, must_change_pw = FALSE, updated_at = now()

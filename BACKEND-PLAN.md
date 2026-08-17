@@ -3380,6 +3380,355 @@ confronto scritto male — che confronta la cosa sbagliata, o due volte lo stess
 oggetto — sarebbe indistinguibile da un confronto soddisfatto, e tutta la suite
 passerebbe senza dimostrare niente.
 
+### 8.43 Politica delle password e Argon2id
+
+TSM usa la password come **unico fattore** di autenticazione normale. Non c'è un
+secondo fattore, non c'è SSO, e in rete chiusa non ci sarà nemmeno un servizio
+esterno da interrogare. Tutto il peso sta quindi su tre cose: quanto è difficile
+indovinare la password, quanto costa provarne una, e che cosa resta nel database.
+
+La politica vive in **un** modulo, `app/auth/passwords.py`. Prima viveva in tre
+posti e diceva tre cose diverse: il cambio password chiedeva dieci caratteri, la
+creazione da amministratore non chiedeva niente, il bootstrap nemmeno. Una politica
+distribuita vale quanto il suo punto più debole, e il punto più debole era quello
+che crea il **primo amministratore**.
+
+#### Che cosa si chiede a una password
+
+| | |
+|---|---|
+| minimo | **15** code point, misurati dopo la normalizzazione |
+| massimo | **128** code point, **rifiutati** e mai troncati |
+| spazi | ammessi, anche iniziali e finali, e mai rimossi |
+| composizione | **nessun requisito**: né maiuscole, né cifre, né simboli |
+| scadenza periodica | **nessuna** |
+| lista locale | uguaglianza sull'intera password, mai sottostringa |
+
+Le due assenze sono scelte, non dimenticanze.
+
+**Niente regole di composizione.** Obbligare maiuscole, cifre e simboli sposta il
+costo sull'utente e la sicurezza da nessuna parte: produce `Estate2026!` e poi
+`Estate2026!!`. Il lavoro lo fanno la lunghezza minima alta — che rende una
+passphrase la scelta naturale — e la lista dei valori prevedibili.
+
+**Niente scadenza periodica.** Un cambio forzato ogni novanta giorni produce
+`Estate2026!` che diventa `Autunno2026!`, cioè trasforma una password buona in una
+sequenza indovinabile. Il cambio si impone dopo un **evento**: reimpostazione
+amministrativa, password provvisoria, sospetto di compromissione. Sono eventi, non
+date sul calendario.
+
+**Si rifiuta, non si tronca.** Troncare a 128 renderebbe equivalenti due password
+diverse: chi ne digita 200 crederebbe di averne 200, e chiunque ne conoscesse le
+prime 128 entrerebbe. Un rifiuto è visibile e recuperabile.
+
+#### La normalizzazione Unicode, e perché non è del chiamante
+
+Prima di calcolare e prima di verificare, la password passa da **NFC**. La stessa
+funzione, in tutti i punti: impostazione, cambio, sostituzione di una provvisoria,
+verifica all'accesso, confronto con la lista.
+
+Il motivo è un difetto che si vedrebbe solo in produzione e solo su una
+piattaforma: la stessa persona, la stessa tastiera, e un sistema operativo che
+consegna `città` in forma decomposta (`citta` + accento combinante) invece che
+composta. Senza normalizzazione l'accesso viene negato e **niente risulta sbagliato
+da nessuna parte** — non c'è un errore da leggere, non c'è una riga di log che dica
+perché.
+
+Per questo `hash_password` e `verify_password` normalizzano **dentro**, e non
+chiedono al chiamante di farlo: se fosse compito di chi chiama, basterebbe un punto
+che se ne dimentica. Misurato: NFC può anche **accorciare** una password (27 code
+point → 26), quindi la lunghezza si misura una volta sola, dopo la normalizzazione.
+
+Ciò che la normalizzazione **non** fa: non toglie gli spazi ai bordi, non applica
+`casefold`, non rimuove caratteri di controllo, non sostituisce niente. Una password
+è una sequenza di code point scelta dall'utente, non un campo da ripulire — e
+ripulire significherebbe accettare all'accesso qualcosa di diverso da quello che è
+stato impostato. Il `casefold` esiste in un solo posto: il confronto con la lista,
+perché `Password` e `password` sono la stessa scelta debole ma restano due password
+diverse per Argon2.
+
+#### Argon2id: i parametri sono fissati qui
+
+```
+algoritmo      Argon2id          (non Argon2i, non Argon2d)
+versione       0x13 (v=19)
+memoria        65536 KiB = 64 MiB
+iterazioni     3
+parallelismo   4
+output         32 byte
+sale           16 byte, generati dalla libreria per OGNI hash
+```
+
+Sono i valori della seconda configurazione raccomandata da RFC 9106 («low memory»)
+e **superano** il minimo richiesto di 19456 KiB / t=2 / p=1. Latenza misurata di una
+verifica in container: **~72 ms**, invisibile per un accesso interattivo e proibitiva
+per chi provasse a indovinare in massa. La configurazione più forte era già in uso e
+si conserva: declassarla al minimo riscriverebbe in **peggio** ogni hash esistente
+al primo accesso, perché la riscrittura scatta su qualunque differenza di parametri,
+non solo in salita.
+
+Coincidono con i default di `argon2-cffi` 25.1.0, ma **coincidere per scelta e
+coincidere per caso sono cose diverse**. I default di una libreria cambiano quando
+cambiano le raccomandazioni, e un aggiornamento di dipendenza non deve poter
+spostare la sicurezza dell'applicazione — né in basso, né in alto a sorpresa, perché
+anche un irrobustimento non voluto trasformerebbe ogni accesso in una riscrittura di
+hash che l'operatore non ha deciso.
+
+#### Il sale, e perché non ha una colonna
+
+Il sale lo genera `PasswordHasher.hash` da un CSPRNG, uno nuovo per ogni chiamata, e
+finisce **dentro** l'hash codificato:
+
+```
+$argon2id$v=19$m=65536,t=3,p=4$<sale>$<digest>
+```
+
+Non è un segreto e non ha bisogno di una colonna sua. Non si passa a mano, non si
+deriva dallo username o dall'id, non ne esiste uno globale: tutte varianti che
+renderebbero **confrontabili fra loro** gli hash di utenti diversi, che è
+precisamente ciò che il sale serve a impedire. Nel database c'è `password_hash` e
+nient'altro; una colonna in più sarebbe un posto dove qualcuno, un giorno, scrive la
+cosa sbagliata.
+
+#### Pepper: non c'è
+
+**TSM non usa un pepper.** Il progetto attuale è Argon2id con sale unico per
+password, e basta così.
+
+Non è pigrizia: un pepper è un segreto **operativo**, e un segreto operativo senza
+una storia di rotazione è un debito che si paga tutto insieme. Prima di
+introdurne uno servono quattro cose definite — dove è conservato (fuori da
+PostgreSQL, altrimenti non aggiunge niente), come si ruota, come si recupera se si
+perde, e che effetto ha sugli hash esistenti (risposta: li rende tutti inservibili,
+quindi la rotazione richiede una migrazione al prossimo accesso di ognuno). Senza
+quelle quattro risposte, un pepper è un modo di trasformare un guasto del gestore
+dei segreti in «nessuno può più entrare».
+
+#### La lista locale
+
+`app/auth/password-blocklist.txt`, letto all'avvio, dentro `app/` così che la `COPY`
+dell'immagine lo porti già. Nessuna API di password compromesse: in rete chiusa non
+si può interrogare niente, e un percorso configurabile sarebbe un percorso che in
+produzione può puntare a un file assente — cioè un controllo che si disattiva in
+silenzio. Se il file manca, si solleva.
+
+Il confronto è di **uguaglianza** sull'intera password, dopo NFC e `casefold`. Non
+di inclusione: cercare le voci dentro la password sembra più severo ed è
+controproducente, perché rifiuterebbe `il gatto dorme sul tetto di casa` per la
+parola `casa` — colpendo esattamente le passphrase lunghe che la politica vuole
+incoraggiare, e lasciando passare `Estate2026!` che non contiene nessuna voce. Chi
+sceglie una voce della lista la sceglie intera.
+
+Con il minimo a 15 caratteri, `password` e `123456` cadono già per **lunghezza**. Il
+lavoro vero della lista è l'altra cosa: che cosa scrive una persona a cui il sistema
+ha appena chiesto quindici caratteri. Le risposte sono poche e ricorrenti — la
+password corta scritta due volte (`passwordpassword`), una camminata più lunga sulla
+tastiera (`qwertyuiopasdfgh`), una frase fatta, il nome del programma
+(`trustservermanager`, `trusttechnologies`, `saleserverpomezia`), un valore «da
+cambiare» che nessuno ha cambiato (`changethispassword`, `passwordprovvisoria`).
+Sono quelle le voci che contano, e sono quelle che una lista pensata per un minimo
+di otto caratteri non contiene.
+
+Si aggiunge una regola che nessun file può contenere: la password **uguale allo
+username**, che dipende dall'utenza.
+
+La lista si applica quando una password si **imposta**, mai quando si verifica.
+Aggiungere una voce non invalida nessun hash esistente, ed è ciò che rende il file
+manutenibile: chi ha già una password che oggi finisce in lista non deve scoprirlo
+durante un accesso, da dove non c'è via d'uscita.
+
+#### Password provvisorie
+
+Le genera il **server**, sempre: 24 byte da CSPRNG = **192 bit** di entropia, oltre
+il minimo richiesto di 128, resi in 32 caratteri URL-safe che si copiano e si
+incollano senza ambiguità. Nessuna rotta accetta una password scelta
+dall'amministratore, quindi non esiste un campo del contratto con cui indebolirla.
+La generazione vive accanto alla politica e ci passa attraverso: erano 12 byte — 96
+bit, **sotto** il minimo — proprio perché quel numero stava in un altro file,
+lontano dalla lunghezza minima delle password.
+
+Una provvisoria: torna **una volta sola** nella risposta, non viene mai registrata
+in chiaro, non entra in audit, log, inventario né nella memoria persistente del
+browser (vive solo nello stato React del riquadro che la mostra), e imposta
+`must_change_pw`.
+
+#### Il primo cambio, e i cambi ordinari
+
+Una sola strada, `change_own_password`, per il cambio dopo una provvisoria e per
+quello ordinario. Non sono due flussi: le regole sono le stesse, e averne due li
+farebbe divergere — il ramo «provvisoria» è quello che si scrive in fretta, ed è
+quello dove un controllo si dimentica.
+
+L'ordine dei controlli è deliberato:
+
+1. **la password attuale, per prima.** Senza, chi si impossessa di una sessione
+   aperta — un portatile lasciato sbloccato — cambierebbe la password senza
+   conoscere quella vecchia, e l'accesso diventerebbe suo. C'è anche una seconda
+   ragione: chi possiede una sessione ma non la password potrebbe altrimenti
+   **sondare la politica e la lista** inviando password nuove e leggendo i codici di
+   errore;
+2. la politica completa sulla nuova;
+3. che non sia **identica** a quella attuale — confrontata con l'hash memorizzato,
+   così vale anche fra due forme Unicode diverse dello stesso valore.
+
+Il terzo controllo conta soprattutto per la provvisoria: senza, `must_change_pw` si
+azzererebbe lasciando in uso esattamente il valore che l'amministratore ha
+comunicato a voce o scritto in un messaggio, e che quindi conosce anche lui.
+
+Un cambio riuscito revoca **tutte** le sessioni, compresa quella che lo sta
+facendo, e il cookie viene rimosso: serve un accesso nuovo. Una reimpostazione
+amministrativa fa lo stesso, non richiede né espone la password precedente, e
+registra soltanto che è avvenuta.
+
+Non esiste uno storico delle password oltre al confronto con quella attuale. Un
+sottosistema di storico richiederebbe di conservare più hash per utente — cioè più
+materiale attaccabile — per impedire una rotazione fra due valori che la politica
+già scoraggia togliendo la scadenza periodica.
+
+#### Aggiornamento degli hash vecchi
+
+Dopo un accesso **riuscito**, se `check_needs_rehash` dice che i parametri
+memorizzati non sono quelli correnti, l'hash si ricalcola e si riscrive nella stessa
+transazione della richiesta. È l'unico momento in cui la password in chiaro esiste
+insieme a un hash verificato, quindi l'unico in cui si può fare.
+
+Per l'utente non cambia niente: nessun errore, nessun obbligo di cambio, nessuna
+latenza percepibile oltre a un secondo calcolo. Chi ha una password valida non deve
+pagare in usabilità il fatto che i parametri di ieri fossero più deboli di quelli di
+oggi. Nel registro va il **fatto** (`auth.password.rehashed`), con dettaglio vuoto:
+né l'hash vecchio, né il nuovo, né i parametri di partenza, che direbbero a chi
+legge il registro quanto era debole quell'utenza fino a un istante prima.
+
+Lo decide la libreria leggendo i parametri dentro l'hash, non una nostra ispezione
+della stringa: è l'unica fonte che resta corretta se un giorno cambiassimo i
+parametri.
+
+#### La politica non indebolisce la resistenza all'enumerazione
+
+L'accesso resta come in §8.28: un solo errore per utenza inesistente, password
+errata e utenza disabilitata; verifica Argon2 con un hash finto anche quando
+l'utenza non esiste, generato con gli **stessi** parametri di quelli reali (se
+restasse indietro, un'utenza inesistente costerebbe meno di una esistente e la
+differenza di tempo tornerebbe misurabile); limitazione dei tentativi.
+
+La lista **non si consulta all'accesso**. Se lo facesse, chi prova imparerebbe due
+cose: che quel valore è in lista, e — dal fatto stesso che il controllo è avvenuto —
+che l'utenza esiste. Un rifiuto di politica sulla rotta del cambio password non
+consuma il budget dei tentativi di accesso: sbagliare la password attuale è un
+tentativo, cercare una password nuova che vada bene no.
+
+#### Codici stabili
+
+| codice | significato |
+|---|---|
+| `password_too_short` | meno di `MIN_LENGTH` code point normalizzati |
+| `password_too_long` | più di `MAX_LENGTH`; rifiutata, non troncata |
+| `password_blocklisted` | in lista, o uguale allo username |
+| `password_not_encodable` | surrogato spaiato: non codificabile in UTF-8 |
+| `password_unchanged` | identica a quella attuale |
+
+Tutti su **422**, non 403: `AuthError` significa «non ti è permesso», e qui il
+problema è il valore inviato. Il client deve poter distinguere «rifà il login» da
+«scegli un'altra password», e per questo `PasswordRejected` non discende da
+`AuthError`.
+
+Nessun messaggio contiene la password rifiutata. Nominano il limite — quanti
+caratteri servono — mai il valore: una password rifiutata è comunque un segreto, e
+spesso è quella *quasi* giusta di quella persona. Il messaggio della lista non dice
+nemmeno **dove** il valore è stato trovato: «compare in una raccolta di credenziali
+diffuse» direbbe a chi prova che quel valore è vero da qualche altra parte, e la
+stessa persona riusa le password altrove.
+
+#### Due difetti trovati da questa verifica
+
+**Un hash illeggibile faceva sollevare invece di negare.** `verify_password`
+intercettava `VerifyMismatchError`, `InvalidHashError` e `ValueError`, ma **non**
+`VerificationError`, che è ciò che `argon2-cffi` solleva quando non riesce a
+*decodificare* l'hash — corrotto, troncato da una migrazione, di un altro algoritmo.
+La rotta di accesso rispondeva 503 invece di negare l'accesso, e l'eccezione
+arrivava **prima** della registrazione del tentativo, quindi quei tentativi non
+venivano contati dal limitatore. Ora tutte e tre le famiglie sono intercettate e la
+risposta è «no»: un hash che non si può leggere non autentica nessuno.
+
+**Un surrogato spaiato in una password nuova.** `hash_password` sollevava
+`UnicodeEncodeError`, che nessuno mappa e che diventa un 503 per un dato ricevuto. E
+se un hash fosse comunque nato, l'utenza sarebbe stata **inaccessibile per sempre**:
+`verify_password` intercetta `ValueError`, di cui `UnicodeEncodeError` è sottoclasse,
+quindi ogni accesso successivo avrebbe risposto «credenziali errate» senza che
+niente fosse errato.
+
+Misurando si è scoperto che su HTTP non arriva: `pydantic-core` è scritto in Rust, e
+una `str` di Rust deve essere UTF-8 valido, quindi la validazione del corpo rifiuta
+prima con il 422 generico `invalid_body`. La strada in cui il controllo serve
+davvero è un'altra e non passa da pydantic: `os.environ` decodifica i byte
+dell'ambiente con `surrogateescape`, quindi una `TSM_BOOTSTRAP_PASSWORD` che
+contenga un byte non valido in UTF-8 — un testo Latin-1 incollato in un file di unit
+systemd — **diventa** una stringa con surrogati spaiati. Senza il controllo,
+`bootstrap.py` moriva con un traceback; con il controllo dice che cosa non va.
+
+#### Il NUL non è un caso speciale, e non si riusa la regola dell'istantanea
+
+Misurato: per Argon2 un NUL dentro una password è **innocuo** e **non tronca** — due
+password che differiscono solo dopo il NUL non si verificano a vicenda, a differenza
+di qualche implementazione C di bcrypt.
+
+Quindi qui **non** si riusa `is_representable_text` (§8.16), pur essendo la
+domanda apparentemente la stessa. Quella regola chiede se PostgreSQL conserva una
+stringa in `text`/`jsonb` e comprende il NUL; una password non finisce in nessuna
+colonna — ci finisce il suo **hash**, che è ASCII. Riusare la regola
+dell'istantanea rifiuterebbe password legittime per un motivo che qui non esiste, ed
+è il modo in cui una regola condivisa a torto fa danni. Le due parti in comune —
+i surrogati — sono coperte da una regola narrativamente separata e con un codice
+proprio.
+
+#### Bootstrap di produzione: che cosa sarà, e che cosa non è ancora
+
+Il database di produzione finale **non** nascerà con `admin / admin`.
+L'inizializzazione finale creerà l'amministratore di bootstrap, genererà una
+password provvisoria da CSPRNG, imposterà `must_change_pw`, mostrerà la provvisoria
+**una volta sola** a chi installa, conserverà soltanto il suo hash Argon2id, e
+imporrà una password nuova al primo accesso. È già il comportamento di
+`scripts/bootstrap.py`: la password si legge da `TSM_BOOTSTRAP_PASSWORD` oppure si
+genera, in entrambi i casi viene **validata** contro la politica, e un valore debole
+fa fallire il bootstrap con un codice invece di creare il primo amministratore con
+una password che qualcuno indovina.
+
+La **purga e il bootstrap dei dati di produzione non si fanno in questo commit**:
+restano un cancello di rilascio finale, dopo la fase 2.
+
+### 8.43.1 Come è verificato
+
+`tests/test_passwords.py` (puro) prova la **regola**: la scelta esplicita di
+Argon2id, i parametri contro soglie minime tenute in costanti **separate** — se il
+test confrontasse i valori con se stessi, abbassarli resterebbe verde — i confini
+14/15/128/129, l'assenza di regole di composizione, le due forme Unicode canoniche,
+il NUL che non tronca, il surrogato, la lista, e il sale: la stessa password produce
+cento hash con cento sali diversi, tutti verificabili.
+
+`tests/test_password_policy_pg.py` prova le **strade**, su PostgreSQL reale: che
+ogni percorso che stabilisce una password passi dalla politica (cambio proprio,
+creazione da amministratore, reimpostazione, creazione di servizio); che un rifiuto
+non lasci **niente** — non un hash cambiato, non una sessione revocata, non una riga
+di audit; che tre sessioni contemporanee cadano insieme; che un hash storico più
+debole venga riscritto dopo un accesso riuscito e **una sola volta**; e che la
+provvisoria non compaia in audit, log, risposte o elenchi. Quest'ultimo si verifica
+cercando il valore in **tutte** le colonne testuali di **tutte** le tabelle — con un
+controllo di sanità che scrive di proposito un marcatore e pretende che la stessa
+ricerca lo trovi, perché una ricerca scritta male e un database pulito danno lo
+stesso risultato.
+
+La §13 di `tools/storage-config-test.py` copre il **negativo**, che nessun test può
+coprire: che nessun altro punto costruisca un `PasswordHasher` con parametri propri,
+che l'accesso non consulti la lista, che il sale non sia scelto a mano, che non
+esistano pepper o segreti d'ambiente nel calcolo, che il numero della lunghezza
+minima non sia duplicato nella rotta, e che il suggerimento del frontend coincida
+con la politica. Sei di questi controlli sono stati verificati **mutando di proposito
+il codice** per accertarsi che sappiano fallire — e quattro di essi, alla prima
+stesura, passavano per il motivo sbagliato: cercavano una sottostringa che risponde a
+una domanda diversa (`.strip()` che appartiene alla lettura del file della lista,
+`password` che compare in `temporaryPassword`, `min_length` che appartiene allo
+username, e un letterale con le virgolette che `ast.unparse` normalizza).
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -3468,6 +3817,14 @@ passerebbe senza dimostrare niente.
     `app/inventory/{json_strings,representable}.py`, `test_json_strings.py`,
     `test_snapshot_strings_pg.py`. Chiude il 500 che PostgreSQL restituiva per un
     byte NUL o un surrogato spaiato in un nome.
+14-quater. ~~**Password e Argon2id** (§8.43): politica unica (15–128 code point,
+    NFC, nessuna composizione, nessuna scadenza), parametri Argon2id pinnati e
+    superiori al minimo, lista locale, provvisorie da 192 bit, riscrittura degli hash
+    invecchiati~~ ✔ **fatto** — `app/auth/passwords.py`,
+    `app/auth/password-blocklist.txt`, `test_passwords.py`,
+    `test_password_policy_pg.py`, §13 di `storage-config-test.py`. Verifica e
+    irrobustimento: chiude il 503 su un hash illeggibile e quello su un surrogato
+    spaiato, e la divergenza fra i tre punti che stabilivano una password.
 15. **Fase 2C**: il `PUT` sincronizza le tabelle e inserisce istantanea, audit e
     riferimenti alle foto in una transazione sola. **Prossimo commit.**
 16. **Fase 2D**: il `GET` assembla da SQL, solo dopo che la rappresentazione in

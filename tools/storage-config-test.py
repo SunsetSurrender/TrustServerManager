@@ -505,8 +505,14 @@ check(f"soltanto {ONLY_WRITER} scrive le tabelle normalizzate",
       f"la sincronizzazione al salvataggio è la fase 2C: {scritture}")
 
 rel = code_only(ROOT / "backend" / "app" / "inventory" / "relational.py")
+# ⚠ Si cerca `sqlalchemy` e `.execute(`, non `text(`.
+#
+# `text(` sembrava il segno di una query e non lo è: da quando la mappa condivide la
+# regola sul testo, il sorgente contiene `is_representable_text(` — che contiene
+# `text(`. Il controllo falliva su una funzione pura per una sottostringa, cioè
+# rispondeva alla domanda sbagliata.
 check("la mappa relazionale è pura: nessun SQL, nessun SQLAlchemy",
-      "sqlalchemy" not in rel.lower() and "text(" not in rel,
+      "sqlalchemy" not in rel.lower() and ".execute(" not in rel,
       "la parte che va provata è la mappa, e provarla contro un database "
       "significherebbe provarla insieme a un database")
 check("la mappa canonicalizza in ingresso",
@@ -664,6 +670,129 @@ check("il frontend non sa che la proiezione esista",
       and "garanzia_date" not in handoff,
       "il contratto del frontend è il documento (§8.22), e questo commit non lo "
       "cambia di una riga")
+
+
+# ==================================================================
+# 12. fedeltà numerica dell'istantanea (§8.16)
+# ==================================================================
+#
+#     Ogni documento accettato dal PUT normale deve essere rappresentabile senza
+#     perdite dal magazzino delle istantanee, secondo la semantica del digest
+#     canonico del repository.
+#
+# JSONB tiene i numeri in `numeric`: `-0.0` torna `0.0` e `1e+20` torna intero. La
+# risposta è rifiutare in ingresso, non ricalcolare il digest dopo che PostgreSQL ha
+# cambiato il valore — che vorrebbe dire registrare come «accettato» un documento
+# diverso da quello inviato.
+
+
+def function_source(path, name):
+    """Il codice di UNA funzione, senza commenti né docstring.
+
+    Serve per verificare un ORDINE dentro una funzione: cercare due stringhe nel
+    file intero direbbe soltanto che esistono entrambe, e la prima occorrenza di
+    `validate_normal_document` sta in `bootstrap`, che viene prima di `save` — quindi
+    un controllo sul file darebbe verde qualunque cosa faccia `save`.
+    """
+    import ast
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == name:
+            body = list(node.body)
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                del body[0]
+            return "\n".join(ast.unparse(stmt) for stmt in body)
+    return ""
+
+
+strings = code_only(ROOT / "backend" / "app" / "inventory" / "json_strings.py")
+shared = code_only(ROOT / "backend" / "app" / "inventory" / "representable.py")
+check("la regola sul testo è pura: nessun database",
+      "sqlalchemy" not in strings.lower() and ".execute(" not in strings)
+check("il codice di rifiuto del testo è quello stabile",
+      "json_string_not_roundtrippable" in strings)
+check("la regola sul testo non modifica il testo",
+      all(t not in strings
+          for t in ("unicodedata", "normalize", ".replace(", ".strip()", ".casefold(")),
+      "ripulire vorrebbe dire salvare un documento diverso da quello inviato, e per "
+      "un nome è una modifica che l'utente vede attribuita a sé. `encode` c'è, ma "
+      "serve a CHIEDERE se la stringa è codificabile, non a cambiarla")
+check("le due regole condividono UNA visita del documento",
+      "walk_scalars" in shared and "json_numbers" in shared
+      and "json_strings" in shared,
+      "un documento percorso due volte in due modi diversi lascia scoperta una metà")
+check("la visita comprende le CHIAVI degli oggetti",
+      "KEY" in shared and "key_segment" in shared,
+      "il modello è aperto: una chiave ignota è un dato dell'utente come un valore")
+check("una chiave non scrivibile non finisce nel percorso",
+      "unwritable" in shared,
+      "il percorso serve a trovare il campo, non a ripetere ciò che non si può "
+      "nemmeno scrivere")
+check("la mappa relazionale non riscrive la regola sul testo",
+      "is_representable_text" in rel
+      and all(t not in rel for t in ("encode(", "\\x00")),
+      "«PostgreSQL conserva questa stringa?» ha una risposta sola, e la conseguenza "
+      "per la proiezione è più stretta: non entra nemmeno in `extra`")
+
+numbers = code_only(ROOT / "backend" / "app" / "inventory" / "json_numbers.py")
+check("la regola sui numeri è pura: nessun database",
+      "sqlalchemy" not in numbers.lower() and ".execute(" not in numbers,
+      "gira nel percorso della richiesta, prima di qualunque accesso al database")
+check("il codice di rifiuto è quello stabile",
+      "json_number_not_roundtrippable" in numbers,
+      "i client lo confrontano: non cambia")
+check("i booleani non sono numeri, per questa regola",
+      "isinstance(value, bool)" in numbers,
+      "`isinstance(True, int)` è vero in Python, e JSONB i booleani li conserva")
+check("il limite degli interi non passa da str()",
+      "10 ** 131072" in numbers and "len(str(" not in numbers,
+      "convertire in stringa un intero di più di 4300 cifre solleva ValueError da "
+      "Python 3.11: la regola crollava invece di rispondere")
+
+doc_src = code_only(ROOT / "backend" / "app" / "inventory" / "document.py")
+check("lo schema congelato applica ENTRAMBE le regole, in una visita sola",
+      "unrepresentable_items(doc)" in doc_src,
+      "numeri e testo sono due implementazioni dello stesso invariante (§8.16), non "
+      "due controlli indipendenti")
+# Dentro la FUNZIONE, non nel file: `max_bytes` compare già nella firma, e un
+# controllo sul modulo intero direbbe che la misura viene prima qualunque cosa faccia
+# il corpo. È lo stesso inganno del controllo sull'ordine in `save`.
+validate_src = function_source(
+    ROOT / "backend" / "app" / "inventory" / "document.py",
+    "validate_normal_document")
+check("la misura del documento non precede la rappresentabilità",
+      "unrepresentable_items(doc)" in validate_src
+      and validate_src.index("unrepresentable_items(doc)")
+      < validate_src.index("max_bytes"),
+      "misurare vuol dire serializzare, e un surrogato spaiato non è codificabile: "
+      "il documento risultava «non un oggetto» con la causa vera persa per strada")
+
+save_src = function_source(ROOT / "backend" / "app" / "inventory" / "repository.py",
+                           "save")
+check("la validazione del documento precede il lock della testa",
+      "validate_normal_document" in save_src and "FOR UPDATE" in save_src
+      and save_src.index("validate_normal_document") < save_src.index("FOR UPDATE"),
+      "un documento rifiutato non deve lasciare stato NÉ aspettare un lock")
+
+check("la mappa relazionale non riscrive la regola",
+      "isfinite" not in rel and "copysign" not in rel
+      and "is_representable" in rel,
+      "due idee di «numero rappresentabile» divergerebbero sui casi limite, cioè "
+      "proprio dove la regola serve")
+
+digest_updates = []
+for path in app_sources:
+    lowered = path.read_text(encoding="utf-8-sig").lower()
+    if "update inventory_versions" in lowered or "set canonical_sha256" in lowered:
+        digest_updates.append(path.name)
+check("nessuno riscrive il digest di una versione già registrata",
+      not digest_updates,
+      f"ricalcolarlo dopo che PostgreSQL ha cambiato il valore vorrebbe dire "
+      f"registrare come «accettato» un documento diverso da quello inviato: "
+      f"{digest_updates}")
 
 
 if __name__ == "__main__":

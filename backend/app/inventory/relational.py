@@ -69,7 +69,6 @@ Riferimento: BACKEND-PLAN.md §8.42.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field, fields
 from datetime import date
 from decimal import Decimal
@@ -77,6 +76,8 @@ from typing import Any
 
 from app.identity import canonicalise
 from app.identity.model import UUID_RE
+from app.inventory.json_numbers import is_number, is_representable
+from app.inventory.json_strings import is_representable_text
 
 # ==================================================================
 # vocabolari
@@ -268,7 +269,25 @@ INT32_MIN, INT32_MAX = -2147483648, 2147483647
 
 
 def _is_str(v: Any) -> bool:
-    return isinstance(v, str)
+    """⚠ Una colonna `text` non può contenere ogni stringa, e la regola è UNA SOLA.
+
+    «PostgreSQL conserva questa stringa?» è la stessa domanda per una colonna `text`,
+    per un JSONB e per l'istantanea, e la risposta sta in `json_strings.py`
+    (misurata). Riscriverla qui darebbe due idee di stringa rappresentabile che
+    divergono sui casi limite, cioè proprio dove serve.
+
+    Ciò che cambia è la CONSEGUENZA, e per il testo è più stretta che per i numeri:
+    un numero non rappresentabile trova posto in `extra`, che è JSONB e lossless; una
+    stringa che PostgreSQL rifiuta **non entra nemmeno in `extra`**. Perciò la colonna
+    dice di non poterla contenere (e il valore va in `extra`), e `validate_model`
+    aggiunge un ERRORE: la proiezione di quel documento non si può scrivere affatto.
+    Chiamarlo `carried_verbatim` — «integro, ma non interrogabile» — sarebbe falso.
+
+    Non è raggiungibile dalla testa: una stringa così non è mai potuta diventare una
+    versione, perché l'`INSERT` in JSONB l'avrebbe rifiutata. La mappa resta comunque
+    totale, perché è chiamata anche su documenti che non vengono dal database.
+    """
+    return isinstance(v, str) and is_representable_text(v)
 
 
 def _is_int(v: Any) -> bool:
@@ -287,31 +306,22 @@ def _is_num(v: Any) -> bool:
         0.30000000000000004   →  numeric 0.3                 → torna 0.3
 
     Legando `Decimal(repr(v))` PostgreSQL conserva le cifre e la SCALA, e il giro
-    torna fedele. Restano due casi che non tornano comunque, ed è questo predicato
-    a tenerli fuori (finiscono in `extra`, che è lossless):
+    torna fedele. Restano i valori che `numeric` non può restituire come sono
+    arrivati, e li tiene fuori `json_numbers` — finiscono in `extra`, che è lossless.
 
-      - i float che `repr` scrive in notazione esponenziale POSITIVA (`1e+16`,
-        `1e+20`): PostgreSQL li memorizza per esteso con scala 0, e tornerebbero
-        come `int`. Quelli con esponente negativo (`1e-09`, `2.5e-05`) tornano
-        fedeli, perché la scala resta;
-      - `-0.0`: `numeric` non ha il segno dello zero, quindi torna `0.0`. Sembra
-        innocuo perché `-0.0 == 0.0` è vero in Python — e infatti la prima sonda
-        lo dichiarava fedele — ma `json.dumps` scrive `-0.0` e `0.0`, cioè due
-        digest diversi. Un confronto scritto con `==` invece che sulla
-        serializzazione non l'avrebbe visto.
+    ⚠ **Una regola sola, non due.** La domanda «questo numero sopravvive a un giro
+    attraverso `numeric`?» è la stessa per una colonna `numeric` e per JSONB, perché
+    JSONB i numeri li tiene in `numeric`. Scrivere qui una seconda versione della
+    regola vorrebbe dire due idee di «numero rappresentabile» che divergono, e
+    divergerebbero sui casi limite: esattamente i valori per cui la regola esiste.
+    La differenza fra i due usi non è la regola, è la CONSEGUENZA — qui il valore va
+    in `extra`, nell'istantanea il documento si rifiuta (§8.16).
 
-    `int` non ha bisogno di limiti: `numeric` è a precisione arbitraria, e un
-    intero torna intero con scala 0.
+    La mappa resta TOTALE anche per i documenti salvati PRIMA di quel rifiuto: le
+    versioni storiche sono immutabili e possono contenere valori che oggi non
+    passerebbero più.
     """
-    if isinstance(v, bool):
-        return False
-    if isinstance(v, int):
-        return True
-    if not isinstance(v, float) or not math.isfinite(v):
-        return False
-    if v == 0.0 and math.copysign(1.0, v) < 0:
-        return False
-    return Decimal(repr(v)).as_tuple().exponent < 0
+    return is_number(v) and is_representable(v)
 
 
 def _is_bool(v: Any) -> bool:

@@ -47,6 +47,8 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from app.identity.model import is_uid
+from app.inventory.json_strings import unrepresentable_text_reason
+from app.inventory.representable import walk_scalars
 from app.inventory.relational import (
     DERIVED,
     DEVICE_STATES,
@@ -72,6 +74,7 @@ EXTRA_SHADOWS_COLUMN = "extra_shadows_column"
 PHOTO_NOT_FOUND = "photo_not_found"
 MISSING_SCHEMA_VERSION = "missing_schema_version"
 DERIVED_MISMATCH = "derived_mismatch"
+TEXT_NOT_REPRESENTABLE = "text_not_representable"
 
 # --- avvisi: rappresentato, ma non interrogabile o fuori vocabolario ---
 CARRIED_VERBATIM = "carried_verbatim"
@@ -227,6 +230,35 @@ def validate_model(model: RelationalModel, *,
     for K in model.racks:
         _check_collection(add, "device",
                           [d for d in model.devices if d.rack_uid == K.uid], K.uid)
+
+    # ------------------------------- testo che PostgreSQL non conserva
+    #
+    # ⚠ Un ERRORE, non un avviso, e non è simmetrico con i numeri.
+    #
+    # Un numero che una colonna non può contenere trova posto in `extra`, che è JSONB
+    # e lossless: la riga si scrive, il documento torna identico, e l'unica perdita è
+    # l'interrogabilità di quel campo (`carried_verbatim`, avviso). Una stringa che
+    # PostgreSQL rifiuta non entra **da nessuna parte** — né nella colonna, né in
+    # `extra`, né in un JSONB — quindi la proiezione di questo documento non si può
+    # scrivere affatto, e chiamarla «integra ma non interrogabile» sarebbe falso.
+    #
+    # Non è raggiungibile dalla testa (una stringa così non è mai potuta diventare una
+    # versione: §8.16), ed esiste perché `validate_model` gira anche su modelli che non
+    # vengono dal database — e perché la fase 2C, quando scriverà, deve fermarsi qui
+    # invece di scoprirlo da un errore di psycopg a metà transazione.
+    for kind, row, _pcol, _puid in all_rows:
+        payload = {name: getattr(row, name) for name, _key, _fits in FIELD_MAP[kind]}
+        payload["extra"] = row.extra if isinstance(row.extra, dict) else {}
+        for path, item_kind, value in walk_scalars(payload):
+            if unrepresentable_text_reason(value) is None:
+                continue
+            dove = "una chiave" if item_kind == "key" else "un valore"
+            add(Finding(TEXT_NOT_REPRESENTABLE, ERROR, kind, row.uid,
+                        f"{kind}: {dove} in `{path}` non è rappresentabile da "
+                        "PostgreSQL, quindi questa riga non si può scrivere né in una "
+                        "colonna né in `extra`. Il valore non viene riportato di "
+                        "proposito (§8.16).",
+                        field=path))
 
     # ----------------------------------------------------------- foto
     if known_photo_ids is not None:

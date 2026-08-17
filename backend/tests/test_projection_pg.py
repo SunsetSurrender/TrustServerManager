@@ -267,29 +267,47 @@ def test_the_hostile_numbers_come_back_bit_for_bit(db, engine):
     assert rack.w == 1e-9
 
 
-def test_the_numbers_that_jsonb_itself_loses_abort_the_rebuild(db, engine):
-    """⚠ Il confine è il MAGAZZINO DELLE ISTANTANEE, non la proiezione.
+def test_a_version_stored_before_the_numeric_fix_aborts_the_rebuild(db, engine):
+    """⚠ Dati SCRITTI PRIMA della correzione: la proiezione li diagnostica.
 
     `1e+20` e `-0.0` non sopravvivono a JSONB (misurato: diventano
-    `100000000000000000000` e `0.0`), e `inventory_versions.doc` è JSONB. Un
-    documento così viene salvato, ma il digest REGISTRATO al salvataggio non
-    corrisponde più al documento che si rilegge: la fase 1 ha già perso il valore.
+    `100000000000000000000` e `0.0`), e `inventory_versions.doc` è JSONB. Il digest
+    registrato al salvataggio non corrisponde più al documento riletto.
 
-    La proiezione non ha quindi un riferimento di cui fidarsi, e ABORTA dicendo
-    esattamente questo invece di ricalcolare il digest in silenzio — che sarebbe
-    coprire il caso in cui un'istantanea immutabile non corrisponde al suo digest.
+    Oggi un documento così **non entra più**: lo schema congelato lo rifiuta con
+    `json_number_not_roundtrippable` (§8.16), e `test_snapshot_numbers_pg.py` lo
+    prova. Ma le versioni sono immutabili e per sempre: una scritta prima della
+    correzione resta lì. Per riprodurla si inserisce la riga DIRETTAMENTE, come
+    proprietario — che è esattamente il modo in cui è nata.
 
-    La mappa di suo li porta in `extra` e li restituisce identici: l'invariante in
-    memoria vale, e la suite pura lo prova. È il giro dal database che no.
+    La proiezione non ha un riferimento di cui fidarsi e ABORTA dicendo questo,
+    invece di ricalcolare il digest in silenzio — che sarebbe coprire il caso in cui
+    un'istantanea immutabile non corrisponde al suo digest.
     """
-    version = bootstrap(engine, DOCUMENTS["jsonb-hostile-numbers"])
+    doc = DOCUMENTS["jsonb-hostile-numbers"]
+
+    # La conferma che oggi quel documento non passerebbe più dal percorso normale.
+    from app.inventory import validate_normal_document
+    problemi = validate_normal_document(doc)
+    assert {e.code for e in problemi} == {"json_number_not_roundtrippable"}
+
+    # Lo stato di allora, scritto come lo scriveva allora: il digest calcolato sul
+    # candidato, il documento come JSONB lo conserva.
+    with engine.begin() as c:
+        version = c.execute(text("""
+            INSERT INTO inventory_versions
+                   (doc, canonical_sha256, actor_username, actor_role)
+            VALUES (CAST(:doc AS jsonb), :sha, 'capo', 'admin')
+         RETURNING version
+        """), {"doc": json.dumps(doc, ensure_ascii=False),
+               "sha": canonical_sha256(doc)}).scalar_one()
+        c.execute(text("INSERT INTO inventory_head (id, version) VALUES (TRUE, :v)"),
+                  {"v": version})
 
     with engine.begin() as c:
-        registrato = c.execute(text("SELECT canonical_sha256 FROM inventory_versions "
-                                    "WHERE version = :v"), {"v": version}).scalar_one()
         riletto = c.execute(text("SELECT doc FROM inventory_versions "
                                  "WHERE version = :v"), {"v": version}).scalar_one()
-    assert canonical_sha256(riletto) != registrato, (
+    assert canonical_sha256(riletto) != canonical_sha256(doc), (
         "se JSONB conservasse questi numeri, questo test non avrebbe più ragione di "
         "esistere e andrebbe cancellato invece di adattato")
 
@@ -314,19 +332,28 @@ def test_an_oversized_integer_does_not_break_the_insert(db, engine):
 
 
 def test_a_document_with_a_nul_byte_never_becomes_a_version(db, engine):
-    """Perché il proiettore non ha un controllo sui byte NUL: non può vederne uno.
+    """Perché il proiettore non trova mai un byte NUL in una versione.
 
-    PostgreSQL non accetta `\\u0000` né in `text` né in `jsonb`, e `inventory_versions.doc`
-    È jsonb: un documento con un NUL non diventa una versione, quindi non arriva mai
-    alla proiezione. Il confine è già dove serve, e questo test lo fissa — se un
-    giorno le istantanee cambiassero tipo, la difesa andrebbe aggiunta e questo
-    diventerebbe rosso.
+    PostgreSQL non accetta `\\u0000` né in `text` né in `jsonb`, e
+    `inventory_versions.doc` È jsonb: un documento con un NUL non diventa una versione,
+    quindi non arriva mai alla proiezione.
+
+    ⚠ Il CONFINE si è spostato, e il test lo segue. Prima il rifiuto arrivava dal
+    database a metà del salvataggio (un 500); adesso lo dà la validazione dello schema
+    congelato, con `json_string_not_roundtrippable` e il percorso del campo (§8.16).
+    La conseguenza per la proiezione non cambia — nessuna versione, niente da
+    rispecchiare — ma chi salva riceve un errore che può correggere.
     """
+    from app.inventory import DocumentRejectedError
+    from app.inventory.document import STRING_NOT_ROUNDTRIPPABLE
+
     doc = relbuild.base()
     doc["locations"][0]["nome"] = "Pomezia\x00G0"
-    with pytest.raises(Exception) as err:
+    with pytest.raises(DocumentRejectedError) as err:
         bootstrap(engine, doc)
-    assert "unicode" in str(err.value).lower() or "nul" in str(err.value).lower()
+    problemi = [d for d in err.value.details
+                if d["code"] == STRING_NOT_ROUNDTRIPPABLE]
+    assert problemi and problemi[0]["path"] == "locations[0].nome"
     with engine.begin() as c:
         assert c.execute(text("SELECT count(*) FROM inventory_versions")
                          ).scalar_one() == 0

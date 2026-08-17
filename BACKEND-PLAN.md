@@ -1348,6 +1348,164 @@ proposito, insieme al codice che la gestisce.
 | `_uid` mancanti | §8.4 |
 | `schemaVersion` diverso da quello in testa | un salvataggio non fa evolvere lo schema (§8.13) |
 | documento oltre il limite di dimensione | ogni versione è una riga append-only: un documento gonfio si moltiplica per il numero di salvataggi |
+| numeri che JSONB non conserva, a ogni profondità | `json_number_not_roundtrippable`: vedi l'invariante del magazzino qui sotto |
+
+#### L'invariante del magazzino
+
+> Ogni **valore** e ogni **chiave** accettati dal `PUT` normale devono essere
+> **rappresentabili senza perdite** da PostgreSQL JSONB, secondo la semantica del
+> digest canonico del repository.
+
+Due implementazioni della stessa regola, non due rattoppi indipendenti:
+
+| | che cosa fa PostgreSQL | come si manifestava | codice |
+|---|---|---|---|
+| **numeri** | cambia il valore in **silenzio** | digest registrato diverso dal documento riletto: no-op non riconosciuto, diff attribuito all'utente, fase 2B che aborta | `json_number_not_roundtrippable` |
+| **testo** | **rifiuta** la scrittura | `INSERT` fallito a metà salvataggio: **500** invece di 422 | `json_string_not_roundtrippable` |
+
+Le due regole rispondono a domande diverse su tipi diversi, ma la **visita del documento è una sola** (`representable.py`): un documento percorso due volte in due modi diversi lascia scoperta una metà, ed è esattamente così che il buco è nato - la ricerca delle password percorre solo i valori dei dizionari, e gli elementi delle liste non li guardava nessuno.
+
+##### I numeri: che cosa PostgreSQL cambia, misurato
+
+Il repository dava l'invariante per vera, e **non lo era**: `inventory_versions.doc` è JSONB, JSONB tiene i numeri in
+`numeric`, e `numeric` non ha il segno dello zero né la notazione esponenziale.
+Misurato:
+
+```text
+-0.0                    →  0.0
+1e+16, 1e+20, 1.5e+300  →  10000000000000000, …           (interi!)
+Infinity, -Infinity, NaN→  PostgreSQL li rifiuta          (500 all'INSERT)
+10.0, 0.30000000000000004, 1e-09, 5e-324, interi di ogni misura   →  intatti ✔
+```
+
+Il confronto è sulla **serializzazione**, non sul valore: `-0.0 == 0.0` è vero in
+Python e `json.dumps` scrive due cose diverse, cioè due digest diversi. Una verifica
+scritta con `==` avrebbe dichiarato fedele proprio il caso che non lo è — è successo,
+alla prima versione della sonda.
+
+##### Perché non si ricalcola il digest
+
+Ricalcolarlo dopo la rilettura sarebbe registrare come «accettato» un documento
+**diverso da quello inviato** — la stessa cosa che «rifiutare, non ripulire in
+silenzio» esiste per impedire, fatta a un livello più basso e in modo invisibile. Le
+conseguenze di un digest che non sopravvive alla rilettura sono concrete:
+
+- il **no-op canonico** (§8.18) non riconosce più un documento identico, e un secondo
+  invio identico crea una versione nuova;
+- il **diff** (§8.10) attribuisce all'utente una modifica fatta da PostgreSQL;
+- il confronto dei digest della **fase 2B** (§8.42) trova l'incoerenza e si rifiuta di
+  costruire la proiezione, perché non ha un riferimento di cui fidarsi. È così che il
+  problema è stato scoperto.
+
+Quindi: se il magazzino non può conservare un valore, **il documento si rifiuta prima
+di persisterlo**, con `json_number_not_roundtrippable`, il percorso del campo e non il
+documento inviato. Il rifiuto avviene al passo 1 di §8.17, quindi **prima** del lock
+della testa, del diff di identità, della versione, dell'audit e di qualunque scrittura
+sulla proiezione. Un test lo prova nel modo che conta: con la riga di testa bloccata da
+un'altra transazione, il rifiuto arriva **immediato** invece di scadere sul lock.
+
+##### La regola è una previsione, l'oracolo è il database
+
+La regola è pura per necessità — gira prima di qualunque accesso al database — ma non è
+un'approssimazione scritta a mano: un test su PostgreSQL reale la confronta con il
+database su un corpus di 37 valori, e se i due dissentono su uno solo quel test è
+rosso.
+
+Il confine non è una soglia scelta a mano: è il punto in cui `repr` passa alla
+notazione esponenziale **positiva**, cioè in cui PostgreSQL scriverebbe un intero.
+`1234567890123456.0` passa, `1e+16` no. Gli esponenti **negativi** (`1e-09`,
+`2.5e-05`, `5e-324`) passano tutti, perché la scala resta.
+
+##### Perché la proiezione può usare `extra` e l'istantanea non può
+
+Sono due promesse diverse. La proiezione (§8.42) è **derivata**: un valore che una
+colonna tipizzata non può contenere viaggia in `extra` (JSONB) e il documento si
+riassembla identico; e la proiezione si ricostruisce da zero quando si vuole.
+
+L'istantanea **è il documento**, immutabile e per sempre. Non ha un `extra` in cui
+mettere ciò che non entra: è l'unica copia. Un ripiego qui vorrebbe dire conservare
+accanto al documento una correzione da riapplicare a ogni lettura — cioè un secondo
+formato canonico, e due formati canonici divergono. Per l'istantanea l'unica risposta
+corretta è rifiutare in ingresso.
+
+⚠ **La regola è una sola**, condivisa con la mappa relazionale: la domanda «questo
+numero sopravvive a un giro attraverso `numeric`?» è la stessa per una colonna
+`numeric` e per JSONB, perché JSONB i numeri li tiene in `numeric`. Due
+implementazioni divergerebbero sui casi limite, cioè proprio dove la regola serve. Ciò
+che cambia fra i due usi non è la regola: è la **conseguenza**.
+
+⚠ Le versioni scritte **prima** di questa correzione restano come sono — sono
+immutabili, e riscriverle sarebbe cambiare la storia. Su una testa così la
+ricostruzione della proiezione **aborta** con `digest_della_versione_incoerente`, che è
+la diagnosi corretta; un test la riproduce inserendo la riga direttamente, come è nata.
+
+##### Il testo: che cosa PostgreSQL conserva, misurato
+
+Corpus di 34 stringhe provate **sia come valore sia come chiave** (ASCII, italiano
+accentato, greco, cirillico, CJK, arabo, emoji BMP e non-BMP, sequenze combinanti,
+newline, CR, CRLF, tab, controlli U+0001/U+001F/U+007F, U+2028, BOM, noncaratteri
+U+FFFE/U+FFFF/U+FDD0, coppie surrogate valide, piano 16). **Sopravvive tutto tranne due
+famiglie:**
+
+```text
+"a\u0000b"   NUL, in qualsiasi posizione   il DATABASE rifiuta
+"a\ud800b"   surrogato spaiato             la CODIFICA rifiuta, prima del database
+```
+
+I due meccanismi sono diversi e vale la pena saperlo, ma per chi salva sono la stessa
+cosa: il documento non si può conservare. Un surrogato spaiato **ci arriva davvero**,
+perché `json.loads` accetta quel letterale senza protestare e produce una `str` che non
+è codificabile in UTF-8.
+
+Due cose che **non** sono un problema di rappresentabilità, e che i test fissano perché
+la differenza conta: PostgreSQL **non normalizza** Unicode (una `e` più un accento
+combinante torna in due code point, non precomposta - se normalizzasse sarebbe una
+modifica silenziosa come quella dei numeri), e jsonb **riordina le chiavi e collassa i
+duplicati**, che il digest canonico rende irrilevante. «Torna diverso» e «torna con un
+significato diverso» sono due cose distinte.
+
+##### Non si ripulisce, e per il testo meno che mai
+
+Nessuna normalizzazione, nessun `strip`, nessuna sostituzione: sarebbe salvare un
+documento diverso da quello inviato, e su un nome sarebbe una modifica che l'utente vede
+nel registro **attribuita a sé**. Un controllo statico verifica che la regola non
+contenga `unicodedata`, `normalize`, `.replace(` o `.strip()`.
+
+##### Le CHIAVI sono dati dell'utente
+
+Il modello delle entità è aperto (§8.42): un campo ignoto sopravvive al salvataggio e
+finirà in `extra`. Una chiave ignota non è diversa, e una chiave non scrivibile fa
+fallire l'inserimento come un valore. Questo non passa:
+
+```json
+{"_uid": "...", "campoNormale": "va bene", "chiave\u0000rotta": "anche questo va bene"}
+```
+
+Una chiave non rappresentabile **non si può nemmeno nominare** nell'errore: il percorso
+diventa `locations[0].sale[0].<chiave n.3>`, cioè genitore più posizione. Vale anche
+per i percorsi dei valori che quella chiave contiene.
+
+##### Una capability, consumatori diversi
+
+«PostgreSQL conserva questa stringa?» ha una risposta sola, e la usa anche la mappa
+relazionale (`_is_str`). Ciò che cambia è la **conseguenza**, e per il testo è più
+stretta che per i numeri: un numero non rappresentabile trova posto in `extra`, che è
+JSONB e lossless; una stringa che PostgreSQL rifiuta **non entra nemmeno in `extra`**.
+Perciò nella proiezione non è `carried_verbatim` (avviso, «integro ma non
+interrogabile») ma `text_not_representable` (**errore**): quella riga non si può
+scrivere affatto.
+
+⚠ **Asimmetria con i numeri, e va detta:** non esistono e non possono esistere versioni
+storiche con testo rotto, perché PostgreSQL non le avrebbe accettate - mentre i numeri
+non rappresentabili *sono* entrati prima della correzione. Il controllo sul modello
+relazionale è quindi irraggiungibile dalla testa, e serve perché `validate_model` gira
+anche su modelli che non vengono dal database, e perché la fase 2C deve fermarsi lì
+invece di scoprirlo da un errore di psycopg a metà transazione.
+
+Implementazione: `backend/app/inventory/{json_numbers,json_strings,representable}.py`;
+test `test_json_numbers.py` e `test_json_strings.py` (puri, la previsione),
+`test_snapshot_numbers_pg.py` e `test_snapshot_strings_pg.py` (PostgreSQL reale,
+l'oracolo).
 
 **Rifiutare, non ripulire in silenzio.** Uno scarto silenzioso nasconde un client vecchio,
 una migrazione dimenticata o un tentativo — e in tutti e tre i casi si vuole saperlo. E
@@ -1377,7 +1535,7 @@ Ordine, che è la sostanza e non una preferenza:
 
 | # | Passo | Nota |
 |---|---|---|
-| 1 | schema del documento e limite di dimensione | **prima** del database: un documento malformato non deve prendere un lock |
+| 1 | schema del documento, limite di dimensione, **fedeltà numerica** (§8.16) | **prima** del database: un documento malformato non deve prendere un lock — provato con la testa bloccata da un'altra transazione |
 | 2 | canonicalizzazione del candidato | §8.14 |
 | 3 | lock e caricamento della testa | `SELECT … FOR UPDATE` |
 | 4 | confronto con `baseVersion` | race-free grazie al lock |
@@ -3116,8 +3274,11 @@ SQL gli avvisi cambierebbero senza che nessuno abbia cambiato niente.
   passo 3 aborta dicendo esattamente questo, invece di ricalcolare il digest in
   silenzio — che sarebbe coprire il caso in cui un'istantanea immutabile non
   corrisponde al suo digest. Il difetto a monte (un `PUT` con quei numeri restituisce
-  al client un documento diverso da quello inviato) resta **aperto**: il posto dove
-  si chiude è la validazione dello schema congelato, non qui.
+  al client un documento diverso da quello inviato) è stato **chiuso subito dopo**,
+  dove andava chiuso: nella validazione dello schema congelato (§8.16, invariante del
+  magazzino). Da allora un documento così non diventa più una versione; quelle
+  scritte prima restano, e su una testa così la ricostruzione aborta — che è la
+  diagnosi corretta, non un guasto della proiezione.
 
 Più il difetto trovato dal primo tentativo: la riga di stato era scritta **alla
 fine**, e sembrava più prudente — «nessuna riga dichiara una proiezione fedele finché
@@ -3296,6 +3457,17 @@ passerebbe senza dimostrare niente.
     ✔ **fatto** — `0011_projection`, `app/inventory/projection.py`,
     `backend/scripts/project.py`, `test_projection_pg.py`. Le versioni storiche non
     si riscrivono, e niente consuma la proiezione.
+14-bis. ~~**Fedeltà numerica dell'istantanea** (§8.16): un documento accettato deve
+    essere rileggibile identico da JSONB, o si rifiuta con
+    `json_number_not_roundtrippable` prima di qualunque scrittura~~ ✔ **fatto** —
+    `app/inventory/json_numbers.py`, `test_json_numbers.py`,
+    `test_snapshot_numbers_pg.py`. Chiude il difetto che il confronto dei digest
+    della fase 2B aveva reso visibile.
+14-ter. ~~**Fedeltà testuale dell'istantanea** (§8.16): valori **e chiavi**, con
+    la stessa capability condivisa dalla mappa relazionale~~ ✔ **fatto** —
+    `app/inventory/{json_strings,representable}.py`, `test_json_strings.py`,
+    `test_snapshot_strings_pg.py`. Chiude il 500 che PostgreSQL restituiva per un
+    byte NUL o un surrogato spaiato in un nome.
 15. **Fase 2C**: il `PUT` sincronizza le tabelle e inserisce istantanea, audit e
     riferimenti alle foto in una transazione sola. **Prossimo commit.**
 16. **Fase 2D**: il `GET` assembla da SQL, solo dopo che la rappresentazione in

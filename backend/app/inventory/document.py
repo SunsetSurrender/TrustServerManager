@@ -14,6 +14,25 @@ ciò che c'è nel database.
 La migrazione legacy **può** consumare e togliere quei campi: è il suo lavoro.
 Il repository normale non li persiste mai.
 
+L'invariante del magazzino
+--------------------------
+    Ogni VALORE e ogni CHIAVE accettati dal `PUT` normale devono essere
+    rappresentabili senza perdite da PostgreSQL JSONB, secondo la semantica del
+    digest canonico del repository.
+
+Cioè: `documento accettato == documento riletto da PostgreSQL`. Era falsa, in due
+modi diversi, e le due correzioni sono due implementazioni dello stesso invariante
+(`representable.py` le applica in una visita sola):
+
+    numeri   PostgreSQL cambiava il valore in SILENZIO (`-0.0` → `0.0`,
+             `1e+20` → intero) e il digest registrato non corrispondeva più
+    testo    PostgreSQL RIFIUTA (NUL, surrogati spaiati), quindi l'`INSERT`
+             falliva a metà del salvataggio: un 500 invece di un 422
+
+Da qui il rifiuto in ingresso invece del ricalcolo del digest a posteriori — che
+avrebbe registrato come «accettato» un documento diverso da quello inviato — e
+invece della ripulitura del testo, che è la stessa cosa fatta a un nome.
+
 Riferimento: BACKEND-PLAN.md §8.16.
 """
 from __future__ import annotations
@@ -25,6 +44,12 @@ from typing import Any
 
 from app.identity import CURRENT_SCHEMA_VERSION, UUID_RE, validate_document
 from app.identity.schema import check_schema_version
+from app.inventory.representable import (
+    JSON_NUMBER_NOT_ROUNDTRIPPABLE,
+    JSON_STRING_NOT_ROUNDTRIPPABLE,
+    MAX_REPORTED,
+    unrepresentable_items,
+)
 
 #: Chiavi ammesse alla radice del documento. Allowlist, non denylist: una chiave
 #: nuova va aggiunta di proposito, insieme al codice che la gestisce.
@@ -58,6 +83,12 @@ INVALID_PHOTO_REFERENCE = "invalid_photo_reference"
 SCHEMA_VERSION_CHANGED = "schema_version_changed"
 DOCUMENT_TOO_LARGE = "document_too_large"
 NOT_AN_OBJECT = "not_an_object"
+#: Riesportati: i codici vivono accanto alle regole che li producono
+#: (`json_numbers.py`, `json_strings.py`) e si nominano da qui perché sono errori
+#: dello schema congelato come gli altri. Sono due implementazioni dello STESSO
+#: invariante — vedi `representable.py`.
+NUMBER_NOT_ROUNDTRIPPABLE = JSON_NUMBER_NOT_ROUNDTRIPPABLE
+STRING_NOT_ROUNDTRIPPABLE = JSON_STRING_NOT_ROUNDTRIPPABLE
 
 _DATA_URL = re.compile(r"^\s*data:", re.IGNORECASE)
 
@@ -106,16 +137,55 @@ def validate_normal_document(
         return [DocumentError(NOT_AN_OBJECT,
                               f"il documento non è un oggetto: {type(doc).__name__}")]
 
-    # ---- dimensione ----
-    try:
-        size = len(json.dumps(doc, ensure_ascii=False).encode("utf-8"))
-    except (TypeError, ValueError) as exc:
-        return [DocumentError(NOT_AN_OBJECT, f"documento non serializzabile: {exc}")]
-    if size > max_bytes:
+    # ---- rappresentabilità: numeri e testo, valori E chiavi ----
+    #
+    # ⚠ PRIMA di tutto il resto, compresa la misura, e la ragione è precisa: il
+    # calcolo della dimensione serializza il documento in UTF-8, e una stringa con un
+    # surrogato spaiato **non è codificabile**. Quel `try` catturerebbe
+    # l'`UnicodeEncodeError` (che è una `ValueError`) e restituirebbe
+    # `not_an_object` — «il documento non è un oggetto» per un documento che è un
+    # oggetto, con la causa vera persa per strada.
+    #
+    # ⚠ E prima di qualunque accesso al database: un documento rifiutato non deve
+    # lasciare stato né aspettare il lock della testa. `save` chiama questa funzione
+    # al passo 1 (§8.11), e un test lo prova tenendo il lock da un'altra transazione.
+    unrepresentable, remaining = unrepresentable_items(doc)
+    for item in unrepresentable:
+        errors.append(DocumentError(item.code, item.message, path=item.path))
+    if remaining:
         errors.append(DocumentError(
-            DOCUMENT_TOO_LARGE,
-            f"documento di {size} byte, limite {max_bytes}. Ogni versione è una riga "
-            f"in append-only: le foto vanno fuori dal documento (§8.5)."))
+            unrepresentable[0].code,
+            f"e altri {remaining} valori non rappresentabili: elencati i primi "
+            f"{MAX_REPORTED}. L'errore indica i campi, non ristampa il documento "
+            f"inviato."))
+
+    # ---- dimensione ----
+    #
+    # ⚠ Si misura SOLO se il documento è rappresentabile, e non è pigrizia: misurare
+    # vuol dire serializzare in UTF-8, e una stringa con un surrogato spaiato non è
+    # codificabile. Su un documento così questo blocco aggiungeva `not_an_object`
+    # accanto al codice giusto — «il documento non è un oggetto» per un documento che
+    # è un oggetto: due codici per una causa, e uno dei due falso.
+    #
+    # Un documento che non si può nemmeno serializzare non ha una dimensione da
+    # confrontare, e il motivo per cui non si può è già stato riportato con precisione.
+    if not unrepresentable:
+        try:
+            size = len(json.dumps(doc, ensure_ascii=False).encode("utf-8"))
+        except (TypeError, ValueError) as exc:
+            # Resta per i casi che le due regole non coprono: un valore che non è
+            # JSON affatto (un `set`, un oggetto qualsiasi), possibile solo da un
+            # chiamante interno.
+            errors.append(DocumentError(
+                NOT_AN_OBJECT,
+                f"documento non serializzabile: {type(exc).__name__}"))
+        else:
+            if size > max_bytes:
+                errors.append(DocumentError(
+                    DOCUMENT_TOO_LARGE,
+                    f"documento di {size} byte, limite {max_bytes}. Ogni versione è "
+                    f"una riga in append-only: le foto vanno fuori dal documento "
+                    f"(§8.5)."))
 
     # ---- chiavi di radice ----
     for key in doc:

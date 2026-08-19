@@ -551,18 +551,26 @@ check("i vani restano JSONB e non una tabella",
 #: Chi non deve nemmeno poter raggiungere la proiezione: le rotte, l'avvio, il
 #: worker. Lo scheduler sta in `app/notifications/worker.py`.
 #:
-#: ⚠ `app/api/health.py` è ESCLUSO dal divieto a partire dalla fase 2C, e non è un
-#: allentamento: la readiness deve sapere se la proiezione rispecchia la testa,
-#: perché da questa fase un backend con una proiezione vecchia rifiuta tutte le
-#: scritture (§8.44). Ha un controllo suo, più stretto, qui sotto: può guardare lo
-#: STATO e non può riassemblare.
+#: ⚠ Due file sono ESCLUSI dal divieto generale, e ognuno ha un controllo PROPRIO più
+#: stretto qui sotto. Il divieto non si è allentato di fase in fase: si è specializzato.
+#:
+#:   - `app/api/health.py`, dalla fase 2C: la readiness deve sapere se la proiezione
+#:     rispecchia la testa, perché da quella fase un backend con una proiezione
+#:     vecchia rifiuta tutte le scritture (§8.44). Può guardare lo STATO, non può
+#:     riassemblare;
+#:   - `app/api/inventory.py`, dalla fase 2D: il `GET` LEGGE la proiezione, ed è il
+#:     senso della fase (§8.45). Deve chiamare `current_document` e NON deve
+#:     restituire l'istantanea immutabile — che è il controllo che un test di
+#:     comportamento non sa fare, perché un ripiego sul JSON produrrebbe la risposta
+#:     giusta proprio nei casi in cui è sbagliato averla.
 READINESS = ROOT / "backend" / "app" / "api" / "health.py"
+INVENTORY_ROUTE = ROOT / "backend" / "app" / "api" / "inventory.py"
 CONSUMERS_FORBIDDEN = [
     p for p in (
         sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
         + sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py"))
         + [ROOT / "backend" / "app" / "main.py"]
-    ) if p != READINESS
+    ) if p not in (READINESS, INVENTORY_ROUTE)
 ]
 
 consumatori = []
@@ -573,9 +581,9 @@ for path in CONSUMERS_FORBIDDEN:
     for table in NORMALISED_TABLES:
         if table in source:
             consumatori.append(f"{path.name}: nomina {table}")
-check("né le rotte dell'inventario né il worker leggono la proiezione",
+check("solo la rotta dell'inventario e la readiness raggiungono la proiezione",
       not consumatori,
-      f"il passaggio della lettura è la fase 2D: {consumatori}")
+      f"lo scheduler delle notifiche, l'avvio e le altre rotte no: {consumatori}")
 
 # --- la readiness: può chiedere lo STATO, non può ricostruire ---
 readiness_src = code_only(READINESS)
@@ -1202,14 +1210,8 @@ check("la 0012 non è una migrazione di dati",
       "la ricostruzione resta un comando esplicito del proprietario, che una persona "
       "esegue e di cui LEGGE l'esito")
 
-# --- ciò che la fase 2C NON fa ---
-inventory_route = code_only(ROOT / "backend" / "app" / "api" / "inventory.py")
-check("`GET /api/inventory` non è passato a SQL",
-      all(t not in inventory_route for t in NORMALISED_TABLES)
-      and "assemble" not in inventory_route and "read_model" not in inventory_route,
-      "un GET che assembla male restituisce un documento plausibile, il client lo "
-      "rimanda con un PUT, e la differenza diventa una versione nuova con un "
-      "contenuto che nessuno ha scritto. Il passaggio è la fase 2D")
+# --- ciò che la fase 2C NON faceva, e che la 2D fa (vedi §15) ---
+inventory_route = code_only(INVENTORY_ROUTE)
 worker_sources = "".join(
     code_only(p) for p in sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py")))
 check("lo scanner delle scadenze non è passato alle colonne derivate",
@@ -1232,6 +1234,237 @@ check("l'errore della precondizione ha un codice stabile e diventa 503",
           ROOT / "backend" / "app" / "api" / "errors.py"),
       "la richiesta era valida: è il backend che si rifiuta di operare, e chi legge "
       "il log di un 503 deve poter sapere quale comando lo risolve")
+
+
+# ==================================================================
+# 15. fase 2D: la LETTURA viene da SQL, e non c'è ripiego (§8.45)
+# ==================================================================
+#
+#     `GET /api/inventory` restituisce il documento riassemblato dalle tabelle
+#     normalizzate. L'istantanea JSONB resta la storia e il GIUDICE, non un ripiego.
+#
+# I test lo provano dal comportamento su PostgreSQL vero, manomettendo l'istantanea e
+# corrompendo le tabelle. Qui si copre ciò che un test non sa provare, e in questa
+# fase la differenza è particolarmente netta: un ripiego sull'istantanea produrrebbe
+# la risposta GIUSTA in tutti i casi normali. Nessun test di comportamento
+# distinguerebbe «legge le tabelle» da «legge le tabelle, e se qualcosa non torna
+# legge il JSON» — l'unico modo è guardare il codice.
+
+def signature_source(path, name) -> str:
+    """Solo la FIRMA di una funzione. `function_source` restituisce il corpo.
+
+    Serve perché due proprietà di questa fase stanno nella firma e non nel corpo: da
+    quali dipendenze la rotta dipende, e in che ordine sono dichiarate.
+    """
+    import ast
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == name:
+            return ast.unparse(node.args)
+    return ""
+
+
+def handlers_never_return(path, name) -> bool | None:
+    """Nessun `except` di questa funzione RESTITUISCE qualcosa. `None` se non c'è.
+
+    ⚠ È il controllo che un test di comportamento non sa fare, e in questa fase è il
+    più importante di tutti. Cercare la parola `except` non serve: il gestore che c'è
+    è la mappa degli errori (`raise http_error_for`), e deve esserci. Ciò che non deve
+    esistere è un gestore che, invece di sollevare, RESTITUISCE un documento — cioè un
+    ripiego sull'istantanea. Quel ripiego produrrebbe la risposta giusta in tutti i
+    casi normali, quindi nessun test lo distinguerebbe dal comportamento corretto.
+
+    `None` invece di `True` quando la funzione non esiste: un controllo che passa
+    perché non ha trovato niente da guardare è il modo di non accorgersi di un
+    rinominamento.
+    """
+    import ast
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == name:
+            for handler in (h for n in ast.walk(node)
+                            if isinstance(n, ast.ExceptHandler) for h in [n]):
+                if any(isinstance(s, ast.Return) for s in ast.walk(handler)):
+                    return False
+            return True
+    return None
+
+
+errors_src = code_only(ROOT / "backend" / "app" / "inventory" / "errors.py")
+api_errors_src = code_only(ROOT / "backend" / "app" / "api" / "errors.py")
+deps_src = code_only(ROOT / "backend" / "app" / "api" / "deps.py")
+get_fn = function_source(INVENTORY_ROUTE, "get_inventory")
+get_sig = signature_source(INVENTORY_ROUTE, "get_inventory")
+current_fn = function_source(
+    ROOT / "backend" / "app" / "inventory" / "projection.py", "current_document")
+
+# --- la fonte è la proiezione ---
+#
+# ⚠ Due condizioni, non una: la rotta la CHIAMA e la funzione ESISTE. Cercare soltanto
+# la chiamata lasciava passare la rinominazione della funzione — il controllo restava
+# verde perché la rotta continuava a nominare qualcosa che non c'era più. Gli altri
+# controlli di questa sezione fallivano (leggono `current_fn`, che diventa vuoto),
+# quindi lo strumento nel suo insieme reagiva; ma il controllo che dice «la lettura
+# viene dalla proiezione» diceva sì. È lo stesso difetto del guardiano di presenza in
+# `ordered()`, trovato allo stesso modo: mutando.
+check("il GET dell'inventario riassembla dalla proiezione",
+      bool(current_fn) and "projection.current_document" in get_fn,
+      "è il senso della fase 2D: le tabelle normalizzate sono lo stato corrente "
+      "autorevole, e il documento si costruisce da loro")
+check("il GET non legge più il documento immutabile",
+      all(t not in get_fn for t in ("get_current(", "get_version(", "snapshot.doc",
+                                    "InventoryRepository")),
+      "restituire l'istantanea era la fase 2C. Lasciarne la strada aperta "
+      "significherebbe poterci ripiegare in caso di dubbio, e il ripiego nasconde "
+      "esattamente il difetto che la fase 2 esiste per scoprire")
+check("nemmeno la funzione di lettura deserializza l'istantanea",
+      "SELECT canonical_sha256 FROM inventory_versions" in current_fn
+      and "doc FROM inventory_versions" not in current_fn
+      and ".doc" not in current_fn,
+      "di `inventory_versions` legge il DIGEST, che è metadato e serve da giudice. "
+      "Il documento no: se lo avesse in mano potrebbe restituirlo")
+check("il riassemblaggio passa dalla mappa già provata",
+      all(t in current_fn for t in ("read_model", "assemble", "canonical_sha256",
+                                    "validate_model", "require_current")),
+      "nessuna seconda implementazione della lettura: quella che c'è è provata da "
+      "`test_relational_mapper.py` e dalla scrittura doppia")
+
+# L'ORDINE dentro la funzione: la precondizione di attualità costa tre query, il
+# riassemblaggio costa tutto il resto. Ma soprattutto è ciò che separa i due codici
+# d'errore, e chi opera legge quello per sapere se `--rebuild` è la risposta.
+check("l'attualità si pretende PRIMA di leggere le righe",
+      ordered(current_fn, "require_current", "read_model"),
+      "farlo dopo confonderebbe «la proiezione non è mantenuta» (rimedio: "
+      "`--rebuild`) con «la proiezione mente» (rimedio: indagare, NON ricostruire)")
+check("la coerenza del modello si controlla PRIMA di servire",
+      ordered(current_fn, "validate_model", "return CurrentDocument"),
+      "è l'unico controllo che vede le colonne DERIVATE, a cui il digest è cieco: "
+      "senza, una `garanzia_date` sbagliata uscirebbe indisturbata")
+check("il digest si confronta con DUE riferimenti indipendenti",
+      "!= recorded" in current_fn and "!= declared.projected_sha256" in current_fn,
+      "quello registrato nell'istantanea e quello che la proiezione dichiara di aver "
+      "verificato: se un giorno l'attualità si allentasse, questo reggerebbe da solo")
+
+# --- nessun ripiego, in nessuna forma ---
+check("nessun gestore d'errore del GET restituisce un documento",
+      handlers_never_return(INVENTORY_ROUTE, "get_inventory") is True,
+      "il gestore che c'è DEVE esserci — è la mappa degli errori — ma se invece di "
+      "sollevare restituisse l'istantanea, l'applicazione sembrerebbe funzionante e "
+      "la fase 2 sarebbe inutile: l'utente vedrebbe l'inventario giusto e nessuno "
+      "aprirebbe un ticket. Nessun test di comportamento lo distinguerebbe")
+check("il pacchetto inventory continua a NON riesportare `projection`",
+      "projection" not in code_only(
+          ROOT / "backend" / "app" / "inventory" / "__init__.py"),
+      "chi le serve la importa per nome, così un import scritto per distrazione "
+      "resta impossibile da un modulo qualunque")
+
+# --- lo snapshot coerente, che è il cuore della concorrenza ---
+# ⚠ Senza le virgolette esterne: `ast.unparse` normalizza i letterali di stringa, e
+# cercare `isolation_level="REPEATABLE READ"` falliva perché la ricostruzione scrive
+# gli apici singoli. È la trappola documentata in `code_only`, e ci sono cascato di
+# nuovo — quindi vale la pena che resti scritto accanto al controllo.
+snapshot_fn = function_source(ROOT / "backend" / "app" / "api" / "deps.py",
+                             "snapshot_connection")
+check("la lettura ha una connessione dedicata in REPEATABLE READ, READ ONLY",
+      "isolation_level=" in snapshot_fn and "REPEATABLE READ" in snapshot_fn
+      and "postgresql_readonly=True" in snapshot_fn,
+      "il GET fa sette letture: sotto READ COMMITTED un PUT che committa nel mezzo "
+      "produrrebbe un documento fatto di due versioni, o un 503 spurio a fronte di "
+      "attività normale")
+check("la rotta apre lo snapshot NEL CORPO, dopo l'autenticazione",
+      "with reader() as" in get_fn
+      and "Depends(get_snapshot_reader)" in get_sig
+      and "Depends(get_connection)" not in get_sig,
+      "una richiesta anonima non deve aprire una transazione sul database prima di "
+      "scoprire di essere un 401: è la richiesta che arriva a raffica. E la rotta non "
+      "dipende più dalla connessione della richiesta, che sarebbe inutilizzabile")
+check("l'attore è dichiarato PRIMA della fabbrica dello snapshot",
+      ordered(get_sig, "require_actor", "get_snapshot_reader"),
+      "FastAPI risolve le dipendenze nell'ordine della firma: invertirle farebbe "
+      "risolvere la fabbrica prima dell'autenticazione")
+check("la lettura NON prende lock sulla testa",
+      "FOR UPDATE" not in current_fn,
+      "una lettura che bloccasse le scritture trasformerebbe l'apertura di una "
+      "pagina in un ritardo per chi sta salvando")
+check("lo snapshot prende la connessione da un POOL SEPARATO",
+      "get_read_engine()" in snapshot_fn and "get_engine()" not in snapshot_fn,
+      "un GET tiene due connessioni insieme: prenderle dallo stesso pool è "
+      "un'acquisizione a due fasi, e con quindici GET simultanei si blocca trenta "
+      "secondi e poi scade. Vedi l'aritmetica in testa a `app/db.py`")
+read_engine_fn = function_source(ROOT / "backend" / "app" / "db.py",
+                                "get_read_engine")
+check("i due engine sono davvero due, con memoizzazioni separate",
+      "create_engine(" in read_engine_fn and "_read_engine" in read_engine_fn
+      and "get_engine()" not in read_engine_fn,
+      "restituire lo stesso oggetto da entrambe le funzioni riporterebbe lo stallo "
+      "lasciando intatti i nomi — che è il modo in cui una protezione muore senza "
+      "che nessuno la veda morire")
+check("la connessione della richiesta non viene promossa a REPEATABLE READ",
+      "isolation_level" not in function_source(
+          ROOT / "backend" / "app" / "api" / "deps.py", "get_connection"),
+      "il PUT si serializza con `SELECT ... FOR UPDATE` e traduce il perdente in un "
+      "409 pulito; in REPEATABLE READ prenderebbe invece un errore di "
+      "serializzazione del database (§8.11)")
+
+# --- i due codici d'errore ---
+check("l'incoerenza ha un codice STABILE e distinto",
+      "projection_inconsistent" in errors_src
+      and "ProjectionInconsistentError" in api_errors_src,
+      "non attuale e incoerente hanno rimedi opposti: il primo si risolve con "
+      "`--rebuild`, il secondo NO — ricostruire cancellerebbe le prove")
+check("entrambi i rifiuti sono 503 e non 4xx",
+      ordered(api_errors_src, "ProjectionNotCurrentError",
+              "HTTP_503_SERVICE_UNAVAILABLE")
+      and ordered(api_errors_src, "ProjectionInconsistentError",
+                  "HTTP_503_SERVICE_UNAVAILABLE"),
+      "la richiesta era valida: è il backend a non essere in grado di servirla")
+check("i dettagli dell'incoerenza restano nei log",
+      "log.error" in api_errors_src.split("ProjectionInconsistentError")[-1][:800],
+      "i dettagli portano i digest e, in caso di modello incoerente, i nomi dei "
+      "campi e gli `uid`: frammenti dell'inventario di un cliente (§8.21)")
+
+# --- la readiness NON è diventata il GET ---
+check("la readiness resta il confronto fra valori registrati",
+      "projection.currency(conn).current" in readiness_src
+      and all(t not in readiness_src for t in ("current_document", "read_model",
+                                               "assemble")),
+      "la sonda gira ogni pochi secondi per sempre; il GET una volta per richiesta. "
+      "La separazione dei tre costi è voluta (§12)")
+
+# --- gli strumenti del proprietario restano indipendenti ---
+project_src = code_only(ROOT / "backend" / "scripts" / "project.py")
+check("`project.py --verify` non è «chiama il GET»",
+      "current_document" not in project_src
+      and all(t not in project_src for t in ("requests", "urllib", "httpx",
+                                             "/api/inventory")),
+      "lo strumento operativo deve funzionare anche quando il GET non funziona: se "
+      "dipendesse dalla rotta, nel guasto che conta non si potrebbe usare")
+check("la verifica controlla anche l'ORACOLO, non solo l'imputato",
+      "recomputed != snapshot[1]" in proj_src,
+      "dalla fase 2D l'istantanea non è solo storia: è il riferimento contro cui "
+      "ogni GET si misura. Un `UPDATE` a mano su `doc` che lasciasse intatto il "
+      "digest passerebbe una verifica che non guarda il giudice")
+
+# --- ciò che la fase 2D NON fa ---
+check("lo scanner delle scadenze continua a leggere il documento",
+      "garanzia_date" not in worker_sources and "supporto_date" not in worker_sources,
+      "il passaggio del worker alle colonne derivate è una decisione da prendere di "
+      "proposito, con i suoi test, non un effetto collaterale della 2D")
+check("non è stato aggiunto nessun endpoint di ricerca o di capacità",
+      not [p.name for p in sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
+           if any(t in p.name for t in ("query", "search", "capacity", "expiry"))],
+      "fuori dallo scopo di questo commit")
+check("il frontend continua a non sapere che la proiezione esista",
+      all(t not in handoff for t in NORMALISED_TABLES)
+      and all(t not in handoff for t in ("garanzia_date", "supporto_date",
+                                         "mapper_version", "projection")),
+      "il contratto del frontend è il documento (§8.22), e la 2D non lo cambia")
+check("la risposta del GET ha ancora le quattro chiavi di sempre",
+      all(t in class_source(INVENTORY_ROUTE, "InventoryOut")
+          for t in ("version", "schemaVersion", "sha256", "doc")),
+      "cambiare la fonte non è cambiare il contratto")
 
 
 if __name__ == "__main__":

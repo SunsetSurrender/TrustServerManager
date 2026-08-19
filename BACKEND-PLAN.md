@@ -4064,6 +4064,382 @@ Una mutazione ha trovato un difetto nelle sonde stesse: i controlli d'ordine usa
 leggeva l'output vedeva un guasto della sonda. Ora l'ordine si verifica con un
 guardiano di presenza.
 
+### 8.45 Fase 2D: l'inventario si legge da SQL
+
+`GET /api/inventory` non restituisce più `inventory_versions.doc`. Restituisce il
+documento **riassemblato dalle tabelle normalizzate**, e lo fa solo dopo aver
+dimostrato che quel documento è la versione in testa.
+
+Il modello che ne risulta, e le quattro cose non sono ridondanti:
+
+| | ruolo |
+|---|---|
+| tabelle normalizzate | stato operativo **corrente**, autorevole |
+| `inventory_versions.doc` | storia immutabile, e **giudice** della coerenza |
+| `inventory_head` | puntatore alla revisione corrente |
+| `inventory_projection_state` | dichiarazione di *quale* testa le tabelle rappresentano |
+
+Il contratto HTTP **non cambia di una virgola**: stesse quattro chiavi
+(`version`, `schemaVersion`, `sha256`, `doc`), stesso `Cache-Control: no-store`,
+stesse restrizioni di autenticazione e di password provvisoria, nessuna modifica al
+frontend. Cambia la fonte, non la forma.
+
+#### Che cosa pretende ogni lettura
+
+Cinque passi, in `projection.current_document`, tutti dentro un solo istante del
+database:
+
+1. **la testa**: numero di versione e `canonical_sha256` **registrato**. Non il
+   documento — di `inventory_versions` si legge solo metadato;
+2. **l'attualità** (`require_current`): la proiezione deve dichiarare esattamente
+   quella coppia, con la versione della mappa corrente. Altrimenti 503
+   `projection_not_current`;
+3. **le righe** (`read_model`): le cinque tabelle più la riga di stato;
+4. **la coerenza** (`validate_model`) sul modello riletto, colonne **derivate**
+   comprese. Altrimenti 503 `projection_inconsistent`;
+5. **il giro completo**: `assemble` più digest, che deve combaciare con la testa **e**
+   con ciò che la proiezione dichiara di aver verificato quando è stata scritta.
+
+Il passo 4 non è una ripetizione del passo 5. `garanzia_date` e `supporto_date` non
+tornano nel documento: una data interpretata male lascia il documento identico byte per
+byte e il digest uguale. È il punto cieco trovato in fase 2B, e il passo 4 è l'unico
+posto in cui si vede — anche in lettura, adesso.
+
+Il passo 5 confronta con **due** riferimenti indipendenti. Il passo 2 ha già provato che
+i due combaciano, quindi formalmente è ridondante: si scrive esplicito perché se un
+giorno l'attualità si allentasse, questo reggerebbe da solo.
+
+#### Perché la verifica completa a ogni `GET`, per ora
+
+A questa scala (~200 entità identificate, 197 righe nel seed reale) costa quanto una
+query in più. In cambio, una corruzione manuale di una riga viene scoperta **prima** che
+dati di infrastruttura sbagliati arrivino a un utente. Le misure sono più sotto; se un
+giorno diventasse misurabilmente costosa, si ottimizza **da misure**, non
+preventivamente. Nessuna cache è stata introdotta.
+
+#### Due codici, e perché non uno
+
+| codice | significato | rimedio |
+|---|---|---|
+| `projection_not_current` | condizione **dichiarata**: la proiezione dice una versione vecchia, o nessuna, o una mappa che non gira più | `project.py --rebuild` |
+| `projection_inconsistent` | la dichiarazione è **falsa**: le tabelle riassemblano qualcos'altro | **indagare**, non ricostruire |
+
+Entrambi 503 — la richiesta era valida, è il backend che non è in grado di servirla — e
+in nessuno dei due casi esce un documento. I dettagli (digest, `uid`, nomi di campo)
+restano nei log: sono frammenti dell'inventario di un cliente.
+
+Appiattirli su un codice solo direbbe a chi opera «esegui `--rebuild`» anche nel secondo
+caso, dove una ricostruzione cancellerebbe le prove di una corruzione di cui non si
+conosce ancora la causa. Nessun percorso dell'applicazione può produrre il secondo
+stato: la fase 2C dimostra il giro completo dentro la transazione di ogni scrittura.
+Quindi la causa è **fuori** — una scrittura fatta a mano, un ripristino parziale, un
+guasto del supporto — oppure è un difetto della mappa.
+
+#### Nessun ripiego sull'istantanea, e perché è la decisione più importante
+
+La reazione istintiva a «il riassemblaggio non torna» sarebbe restituire il JSON
+immutabile: funzionerebbe, l'utente vedrebbe l'inventario giusto, nessuno aprirebbe un
+ticket. Ed è esattamente per questo che è vietato — il ripiego nasconde il difetto che
+tutta la fase 2 esiste per scoprire, e lo nasconde fino al giorno in cui qualcuno
+interrogherà le tabelle per una domanda importante.
+
+C'è anche un guasto peggiore da evitare: servire il documento riassemblato **sbagliato**.
+Ha la forma giusta, i campi giusti, i codici giusti — è *plausibile*. Il client lo
+rimanda con un `PUT`, e la corruzione diventa una versione nuova firmata da un utente
+che non ha modificato niente. Da qui la regola: un `GET` che non può provare il giro
+completo non restituisce niente.
+
+È anche l'unica proprietà di questa fase che un test di comportamento **non sa provare**:
+un ripiego produce la risposta giusta in tutti i casi normali. Perciò c'è un controllo
+statico che verifica, sull'albero sintattico, che nessun gestore d'errore della rotta
+`return`-i qualcosa.
+
+#### Lo snapshot coerente, che è la parte che porta il peso
+
+Un `GET` fa sette letture (testa, digest, stato, siti, sale, rack, dispositivi, voci di
+manuale, identificativi delle foto). Sotto READ COMMITTED ognuna vede un istante diverso:
+un `PUT` che committa nel mezzo produrrebbe un documento fatto di due versioni, o — più
+spesso — un 503 «proiezione incoerente» a fronte di attività perfettamente normale. Due
+persone che lavorano sullo stesso CED lo producono da sole.
+
+Quindi la lettura gira in una transazione **`REPEATABLE READ, READ ONLY`**, e su una
+**connessione dedicata**. La connessione della richiesta non è utilizzabile, per tre
+ragioni indipendenti:
+
+- ha già aperto la transazione e l'autenticazione ci ha già eseguito degli statement:
+  l'isolamento si dichiara prima del primo statement;
+- `READ ONLY` la escluderebbe comunque, perché `resolve_session` **scrive**
+  (`last_seen_at`) a ogni richiesta e per progetto (§8.26);
+- promuovere *tutte* le richieste a REPEATABLE READ romperebbe il salvataggio: il `PUT`
+  si serializza con `SELECT … FOR UPDATE` e traduce il perdente in un 409 pulito; in
+  REPEATABLE READ prenderebbe invece un errore di serializzazione del database (§8.11).
+
+Nessun lock sulla testa: una lettura non deve fermare una scrittura. E `READ ONLY` non è
+decorativo — è PostgreSQL a rifiutare qualunque scrittura su quella transazione, quindi
+un difetto futuro che provasse a scrivere mentre serve una lettura verrebbe fermato dal
+database.
+
+#### Due connessioni per un `GET`, e il pool che deve essere due
+
+Costo dichiarato: un `GET` tiene **due connessioni insieme** (una per l'autenticazione,
+una per lo snapshot). Da questo segue un difetto che si scopre facendo l'aritmetica, e
+che in produzione si presenterebbe soltanto sotto carico.
+
+Con un pool solo è la classica **acquisizione a due fasi**. Capienza predefinita di
+SQLAlchemy: `pool_size=5` + `max_overflow=10` = 15. Threadpool di Starlette per gli
+endpoint sincroni: 40 lavoratori. Quindici `GET` simultanei prendono tutte e quindici le
+connessioni per autenticarsi, poi aspettano tutti la seconda — e a liberarne una dovrebbe
+essere qualcuno che è già in attesa. Trenta secondi di blocco, poi il timeout del pool.
+
+Quindi lo snapshot viene da un **engine separato** (`get_read_engine()`), con il suo
+pool. Così l'attesa non si chiude in cerchio: i portatori della prima connessione sono al
+massimo quanti la capienza del primo pool, e il secondo pool ne ha altrettante. Da cui
+l'invariante:
+
+    capienza(pool di lettura) >= capienza(pool delle richieste)
+
+C'è un test che la controlla, e ce n'è un altro che **dimostra lo stallo**: riducendo
+entrambi i pool a una connessione, un `GET` riesce con due pool e fallisce con uno.
+
+⚠ Anche questo era sbagliato nella prima stesura del test, e nella direzione peggiore.
+Con `require_actor` sostituito da una lambda, `get_connection` non viene risolta affatto
+— FastAPI risolve solo le dipendenze che servono — quindi il `GET` teneva una connessione
+sola e il test dichiarava che lo stallo non esisteva. Serve una **sessione vera**: è la
+catena `require_actor → current_user → get_connection` a tenere la prima connessione.
+
+#### Tre domande, tre costi, e la separazione è voluta
+
+| | che cosa verifica | quanto costa | quando gira |
+|---|---|---|---|
+| readiness | versione, digest, versione della mappa | tre confronti fra valori registrati | ogni pochi secondi, per sempre |
+| `GET /api/inventory` | il giro completo | un riassemblaggio | una volta per richiesta |
+| `project.py --verify` | il giro completo, su richiesta | un riassemblaggio | quando una persona lo chiede |
+
+La conseguenza va detta esplicitamente, perché sembra una lacuna e non lo è: **una
+colonna corrotta a mano lascia la readiness verde** e fa cadere il `GET`. La readiness
+guarda ciò che è dichiarato; la fedeltà la verifica ogni `GET` per conto proprio.
+
+E `project.py` resta **indipendente dalla rotta**. La tentazione sarebbe far diventare
+`--verify` una chiamata a `GET /api/inventory`, che ormai fa la stessa verifica: sarebbe
+meno codice e sarebbe sbagliato. Uno strumento diagnostico che dipende dal servizio che
+deve diagnosticare non si può usare nel guasto che conta.
+
+L'invariante operativa da controllare dopo un aggiornamento:
+
+    `GET` risponde 200  ∧  `--verify` esce 0  ∧  GET.sha256 == digest della testa
+
+#### Il ripristino di una versione precedente
+
+Non esiste un percorso di ripristino, e non deve esistere: si rilegge il documento
+storico e si **salva**. Passa dal salvataggio normale, quindi eredita gratuitamente
+l'invariante della scrittura doppia, la validazione dell'identità, l'audit e i
+riferimenti alle foto — e non c'è una seconda implementazione che possa restare
+indietro.
+
+Un ripristino crea una versione **nuova**: le righe storiche non si toccano mai. La foto
+della versione abbandonata resta protetta dai suoi riferimenti storici anche quando lo
+stato corrente non la monta più — confondere la foto corrente
+(`inventory_racks.photo_id`) con la raggiungibilità storica (`inventory_photo_refs`)
+farebbe cancellare la foto di una versione passata appena il rack ne monta un'altra
+(§8.5).
+
+#### Una correzione a `--verify`
+
+`verify` confrontava la proiezione col digest **registrato** nella versione, senza
+verificare che quel digest descrivesse ancora il documento che gli sta accanto. Era un
+buco preciso: un `UPDATE` a mano su `inventory_versions.doc` che lasciasse intatto il
+digest passava la verifica — l'imputato assolto perché il giudice era stato corrotto.
+`rebuild` quel controllo lo faceva da sempre. Dalla fase 2D conta di più, perché
+l'istantanea non è solo storia: è il riferimento contro cui ogni `GET` si misura.
+
+#### Che cosa la fase 2D NON fa
+
+Endpoint di ricerca SQL, endpoint di capacità, endpoint di scadenze su SQL, lettura del
+worker delle notifiche dalle colonne derivate, pulizia dei dati di produzione, bootstrap
+finale, deployment. Lo scanner delle scadenze continua a leggere il **documento**, e c'è
+un test che lo dimostra corrompendo le colonne derivate e verificando che trovi ancora le
+stesse scadenze.
+
+### 8.45.1 Prestazioni misurate
+
+Percorso completo — client HTTPS → nginx/TLS → FastAPI → PostgreSQL → assemblaggio
+relazionale → canonicalizzazione e digest → risposta JSON. Stack Compose reale su un
+host solo, `uvicorn` con **un** lavoratore (come in produzione), trenta letture per il
+seed e venti per ciascuna scala sintetica.
+
+| scala | righe | documento | mediana | p95 | min–max |
+|---|---|---|---|---|---|
+| **seed di produzione** | 197 | 42 KiB | **39 ms** | 44 ms | 26–50 ms |
+| ×5 | 985 | 212 KiB | 99 ms | 123 ms | 74–150 ms |
+| ×15 | 2 955 | 636 KiB | 265 ms | 343 ms | 228–413 ms |
+| ×40 | 7 880 | 1 695 KiB | 1 024 ms | 1 357 ms | 920–3 406 ms |
+
+Alla scala che ci riguarda — il seed vero, 3 siti / 6 sale / 102 rack / 86 dispositivi
+— la verifica completa a ogni `GET` costa **39 ms mediani**. Non c'è niente da
+ottimizzare, e non si ottimizza: nessuna cache è stata introdotta.
+
+#### Dove vanno i millisecondi (misurato dentro il container, al ×40)
+
+| parte | tempo | quota |
+|---|---|---|
+| `read_model` — le sette letture SQL | 150 ms | 18% |
+| **`validate_model`** | **594 ms** | **70%** |
+| `assemble` | 27 ms | 3% |
+| digest (canonicalise + dumps + sha256) | 73 ms | 9% |
+| totale `current_document` | 820 ms | |
+
+Il costo **non** è SQL e **non** è il digest: è l'82% Python, e dentro quell'82% è
+quasi tutto `validate_model`. È l'informazione che serve il giorno in cui servisse —
+ottimizzare il digest o le query darebbe il 27% nel caso migliore.
+
+#### Perché la concorrenza non aiuta, misurato
+
+Dieci `GET` in parallelo al ×40: **9,9 s** in totale contro 1,2 s per una lettura
+sola, cioè 8,2× — praticamente nessun parallelismo. La causa **non** è la
+serializzazione per sessione, che era la prima ipotesi: dieci letture da dieci
+sessioni diverse danno lo stesso numero di dieci letture dalla stessa (9,9 s contro
+9,5 s). È il GIL, con un lavoratore `uvicorn` e un carico all'82% Python.
+
+Alla scala di produzione la stessa misura non è un problema (39 ms per lettura), e
+per un CED con una manciata di operatori non lo diventa. Se un giorno lo diventasse,
+la leva è `--workers` — non una cache.
+
+#### Il termine quadratico in `validate_model`
+
+Misurato, non dedotto. `_check_collection` viene invocata per ogni rack con
+`[d for d in model.devices if d.rack_uid == K.uid]`: una scansione di **tutti** i
+dispositivi per **ogni** rack, e lo stesso per le sale sui rack. È un termine
+O(rack × dispositivi).
+
+La prova è che a **parità di righe** il tempo dipende dalla FORMA:
+
+| forma | righe | `validate_model` |
+|---|---|---|
+| 4 rack × 500 dispositivi | 2 004 | 41 ms |
+| 20 rack × 100 dispositivi | 2 020 | 40 ms |
+| 100 rack × 20 dispositivi | 2 100 | 44 ms |
+| 500 rack × 4 dispositivi | 2 500 | 68 ms |
+| 2 000 rack × 1 dispositivo | 4 000 | 157 ms |
+
+Le righe raddoppiano, il tempo quadruplica: il prodotto `rack × dispositivi` passa da
+8 000 a 4 000 000. Con un dispositivo per rack l'esponente misurato sulle righe sale
+da 1,16 (250 rack) a 1,50 (2 000 rack), cioè il termine quadratico prende il
+sopravvento.
+
+**Non si ottimizza ora**, e non è una svista:
+
+- alla scala di produzione il prodotto è 102 × 86 = 8 772, cioè il caso da 40 ms della
+  tabella qui sopra, dentro un `GET` da 39 ms totali. Non c'è un problema da risolvere;
+- non è codice della 2D. `validate_model` è della 2B (§8.42) e il percorso di
+  **scrittura** lo paga già a ogni `PUT`: ottimizzarlo qui non sarebbe una modifica
+  del percorso di lettura, sarebbe una modifica di una funzione condivisa e provata,
+  fatta senza un problema che la motivi.
+
+Se un giorno servisse, la correzione è locale e ovvia: indicizzare i figli per
+genitore una volta (`dict` da `rack_uid` a lista) invece di riscandire. Sta scritto
+qui perché il giorno in cui qualcuno misurerà di nuovo, questa è la prima cosa da
+guardare — e non la si deve riscoprire.
+
+### 8.45.2 Come è verificato
+
+`tests/test_get_from_sql_pg.py` — 66 test su PostgreSQL vero, nessuno saltato:
+
+- **il meccanismo**: si chiede a PostgreSQL in che isolamento sta girando
+  (`SHOW transaction_isolation`, `SHOW transaction_read_only`), si prova a scrivere e si
+  pretende che il **database** rifiuti, e si verifica che la connessione tornata nel pool
+  non resti di sola lettura — se lo restasse, un `PUT` fallirebbe a intermittenza in
+  produzione con un errore che non nomina la causa;
+- **il pool**: l'invariante di capienza, e la dimostrazione dello stallo con entrambi i
+  pool ridotti a una connessione — con due pool il `GET` riesce, con uno risponde 503
+  `unavailable` (esaurimento di risorse, non un problema dei dati: la distinzione conta
+  per chi legge i log);
+- **ogni documento** di prova (ventiquattro: seed di produzione, scadenze, voci di
+  manuale, geometria di sala con vani e porte, campi ignoti in `extra`, valori falsi
+  espliciti, `foto: null` esplicito, `seriali` di tipi misti, date rotte, enum fuori
+  vocabolario, `id` duplicati nello stesso rack, codici scambiati, riordini, numeri
+  ostili, interi fuori scala) viene servito e confrontato **byte per byte** con
+  l'istantanea;
+- **la prova diretta della fase**: si manomette `inventory_versions.doc` lasciando
+  intatto il suo digest, e il `GET` restituisce il nome **vero** — quello delle tabelle.
+  Se leggesse l'istantanea, restituirebbe la manomissione;
+- **il giro del client**: leggere e risalvare lo stesso documento è un no-op, su tutte le
+  fixture. Se il riassemblaggio differisse anche in un solo campo, ogni apertura di
+  pagina creerebbe una versione nuova con un contenuto che nessuno ha scritto;
+- **la precondizione**: stato assente, vecchio di versione, vecchio di digest, mappa
+  non supportata, mappa `NULL` della 2B, inventario mai inizializzato (che ha il suo
+  codice, `not_bootstrapped`), e il rimedio che ripristina la lettura;
+- **la corruzione manuale**, da proprietario dello schema: colonna tipizzata, `extra`,
+  ordinale (scambiato in un `UPDATE` unico, perché il vincolo è
+  `DEFERRABLE INITIALLY IMMEDIATE`), genitore, metadati di radice, `root_extra`, riga
+  cancellata, e una proiezione **interamente** di un altro documento;
+- **il punto cieco**, con la dimostrazione e non con l'affermazione: si corrompe
+  `garanzia_date`, si **verifica che il digest sia ancora quello della testa** — cioè che
+  il controllo dei digest sia davvero cieco a questa corruzione — e solo dopo si pretende
+  il 503. Senza il primo passo il test potrebbe passare perché la corruzione ha cambiato
+  il documento, cioè provando qualcos'altro;
+- **la concorrenza**: il `GET` fermato fra la lettura della testa e quella delle tabelle
+  mentre un altro utente committa la versione N+1, con la pretesa di un documento N
+  completo e coerente; la prova che il `PUT` **committa dentro la pausa** (se il `GET` lo
+  bloccasse, il test andrebbe in stallo); e venticinque letture sotto scritture continue,
+  ognuna coerente con sé stessa;
+- **il ripristino**: v1 con FOTO_A, v2 con FOTO_B, v3 un'altra modifica, ripristino a v1
+  → nasce v4, la proiezione porta FOTO_A, la storia è intatta e FOTO_B resta protetta;
+- **il contratto**: 401 senza autenticazione (con l'inventario *non* inizializzato, così
+  un ordine invertito rivelerebbe lo stato del servizio a chi non è autenticato), 403 con
+  password provvisoria — esercitando la dipendenza vera e non un doppio — le quattro
+  chiavi, i tipi, `Cache-Control: no-store`;
+- **la separazione dei costi**: la readiness resta verde su una colonna corrotta mentre
+  il `GET` cade. Se diventasse 503 anche lì, avrebbe cominciato a fare il lavoro del
+  `GET` a ogni sonda.
+
+Le **18 mutazioni**: dodici sul comportamento (il `GET` che torna a leggere l'istantanea,
+la precondizione non pretesa, il confronto del digest disattivato, la coerenza del
+modello non controllata, l'isolamento a READ COMMITTED, la sola lettura non dichiarata,
+un ripiego sull'istantanea aggiunto, la readiness che riassembla, `--verify` che non
+controlla l'oracolo, la scrittura doppia interrotta, lo snapshot che torna al pool
+delle richieste, i due engine che diventano lo stesso oggetto) e sei sui controlli
+statici.
+
+Una mutazione ha trovato un difetto in un controllo statico: cercare
+`projection.current_document` nella **rotta** restava verde quando la funzione veniva
+rinominata, perché la rotta continuava a nominare qualcosa che non c'era più. Ora il
+controllo pretende anche che la funzione esista. È lo stesso difetto del guardiano di
+presenza in `ordered()`, trovato allo stesso modo: mutando.
+
+E una l'ha trovato in un test: la sostituzione di `read_model` per fermare il `GET` a
+metà veniva rieseguita dal `PUT` concorrente (che passa da `synchronise`, che chiama
+`read_model`), quindi ogni scrittore ne avviava un altro e il secondo restava in attesa
+del lock del primo — stallo, e un 503 generico che accusava il codice invece del test.
+
+⚠ E lo strumento delle mutazioni ha avuto **quattro** difetti propri, tutti nella
+direzione peggiore — «le protezioni non funzionano» quando funzionavano: leggeva il
+codice di uscita di `tail` invece di quello di `pytest` (una pipe restituisce l'esito
+dell'ultimo comando); confrontava i nomi dei test per uguaglianza mentre `--tb=no` vi
+accoda il motivo; li confrontava a 80 colonne, dove pytest li tronca; e cercava
+«passed» in un riepilogo che pytest 9.1 **non stampa** quando tutto passa. Da qui la
+passata di **controllo** senza mutazioni, che adesso lo strumento esegue per primo: una
+sonda che non sa vedere il verde non ha nessun diritto di dichiarare il rosso, e questa
+non lo sapeva.
+
+La §15 di `tools/storage-config-test.py` copre il negativo: che il `GET` non abbia più
+nessuna strada per l'istantanea, che nessun gestore d'errore restituisca un documento,
+che lo snapshot sia dichiarato `REPEATABLE READ, READ ONLY`, che la connessione della
+richiesta **non** sia stata promossa, che l'attore sia risolto prima della fabbrica dello
+snapshot, che la readiness non riassembli, che `--verify` non sia «chiama il `GET`», che
+il worker e il frontend non sappiano niente della proiezione, e che lo snapshot prenda
+la connessione dal pool separato.
+
+Sullo **stack reale** (HTTPS → nginx → API → PostgreSQL), oltre alle misure di §8.45.1:
+il digest del seed è rimasto `7fdbf3d8e42c…`; un `PUT` con
+`Rack «2D» — letto da SQL 🚀` è tornato identico *dalle tabelle*; manomettendo
+`inventory_versions.doc` il `GET` ha restituito il nome vero e `--verify` è uscito 1
+con `digest_della_versione_incoerente`; la proiezione svuotata ha dato 503
+`projection_not_current` con readiness 503, e una colonna corrotta 503
+`projection_inconsistent` con readiness **verde**; cinque `GET` non hanno toccato
+`synchronised_at`. Le suite `smoke`, `proxy-security`, le quattro d'interfaccia e la
+E2E del browser sono verdi, e dopo le scritture vere della E2E la proiezione ha
+seguito fino alla versione 2 da sola.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -4167,9 +4543,15 @@ guardiano di presenza.
     fallisce chiuso (`projection_not_current`), `mapper_version`, readiness estesa,
     sostituzione integrale sotto la testa bloccata. Nessuno LEGGE ancora la
     proiezione.
-16. **Fase 2D**: il `GET` assembla da SQL, solo dopo che la rappresentazione in
-    ombra ha dimostrato ripetutamente di combaciare con la testa canonica.
-    **Prossimo commit.**
+16. ~~**Fase 2D**: il `GET` assembla da SQL, solo dopo che la rappresentazione in
+    ombra ha dimostrato ripetutamente di combaciare con la testa canonica~~
+    ✔ **fatto** (§8.45) — `projection.current_document`, snapshot dedicato
+    `REPEATABLE READ, READ ONLY` in `api/deps.py`, `projection_inconsistent`,
+    `test_get_from_sql_pg.py`, §15 di `storage-config-test.py`. Le tabelle
+    normalizzate sono lo stato corrente autorevole; l'istantanea JSONB resta storia e
+    **giudice**, senza nessun ripiego automatico. Contratto HTTP invariato.
+17. **Endpoint di query SQL**: ricerca, capacità, scadenze da SQL, e il passaggio del
+    worker delle notifiche alle colonne derivate. **Prossimo commit.**
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

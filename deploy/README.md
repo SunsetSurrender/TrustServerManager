@@ -411,7 +411,7 @@ referenzia una foto che non esiste: non è un guasto del server, è un client ch
 sta salvando un UUID che non ha caricato (o che la GC ha già raccolto perché il
 salvataggio era rimasto indietro di più di ventiquattro ore).
 
-### 3.8 La proiezione relazionale: la mantiene ogni salvataggio, e nessuno la legge
+### 3.8 La proiezione relazionale: è lo stato corrente, e ora è ciò che si legge
 
 Le migrazioni `0010_normalised`, `0011_projection` e `0012_dual_write` creano le
 tabelle dello stato operativo (`inventory_locations`, `inventory_rooms`,
@@ -419,27 +419,88 @@ tabelle dello stato operativo (`inventory_locations`, `inventory_rooms`,
 `inventory_projection_state`) e, dalla fase 2C, danno all'API i privilegi per
 mantenerle.
 
-**Che cosa è cambiato con la fase 2C (§8.44).** Ogni `PUT` che cambia qualcosa
-mantiene la proiezione **nella stessa transazione** dell'istantanea JSON: dopo un
-salvataggio riuscito le due rappresentazioni sono allineate, sempre. Non esiste uno
-stato in cui una è avanzata e l'altra no.
+**Fase 2C (§8.44) — la scrittura.** Ogni `PUT` che cambia qualcosa mantiene la
+proiezione **nella stessa transazione** dell'istantanea JSON: dopo un salvataggio
+riuscito le due rappresentazioni sono allineate, sempre. Non esiste uno stato in cui
+una è avanzata e l'altra no.
 
-**Che cosa NON è cambiato:** nessuno la LEGGE. `GET` restituisce l'istantanea JSON,
-lo scanner delle scadenze legge il documento, il frontend non sa che esista. Il
-passaggio della lettura è la fase 2D.
+**Fase 2D (§8.45) — la lettura.** `GET /api/inventory` restituisce ora il documento
+**riassemblato dalle tabelle**, non `inventory_versions.doc`. Il contratto HTTP è
+identico e il frontend non è cambiato di una riga; cambia la fonte.
+
+| | ruolo |
+|---|---|
+| tabelle normalizzate | stato operativo **corrente**, autorevole |
+| `inventory_versions.doc` | storia immutabile, e **giudice** della coerenza |
+| `inventory_projection_state` | dichiarazione di *quale* testa le tabelle rappresentano |
+
+Ogni lettura verifica il giro completo prima di servire: riassembla, ricalcola il
+digest, e pretende che coincida con quello registrato in testa. **Non c'è nessun
+ripiego sull'istantanea JSON**, ed è deliberato — un ripiego funzionerebbe, l'utente
+vedrebbe l'inventario giusto, e il difetto resterebbe invisibile fino al giorno in cui
+qualcuno interroga le tabelle.
+
+**Conseguenza operativa da conoscere.** Una proiezione non attuale o incoerente non
+rende indisponibili soltanto i salvataggi: rende indisponibile **l'inventario**. Fino
+alla 2C il `GET` funzionava comunque e il guasto era difficile da vedere; adesso
+l'applicazione si ferma e lo dice. La readiness lo dice per prima.
 
 > ⚠ **Passo obbligatorio all'aggiornamento.** Le proiezioni costruite prima della 2C
 > non dichiarano la versione della mappa (`mapper_version` nasce NULL), quindi l'API
-> **rifiuta tutti i salvataggi** con `projection_not_current` (503) finché non si
-> esegue `--rebuild`. È deliberato: una proiezione disallineata ha una causa, e
-> ripararla di nascosto al primo salvataggio di un utente cancellerebbe l'unica
-> occasione di scoprirla. La sequenza completa è in §8.44.1:
+> **rifiuta tutto** con `projection_not_current` (503) finché non si esegue
+> `--rebuild`. È deliberato: una proiezione disallineata ha una causa, e ripararla di
+> nascosto al primo salvataggio di un utente cancellerebbe l'unica occasione di
+> scoprirla. La sequenza completa è in §8.44.1:
 >
 > 1. fermare le scritture; 2. migrazione; 3. `--rebuild` come proprietario;
 > 4. `--verify` deve riuscire; 5. avviare l'API; 6. readiness verde; 7. riaprire.
 >
-> La **readiness** ora comprende la proiezione: un'istanza con la proiezione vecchia
-> risponde 503 invece di dire «pronto» e poi rifiutare ogni scrittura.
+> La **readiness** comprende la proiezione: un'istanza con la proiezione vecchia
+> risponde 503 invece di dire «pronto» e poi rifiutare ogni richiesta.
+
+#### I due 503 della proiezione, e perché il rimedio è diverso
+
+Su `/api/inventory` (sia `GET` sia `PUT`) possono arrivare due codici. Distinguerli
+prima di agire è importante:
+
+| codice nella risposta | significato | che fare |
+|---|---|---|
+| `projection_not_current` | la proiezione **dichiara** una versione vecchia, o nessuna, o una mappa che non gira più | `project.py --rebuild` |
+| `projection_inconsistent` | la dichiarazione è **falsa**: le tabelle contengono qualcos'altro | `project.py --verify` **prima**, e capire perché |
+
+Il secondo caso **non si risolve con `--rebuild`**. Nessun percorso dell'applicazione
+può produrlo — ogni scrittura dimostra il giro completo dentro la propria transazione
+— quindi la causa è fuori: una scrittura fatta a mano sul database, un ripristino
+parziale da backup, un guasto del supporto. Un `--rebuild` lo farebbe sparire
+cancellando le prove. Prima `--verify`, che dice **cosa** non torna e **dove**; il
+messaggio completo sta nei log dell'API (la risposta HTTP non nomina tabelle né
+contenuti, di proposito).
+
+Nei log dell'API si riconoscono così:
+
+```text
+proiezione non attuale: inventario non servibile e salvataggi rifiutati.
+  Eseguire `project.py --rebuild`. Dettagli: [...]
+
+proiezione INCOERENTE: l'inventario non viene servito. Non è un caso da `--rebuild`
+  alla leggera — una ricostruzione cancella le prove. Verificare con
+  `project.py --verify`. Dettagli: [...]
+```
+
+#### Una readiness verde non garantisce la fedeltà, e non è una lacuna
+
+Tre domande diverse con tre costi diversi, separate di proposito:
+
+| | che cosa verifica | quando gira |
+|---|---|---|
+| `/api/ready` | versione, digest, versione della mappa: valori già registrati | ogni pochi secondi, per sempre |
+| `GET /api/inventory` | il giro completo, riassemblando | una volta per richiesta |
+| `project.py --verify` | il giro completo, su richiesta | quando una persona lo chiede |
+
+Quindi: **una colonna corrotta a mano lascia `/api/ready` verde e fa cadere il `GET`**.
+La readiness guarda ciò che è dichiarato; riassemblare l'inventario a ogni sonda
+costerebbe un `--verify` completo ogni pochi secondi per sempre. Se si vuole la
+fedeltà, si chiede a `--verify`.
 
 I comandi girano come **proprietario dello schema** — cioè dal servizio `migrate`,
 l'unico che ne ha la password:

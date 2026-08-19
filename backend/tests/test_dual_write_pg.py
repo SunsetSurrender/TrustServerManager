@@ -1367,9 +1367,15 @@ def test_a_put_refused_for_a_stale_projection_answers_503(db, engine):
             testo = json.dumps(r.json())
             assert "inventory_" not in testo and "rebuild" not in testo
 
-            # E `GET` funziona ancora: legge il JSON. È proprio questo che rende il
-            # guasto difficile da vedere senza la readiness.
-            assert client.get("/api/inventory").status_code == 200
+            # ⚠ In fase 2C `GET` funzionava ancora — leggeva il JSON — ed era
+            # proprio questo che rendeva il guasto difficile da vedere senza la
+            # readiness. Dalla fase 2D (§8.45) `GET` legge la proiezione, quindi
+            # cade con lo STESSO codice: non c'è nessun ripiego sull'istantanea.
+            # L'inversione è deliberata e va lasciata visibile qui, dove qualcuno
+            # cercherà «e il GET?».
+            g = client.get("/api/inventory")
+            assert g.status_code == 503, g.text
+            assert g.json()["detail"]["code"] == "projection_not_current"
     finally:
         app.dependency_overrides.clear()
 

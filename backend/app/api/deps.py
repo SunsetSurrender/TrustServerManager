@@ -15,7 +15,8 @@ Riferimento: BACKEND-PLAN.md §8.20, §8.26.
 """
 from __future__ import annotations
 
-from typing import Iterator
+from contextlib import contextmanager
+from typing import Callable, ContextManager, Iterator
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.engine import Connection
@@ -26,7 +27,7 @@ from app.auth.service import (
     NotAuthenticated,
     resolve_session,
 )
-from app.db import get_engine
+from app.db import get_engine, get_read_engine
 from app.inventory import Actor
 
 SESSION_COOKIE = "tsm_session"
@@ -49,6 +50,87 @@ def get_connection() -> Iterator[Connection]:
     with engine.connect() as conn:
         with conn.begin():
             yield conn
+
+
+# ==================================================================
+# lo SNAPSHOT di lettura dell'inventario (fase 2D, §8.45)
+# ==================================================================
+
+@contextmanager
+def snapshot_connection() -> Iterator[Connection]:
+    """Connessione dedicata alla lettura dell'inventario: REPEATABLE READ, READ ONLY.
+
+    Dalla fase 2D `GET /api/inventory` non legge un documento: ne riassembla uno da
+    sette letture (testa, stato, siti, sale, rack, dispositivi, voci di manuale, più
+    gli identificativi delle foto). Sotto READ COMMITTED ogni `SELECT` vede un
+    istante diverso del database, quindi un `PUT` che committa nel mezzo produrrebbe
+    un documento fatto di due versioni — o, più spesso, un 503 «proiezione
+    incoerente» a fronte di attività perfettamente normale. Non è un caso di
+    laboratorio: due persone che lavorano sullo stesso CED lo producono da sole.
+
+    ⚠ Perché una connessione SUA e non quella della richiesta.
+
+    Non è una preferenza: la connessione della richiesta è inutilizzabile per questo,
+    per tre ragioni indipendenti.
+
+      - `get_connection` ha già aperto la transazione, e l'autenticazione ci ha già
+        eseguito degli statement dentro. L'isolamento si dichiara PRIMA del primo
+        statement: dopo, PostgreSQL rifiuta `SET TRANSACTION`, e SQLAlchemy rifiuta
+        di cambiare `isolation_level` su una connessione con una transazione in corso;
+      - `READ ONLY` la escluderebbe comunque: `resolve_session` **scrive**
+        (`UPDATE sessions SET last_seen_at = now()`), a ogni richiesta e per progetto,
+        perché il ruolo e la disattivazione si rileggono ogni volta (§8.26);
+      - promuovere TUTTE le richieste a REPEATABLE READ sarebbe la soluzione
+        apparentemente elegante, e romperebbe il salvataggio: il `PUT` si serializza
+        con `SELECT ... FOR UPDATE` sulla riga di testa e traduce il perdente in un
+        409 pulito. In REPEATABLE READ il perdente prenderebbe invece un
+        «could not serialize access due to concurrent update», cioè un errore del
+        database al posto del conflitto di versione che il client sa gestire (§8.11).
+
+    Quindi due connessioni per un `GET`, che è il costo dichiarato di questa scelta.
+    In compenso `READ ONLY` non è decorativo: è PostgreSQL a rifiutare qualunque
+    scrittura su questa transazione, quindi un difetto futuro che provasse a scrivere
+    mentre serve una lettura verrebbe fermato dal database, non dalle buone intenzioni.
+
+    ⚠ La transazione comincia col primo statement, non con `BEGIN`: in REPEATABLE
+    READ lo snapshot si acquisisce alla prima lettura. Va bene, e non è una
+    scappatoia — l'unica cosa che conta è che tutte le letture stiano DENTRO la stessa
+    transazione, e `current_document` non ne fa nessuna prima.
+
+    ⚠ `get_read_engine()`, non `get_engine()`, e la differenza impedisce uno STALLO.
+    Un `GET` tiene due connessioni insieme: prendere la seconda dallo stesso pool della
+    prima è un'acquisizione a due fasi, e con quindici `GET` simultanei si blocca per
+    trenta secondi e poi scade. Il ragionamento completo, con i numeri, è in testa a
+    `app/db.py`, e c'è un test che lo DIMOSTRA facendo fallire un `GET` con un pool
+    solo.
+    """
+    engine = get_read_engine()
+    conn = engine.connect().execution_options(
+        isolation_level="REPEATABLE READ", postgresql_readonly=True)
+    try:
+        with conn.begin():
+            yield conn
+    finally:
+        conn.close()
+
+
+def get_snapshot_reader() -> Callable[[], ContextManager[Connection]]:
+    """Dipendenza che fornisce la FABBRICA dello snapshot, non lo snapshot.
+
+    Restituire la fabbrica invece della connessione non è un giro inutile: fa
+    scegliere alla rotta *quando* aprire la transazione, e la rotta la apre nel
+    proprio corpo — cioè dopo che le dipendenze di autenticazione sono state
+    risolte. Con un `Depends` che restituisce la connessione, l'ordine dipenderebbe
+    dall'ordine dei parametri nella firma, e una richiesta anonima aprirebbe una
+    transazione sul database prima di scoprire di essere un 401. Un 401 non deve
+    costare una connessione: è la richiesta che arriva a raffica quando qualcuno
+    sonda il servizio.
+
+    Resta una dipendenza, e non una funzione chiamata direttamente, perché così i
+    test la sostituiscono con `app.dependency_overrides` — esplicito, locale al test
+    e impossibile da attivare per sbaglio in produzione, come per `get_connection`.
+    """
+    return snapshot_connection
 
 
 def current_user(request: Request,

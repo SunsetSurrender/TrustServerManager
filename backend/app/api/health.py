@@ -18,14 +18,29 @@ PROMETTE di mantenere due rappresentazioni a ogni salvataggio. Se la proiezione 
 rispecchia la testa, quella promessa non è mantenibile: ogni `PUT` verrà rifiutato
 con 503 `projection_not_current`. Un backend che risponde «pronto» e poi rifiuta
 tutte le scritture sta mentendo al reverse proxy, e a chi legge un grafico di
-disponibilità. `GET` funzionerebbe ancora — legge il JSON — e proprio per questo il
-guasto sarebbe difficile da vedere: l'applicazione sembra viva e non si può salvare.
+disponibilità.
 
-⚠ Si controlla lo STATO, non la fedeltà. Versione, digest e versione della mappa sono
-tre confronti fra valori già registrati, cioè tre query. Riassemblare l'inventario da
-SQL a ogni sonda costerebbe quanto un `--verify` completo, ripetuto ogni pochi
-secondi per sempre, e trasformerebbe la readiness in carico. La fedeltà la dimostrano
-la verifica transazionale dopo ogni scrittura e `project.py --verify` (§8.44).
+Dalla fase 2D (§8.45) quella condizione conta il doppio: la proiezione non è più solo
+ciò che si scrive, è anche ciò che si LEGGE. Una proiezione non attuale non rende
+indisponibili soltanto i salvataggi — rende indisponibile l'inventario. In fase 2C il
+`GET` funzionava ancora (leggeva il JSON) e proprio per questo il guasto era difficile
+da vedere; adesso è impossibile non vederlo, ed è la readiness a dirlo per prima.
+
+⚠ Si controlla lo STATO, non la fedeltà, e la separazione fra i tre costi è VOLUTA
+(§8.45):
+
+    readiness            versione, digest, versione della mappa: tre confronti fra
+                         valori già registrati. Gira ogni pochi secondi per sempre
+    GET /api/inventory   riassembla e verifica il giro completo, perché sta per
+                         servire quel documento. Una volta per richiesta
+    project.py --verify   la verifica operativa completa, quando una persona la chiede
+
+Riassemblare l'inventario da SQL a ogni sonda costerebbe quanto un `--verify`
+completo, ripetuto per sempre, e trasformerebbe la readiness in carico. La
+conseguenza va detta esplicitamente: una colonna corrotta a mano lascia la readiness
+VERDE — lo stato dichiara ancora la versione e il digest giusti — e fa cadere il
+`GET`. Non è una lacuna: è la divisione del lavoro. Chi vuole la fedeltà la chiede a
+`--verify`, e ogni `GET` la verifica per conto proprio.
 """
 from __future__ import annotations
 

@@ -21,6 +21,30 @@ tenerla aggiornata**. Gli restano due mestieri, entrambi da proprietario:
 E `--verify` resta lo strumento indipendente: la verifica automatica dopo ogni
 scrittura dimostra che quel salvataggio era fedele, non che lo sia ancora oggi.
 
+⚠ Che cosa è cambiato con la fase 2D (§8.45). La proiezione non è più solo ciò che si
+scrive: `GET /api/inventory` la LEGGE, e verifica il giro completo prima di servire.
+Cambia il PESO di questi comandi, non il loro mestiere:
+
+  - una proiezione non attuale adesso rende indisponibile anche la LETTURA
+    dell'inventario, non solo il salvataggio. Il passo 1 qui sopra non è più
+    «l'applicazione non salva», è «l'applicazione non funziona»;
+  - `projection_inconsistent` è un guasto nuovo, e il suo rimedio **non è
+    `--rebuild`**. Una ricostruzione lo farebbe sparire cancellando le prove di una
+    corruzione di cui non si conosce ancora la causa. Prima `--verify`, che dice cosa
+    non torna e dove; `--rebuild` solo dopo aver capito perché.
+
+⚠ E questi comandi restano INDIPENDENTI dalla rotta, di proposito. La tentazione
+sarebbe far diventare `--verify` una chiamata a `GET /api/inventory`, che ormai fa la
+stessa verifica: sarebbe meno codice e sarebbe sbagliato. Uno strumento diagnostico
+che dipende dal servizio che deve diagnosticare non si può usare nel guasto che conta
+— quando il servizio non risponde, o non è ancora avviato, o gira con uno schema che
+non riconosce. Qui si parla al database.
+
+L'invariante operativa utile, che vale la pena controllare a mano dopo un
+aggiornamento:
+
+    `GET` risponde 200  ∧  `--verify` esce 0  ∧  GET.sha256 == digest della testa
+
 Uso:
     python scripts/project.py --status     che versione rispecchia (sola lettura)
     python scripts/project.py --verify     riassembla da SQL e confronta (sola lettura)

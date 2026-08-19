@@ -38,6 +38,7 @@ from app.inventory import (
     InventoryError,
     NotAuthorizedError,
     NotBootstrappedError,
+    ProjectionInconsistentError,
     ProjectionNotCurrentError,
     VersionConflictError,
 )
@@ -200,12 +201,40 @@ def http_error_for(exc: Exception) -> HTTPException:
     # Non è colpa del client e non è un 4xx: la richiesta era valida, è il backend
     # che si rifiuta di operare finché mantiene una promessa a metà.
     if isinstance(exc, ProjectionNotCurrentError):
-        log.error("proiezione non attuale: salvataggi rifiutati. "
-                  "Eseguire `project.py --rebuild`. Dettagli: %s", exc.details)
+        log.error("proiezione non attuale: inventario non servibile e salvataggi "
+                  "rifiutati. Eseguire `project.py --rebuild`. Dettagli: %s",
+                  exc.details)
         return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                              detail={"code": exc.code,
-                                     "message": "il servizio non può accettare "
-                                                "modifiche in questo momento"},
+                                     "message": "il servizio non è in grado di "
+                                                "servire l'inventario in questo "
+                                                "momento"},
+                             headers=NO_STORE)
+
+    # --- 503: la proiezione dichiara il falso (§8.45) ---
+    #
+    # Due codici e non uno, perché sono due mondi diversi per chi deve intervenire:
+    # `projection_not_current` è una condizione DICHIARATA, e il rimedio è un comando
+    # (`--rebuild`); `projection_inconsistent` è una dichiarazione FALSA, e nessun
+    # percorso dell'applicazione può produrla — la causa è fuori (una scrittura fatta
+    # a mano, un ripristino parziale, un guasto del supporto) oppure è un difetto
+    # della mappa. Appiattirli su un codice solo direbbe a chi opera «esegui
+    # --rebuild» anche quando ricostruire cancellerebbe le prove di una corruzione.
+    #
+    # I DETTAGLI nei log, mai nella risposta: contengono i digest e, in caso di
+    # incoerenza del modello, i nomi dei campi e gli `uid` delle entità — cioè
+    # frammenti dell'inventario di un cliente. Al client basta sapere che non è
+    # colpa sua e che riprovare non serve.
+    if isinstance(exc, ProjectionInconsistentError):
+        log.error("proiezione INCOERENTE: l'inventario non viene servito. Non è un "
+                  "caso da `--rebuild` alla leggera — una ricostruzione cancella le "
+                  "prove. Verificare con `project.py --verify`. Dettagli: %s",
+                  exc.details)
+        return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                             detail={"code": exc.code,
+                                     "message": "il servizio non è in grado di "
+                                                "servire l'inventario in questo "
+                                                "momento"},
                              headers=NO_STORE)
 
     # --- 503 ---

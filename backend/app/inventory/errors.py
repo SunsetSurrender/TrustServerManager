@@ -58,6 +58,40 @@ class ProjectionNotCurrentError(InventoryError):
     code = "projection_not_current"
 
 
+class ProjectionInconsistentError(InventoryError):
+    """La proiezione dichiara di rispecchiare la testa, ma non la rispecchia.
+
+    Distinta da `ProjectionNotCurrentError`, e la differenza non è di sfumatura:
+
+      - *non attuale* significa che la proiezione dichiara una versione VECCHIA, o
+        nessuna, o una mappa che non gira più. È una condizione dichiarata: si legge
+        confrontando numeri e stringhe già registrati, e la causa è quasi sempre
+        operativa — un `--rebuild` mai eseguito dopo un aggiornamento;
+      - *incoerente* significa che la dichiarazione è FALSA. Lo stato dice «versione
+        41, digest abc», le tabelle riassemblano qualcos'altro. Nessun percorso
+        dell'applicazione può produrre questo stato: la fase 2C dimostra il giro
+        completo dentro la transazione di ogni scrittura. Quindi la causa è fuori
+        dall'applicazione — un `UPDATE` fatto a mano su una tabella, un ripristino
+        parziale, un guasto del supporto — oppure è un difetto della mappa stessa.
+
+    Da qui la conseguenza che conta: **non si serve il documento**. È l'unica
+    risposta onesta, perché un documento riassemblato da righe che non corrispondono
+    alla loro versione è *plausibile* — ha la forma giusta, i campi giusti, i codici
+    giusti — e il client lo rimanderebbe con un `PUT`, trasformando la corruzione in
+    una versione nuova firmata da un utente che non ha modificato niente.
+
+    E non si ripiega sull'istantanea JSON, che sarebbe la reazione istintiva. Il
+    ripiego funzionerebbe: l'utente vedrebbe l'inventario giusto, nessuno aprirebbe
+    un ticket, e il difetto che la fase 2 esiste per scoprire resterebbe lì fino al
+    giorno in cui qualcuno interroga le tabelle. L'istantanea resta il riferimento
+    per la verifica, la storia e il ripristino — non un ripiego automatico di
+    produzione (§8.45).
+
+    Non è colpa del client: si traduce in 503, non in un 4xx.
+    """
+    code = "projection_inconsistent"
+
+
 class VersionConflictError(InventoryError):
     """`baseVersion` non è più la testa E il contenuto è diverso (§8.11, §8.18).
 

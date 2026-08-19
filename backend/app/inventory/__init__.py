@@ -15,18 +15,24 @@ transazione: l'istantanea JSONB immutabile con la sua storia, e la proiezione
 relazionale dello stato corrente. Non esiste uno stato committato in cui una è
 avanzata e l'altra no.
 
-⚠ Ma nessuno la LEGGE ancora, e questa metà non è cambiata: `GET /api/inventory`
-restituisce il JSON, lo scheduler delle notifiche legge il documento, il frontend
-non sa che la proiezione esista. Il passaggio della lettura è la fase 2D, e avviene
-solo dopo che il confronto è stato verde ripetutamente su dati veri. L'unica lettura
-nuova è la readiness, che guarda lo STATO della proiezione — versione, digest,
-versione della mappa — non le righe.
+⚠ Dalla fase 2D (§8.45) la proiezione è anche ciò che si LEGGE: `GET /api/inventory`
+restituisce il documento riassemblato dalle tabelle, dentro uno snapshot
+`REPEATABLE READ, READ ONLY`, e solo dopo aver dimostrato che il giro torna. Le
+tabelle normalizzate sono lo stato operativo corrente; l'istantanea JSONB immutabile
+resta la storia e il giudice della coerenza — non un ripiego automatico.
 
-⚠ `projection` NON è riesportata qui di proposito. Questo pacchetto lo importa
-`app/api/inventory.py`: riesportarla renderebbe la proiezione raggiungibile dal
-percorso delle richieste con un `from app.inventory import projection` scritto per
-sbaglio. Chi le serve la importa per nome — `repository.py` e la readiness — e un
-controllo statico verifica che le rotte dell'inventario e il worker non lo facciano.
+Restano fuori dalla 2D, e non per dimenticanza: lo scheduler delle notifiche legge
+ancora il documento e non le colonne data derivate, non esiste nessun endpoint di
+ricerca, e il frontend non sa che la proiezione esista — il contratto del frontend è
+il documento (§8.22), e la 2D non lo cambia.
+
+⚠ `projection` NON è riesportata qui, e continua a non esserlo. Riesportarla la
+renderebbe raggiungibile con un `from app.inventory import projection` scritto per
+distrazione da qualunque modulo che importa questo pacchetto. Chi le serve la importa
+per nome — `repository.py`, la readiness, e dalla 2D la rotta dell'inventario — e i
+controlli statici sono diventati più stretti, non più larghi: la rotta del `GET` deve
+leggere la proiezione e NON deve restituire `inventory_versions.doc`, la readiness può
+guardare solo lo stato, il worker non può toccare niente.
 """
 from .document import (
     ALLOWED_ROOT_KEYS,
@@ -51,6 +57,7 @@ from .errors import (
     InventoryError,
     NotAuthorizedError,
     NotBootstrappedError,
+    ProjectionInconsistentError,
     ProjectionNotCurrentError,
     VersionConflictError,
 )
@@ -74,4 +81,5 @@ __all__ = [
     "InventoryError", "NotBootstrappedError", "AlreadyBootstrappedError",
     "VersionConflictError", "DocumentRejectedError", "IdentityRejectedError",
     "NotAuthorizedError", "ProjectionNotCurrentError",
+    "ProjectionInconsistentError",
 ]

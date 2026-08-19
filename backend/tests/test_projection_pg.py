@@ -681,13 +681,25 @@ def test_a_concurrent_save_makes_the_rebuild_wait_its_turn(db, engine):
 # 5. nessuno consuma la proiezione
 # ==================================================================
 
-def test_the_api_still_serves_the_json_snapshot(db, engine):
-    """⚠ La prova più forte che `GET` non è cambiato: si CORROMPE la proiezione.
+def test_the_api_refuses_to_serve_a_corrupted_projection(db, engine):
+    """⚠ Lo stesso esperimento della fase 2B, con la conclusione ROVESCIATA.
 
-    Si cancella un sito dalle tabelle e si chiede l'inventario. Se la risposta fosse
-    ancora completa per caso — perché la proiezione non è mai stata popolata, per
-    esempio — il test non proverebbe niente: perciò prima si ricostruisce, si
-    verifica che sia piena, e solo dopo la si rompe.
+    Si svuotano le tabelle e si chiede l'inventario. In fase 2B la risposta era
+    ancora completa: `GET` leggeva l'istantanea JSON e la proiezione non la
+    consumava nessuno, quindi corromperla non si vedeva. Dalla fase 2D (§8.45) la
+    proiezione È la risposta, e il test misura la stessa cosa da capo:
+
+      - se `GET` restituisse 200 con 102 rack, allora starebbe leggendo l'istantanea,
+        cioè la fase 2D non è stata fatta;
+      - se restituisse 200 con 0 rack, allora servirebbe un documento vuoto e
+        *plausibile*: il client lo rimanderebbe con un `PUT` e la corruzione
+        diventerebbe una versione nuova firmata da un utente. È il caso peggiore;
+      - la risposta giusta è **rifiutare**, con `projection_inconsistent`: lo stato
+        dichiara ancora la versione 1 col suo digest, ma le tabelle riassemblano
+        qualcos'altro. La dichiarazione è falsa, e non si serve niente.
+
+    Prima si ricostruisce e si verifica che sia piena: se la proiezione non fosse mai
+    stata popolata, il test passerebbe senza aver rotto nulla.
     """
     from app.api.deps import get_connection, require_actor
     from app.main import app
@@ -716,11 +728,11 @@ def test_the_api_still_serves_the_json_snapshot(db, engine):
     finally:
         app.dependency_overrides.clear()
 
-    assert r.status_code == 200
-    body = r.json()
-    racks = [rack for loc in body["doc"]["locations"] for room in loc["sale"]
-             for rack in room["racks"]]
-    assert len(racks) == 102, "GET deve servire l'istantanea, non la proiezione"
+    assert r.status_code == 503, r.text
+    assert r.json()["detail"]["code"] == "projection_inconsistent"
+    # E soprattutto: nessun documento è uscito. Né quello dell'istantanea (sarebbe
+    # un ripiego che nasconde il difetto), né quello vuoto della proiezione rotta.
+    assert "doc" not in r.json()
 
 
 def test_readiness_now_requires_a_current_projection(db, engine):

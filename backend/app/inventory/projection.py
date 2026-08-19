@@ -7,30 +7,39 @@ tutto ciò che sa di colonne, di legature di parametri e di transazioni.
     require_current(...)  come sopra, ma SOLLEVA. La usa il salvataggio
     status(conn)          rapporto completo per una persona, conteggi compresi
     verify(conn)          riassembla da SQL e confronta: SOLA LETTURA
+    current_document(c)   il documento CORRENTE da SQL, con la prova. La usa il GET
     synchronise(conn, …)  porta la proiezione a un modello, e lo DIMOSTRA
     rebuild(conn)         ricostruisce dalla testa, e ABORTA se il giro non torna
 
-Chi la scrive, e chi NON la legge (fase 2C, §8.44)
--------------------------------------------------
+Chi la scrive (fase 2C, §8.44) e chi la LEGGE (fase 2D, §8.45)
+-------------------------------------------------------------
 Dalla fase 2C la proiezione si mantiene a ogni salvataggio: `repository.save` chiama
 `synchronise` DENTRO la transazione della richiesta, e `repository.bootstrap` fa lo
 stesso per la versione 1. Sono gli unici due scrittori del percorso applicativo;
 `scripts/project.py --rebuild` resta lo scrittore esplicito del proprietario.
 
-Chi la legge è ancora **nessuno**, e questa metà del requisito non è cambiata:
+Dalla fase 2D la proiezione è anche ciò che si LEGGE: `GET /api/inventory` restituisce
+`current_document`, cioè il documento riassemblato dalle tabelle, non
+`inventory_versions.doc`. Le tabelle normalizzate sono lo stato operativo CORRENTE;
+l'istantanea JSONB immutabile resta la storia e il giudice della coerenza.
 
-  - `GET /api/inventory` restituisce l'istantanea JSON. Il passaggio è la 2D, e
-    avviene solo dopo che il confronto è stato verde ripetutamente su dati veri. Un
-    `GET` che assembla male restituisce un documento plausibile, il client lo rimanda
-    con un `PUT`, e la differenza diventa una versione nuova con un contenuto che
-    nessuno ha scritto;
+Chi NON la legge, e resta fuori da questa fase:
+
   - lo scheduler delle notifiche continua a leggere il documento, non le colonne
-    data derivate;
-  - il frontend non sa che la proiezione esista.
+    data derivate: sarebbe una decisione da prendere di proposito, con i suoi test;
+  - non esiste nessun endpoint di ricerca o di capacità che interroghi le tabelle;
+  - il frontend non sa che la proiezione esista, e non deve saperlo: il contratto è
+    il documento (§8.22), e la 2D non lo cambia di una virgola.
 
-L'unica lettura nuova è la READINESS, e legge solo lo STATO — versione, digest,
-versione della mappa — non le righe: è un confronto fra numeri già registrati, non
-una ricostruzione (§8.44).
+Tre domande diverse, tre costi diversi, e la separazione è VOLUTA (§8.45):
+
+  - la READINESS legge solo lo STATO — versione, digest, versione della mappa: tre
+    confronti fra valori già registrati. È una sonda che gira ogni pochi secondi per
+    sempre, e riassemblare l'inventario lì trasformerebbe il controllo in carico;
+  - il `GET` riassembla e verifica il giro completo, perché sta per SERVIRE quel
+    documento a un utente. Lo paga una volta per richiesta, non una volta al secondo;
+  - `project.py --verify` fa la verifica operativa completa, e resta indipendente:
+    non è «chiama il GET», perché deve funzionare anche quando il GET non funziona.
 
 L'ordine, che è la sostanza
 --------------------------
@@ -52,6 +61,24 @@ Il passo 1 è ciò che rende «atomica sotto la testa bloccata» una frase con u
 significato: un `PUT` concorrente aspetta lì, quindi la proiezione non può
 rispecchiare una testa che è cambiata sotto di lei. Il passo 5 è la ragione di tutto
 il resto: un popolamento «che sembra andato bene» non vale niente.
+
+Una lettura (`current_document`, fase 2D):
+
+  1. testa: numero di versione e digest REGISTRATO — non il documento
+  2. la proiezione deve dichiarare esattamente quella coppia, con la mappa corrente
+  3. `read_model`: le cinque tabelle più la riga di stato
+  4. `validate_model`: nessun errore, comprese le colonne DERIVATE
+  5. `assemble` + digest, che deve combaciare con la testa E con la dichiarazione
+
+Qui il lock NON c'è, e l'assenza è deliberata: una lettura non deve bloccare una
+scrittura. Il posto del lock lo prende lo SNAPSHOT — la transazione del chiamante è
+`REPEATABLE READ, READ ONLY`, quindi i passi 1-4 vedono lo stesso istante del
+database. Senza, un `PUT` che commettesse fra il passo 1 e il passo 3 farebbe
+confrontare la testa vecchia con le righe nuove: i digest non tornerebbero e il
+`GET` risponderebbe «proiezione incoerente» a fronte di attività perfettamente
+normale. Il modo di garantire lo snapshot NON è in questo modulo — è in
+`app/api/deps.py`, che apre la connessione — e c'è un test che interroga il database
+per sapere in che isolamento sta girando davvero.
 
 Perché la verifica è la STESSA per i due scrittori
 -------------------------------------------------
@@ -83,6 +110,7 @@ from app.inventory.digest import canonical_sha256
 from app.inventory.errors import (
     InventoryError,
     NotBootstrappedError,
+    ProjectionInconsistentError,
     ProjectionNotCurrentError,
 )
 from app.inventory.relational import (
@@ -325,6 +353,30 @@ class SyncReport:
     version: int
     sha256: str
     rows_written: int
+    warnings: list = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CurrentDocument:
+    """Il documento corrente RIASSEMBLATO da SQL, con la prova che è quello giusto.
+
+    Se questo oggetto esiste, allora — dentro un solo istante del database:
+
+        digest(doc) == proiezione.head_sha256 == testa.canonical_sha256
+        proiezione.head_version == testa.version
+        il modello riletto non ha errori, colonne DERIVATE comprese
+
+    `warnings` esce perché la stessa domanda ha due gravità (§8.42): una data non
+    interpretabile o un enum fuori vocabolario sono avvisi, non guasti, e non devono
+    rendere il `GET` indisponibile. Un inventario reale ne contiene sempre qualcuno.
+    Non finiscono nella risposta HTTP — il contratto del frontend è il documento —
+    ma finiscono nei log, dove sono l'unico modo di sapere che quel campo, per quella
+    riga, non risponderà a una query.
+    """
+
+    version: int
+    sha256: str
+    doc: dict
     warnings: list = field(default_factory=list)
 
 
@@ -712,6 +764,28 @@ def verify(conn: Connection) -> VerifyResult:
                             reason="versione_rispecchiata_inesistente",
                             details=[{"versione": state.projected_version}])
 
+    # ⚠ Prima si verifica il GIUDICE, poi l'imputato.
+    #
+    # Tutto il resto di questa funzione confronta la proiezione col
+    # `canonical_sha256` REGISTRATO nella versione. Se quel digest non corrisponde più
+    # al documento che gli sta accanto, il confronto non ha un riferimento di cui
+    # fidarsi: la proiezione potrebbe risultare «fedele» a un digest che non descrive
+    # più niente. `rebuild` questo controllo lo faceva da sempre (§8.42) e si rifiuta
+    # di costruire; `verify` non lo faceva, ed era un buco preciso — un `UPDATE` a
+    # mano su `inventory_versions.doc` che lasciasse intatto il digest passava la
+    # verifica. Dalla fase 2D conta di più: l'istantanea immutabile non è solo storia,
+    # è l'oracolo contro cui ogni `GET` si misura (§8.45).
+    recomputed = canonical_sha256(snapshot[0])
+    if recomputed != snapshot[1]:
+        return VerifyResult(
+            status=state, faithful=False,
+            reason="digest_della_versione_incoerente",
+            details=[{"versione": state.projected_version,
+                      "registrato": snapshot[1], "ricalcolato": recomputed,
+                      "nota": "l'istantanea immutabile e il suo digest non "
+                              "corrispondono più: il riferimento della verifica non "
+                              "è attendibile, e la proiezione non è l'imputato"}])
+
     model = read_model(conn)
 
     # ⚠ La coerenza del modello, non solo il digest.
@@ -740,6 +814,134 @@ def verify(conn: Connection) -> VerifyResult:
             "registrato_nella_versione": snapshot[1],
             "verificato_alla_costruzione": state.projected_sha256,
         }] + diff_as_dicts(canonicalise(snapshot[0]), rebuilt)[:20])
+
+
+# ==================================================================
+# lettura del documento corrente (fase 2D, §8.45)
+# ==================================================================
+
+def _referenced_photo_ids(conn: Connection) -> set[str]:
+    """Le foto che i rack referenziano ADESSO, e che esistono davvero.
+
+    Non `SELECT id FROM photos`, che è quello che fanno `verify` e `rebuild`: quelli
+    sono strumenti del proprietario e possono permettersi di leggere tutto. Questa
+    query sta sul percorso di una richiesta, e il suo costo deve crescere col numero
+    di RACK, non col numero di foto — l'inventario è la cosa che si sta servendo, la
+    tabella delle immagini è un magazzino che cresce per conto suo.
+
+    Non tocca `photos.bytes`: la lettura dell'inventario ha bisogno dell'IDENTITÀ
+    delle foto, non del loro contenuto. I byte restano una richiesta a parte
+    (`GET /api/photos/{uuid}`), e devono restarlo — inserirli qui vorrebbe dire
+    trasferire decine di megabyte per disegnare una pianta (§8.5).
+
+    ⚠ Si potrebbe obiettare che il controllo è ridondante: `inventory_racks.photo_id`
+    ha una chiave esterna verso `photos.id`, quindi una foto referenziata e assente è
+    uno stato che PostgreSQL non ammette. È vero. Si fa comunque, perché passare
+    `known_photo_ids=None` significa «non controllare», e `validate_model` avverte
+    esplicitamente che un controllo saltato somiglia molto a un controllo passato. Il
+    costo è una scansione di solo indice su una chiave primaria.
+    """
+    rows = conn.execute(text("""
+        SELECT id FROM photos
+         WHERE id IN (SELECT photo_id FROM inventory_racks
+                       WHERE photo_id IS NOT NULL)
+    """)).all()
+    return {str(r[0]) for r in rows}
+
+
+def current_document(conn: Connection) -> CurrentDocument:
+    """Il documento corrente, riassemblato dalle TABELLE. È ciò che `GET` restituisce.
+
+    Non legge `inventory_versions.doc`. Legge di quella tabella solo il
+    `canonical_sha256` della versione in testa, che è metadato: serve come GIUDICE.
+    La differenza è tutta la fase 2D — se questa funzione leggesse il documento
+    immutabile e lo confrontasse col riassemblato, potrebbe restituire quello in caso
+    di dubbio, e il ripiego cancellerebbe esattamente il difetto che la fase 2 esiste
+    per scoprire (§8.45).
+
+    ── Che cosa pretende, e perché in quest'ordine ──────────────────────────────
+
+    1. **attualità** (`require_current`), prima di leggere una sola riga di entità.
+       È il confronto che costa tre query e che nega la risposta se la proiezione
+       dichiara una versione vecchia, nessuna versione, o una mappa che non gira più.
+       Farlo prima significa che il caso «la proiezione non è mantenuta» costa tre
+       query invece di un riassemblaggio completo, e — cosa più importante —
+       distingue *non attuale* (condizione dichiarata, rimedio `--rebuild`) da
+       *incoerente* (dichiarazione falsa, causa esterna). Due codici diversi perché
+       chi legge un 503 deve sapere quale dei due mondi sta guardando;
+
+    2. **coerenza del modello** (`validate_model`), sul modello RILETTO. È l'unico
+       controllo che vede le colonne DERIVATE. `garanzia_date` non torna nel
+       documento: una data interpretata male lascia il documento identico e il digest
+       uguale, quindi il punto 3 non la vedrebbe mai. È il punto cieco trovato nella
+       fase 2B, e questo è il posto in cui si chiude anche in lettura;
+
+    3. **il giro completo** (`assemble` + digest). Il documento che si sta per servire
+       deve avere il digest della versione in testa, verificato contro DUE riferimenti
+       indipendenti: quello registrato nell'istantanea e quello che la proiezione
+       dichiara di aver verificato quando è stata scritta. `require_current` ha già
+       provato che i due combaciano, quindi il confronto è formalmente ridondante —
+       si scrive esplicito lo stesso, perché se un giorno l'attualità si allentasse,
+       questo controllo continuerebbe a reggere da solo.
+
+    Un fallimento del punto 2 o del punto 3 NON è un caso da correggere in silenzio:
+    solleva `ProjectionInconsistentError`, il `GET` diventa 503, e il documento non
+    esce. Vedi quella classe per il perché non si ripiega sul JSON.
+
+    ── Lo snapshot, che questa funzione non crea ────────────────────────────────
+
+    Nessun lock: una lettura non deve fermare una scrittura. La coerenza fra il passo
+    1 e il passo 3 la dà la TRANSAZIONE del chiamante, che deve essere
+    `REPEATABLE READ, READ ONLY` (`app/api/deps.py`). Sotto READ COMMITTED questa
+    funzione sarebbe corretta il 99,9% delle volte e produrrebbe un 503 spurio ogni
+    volta che un `PUT` committa nel mezzo — cioè il modo peggiore di sbagliare: un
+    guasto raro, non riproducibile, e con un messaggio che accusa la proiezione di
+    essere corrotta quando invece funzionava.
+    """
+    # --- 1. la testa: numero e digest REGISTRATO, non il documento ---
+    head_row = conn.execute(text(
+        "SELECT version FROM inventory_head WHERE id IS TRUE")).first()
+    if head_row is None:
+        raise NotBootstrappedError(
+            "nessuna versione in testa: eseguire prima il bootstrap")
+    version = int(head_row[0])
+
+    sha_row = conn.execute(text(
+        "SELECT canonical_sha256 FROM inventory_versions WHERE version = :v"
+    ), {"v": version}).first()
+    if sha_row is None:                 # impossibile: c'è una FK dalla testa
+        raise NotBootstrappedError(
+            f"la testa punta alla versione {version}, che non esiste")
+    recorded = sha_row[0]
+
+    # --- 2. la proiezione deve dichiarare esattamente questa coppia ---
+    declared = require_current(conn, version=version, sha256=recorded)
+
+    # --- 3. le righe ---
+    model = read_model(conn)
+
+    # --- 4. coerenza, colonne DERIVATE comprese ---
+    found = validate_model(model, known_photo_ids=_referenced_photo_ids(conn))
+    broken = errors(found)
+    if broken:
+        raise ProjectionInconsistentError(
+            f"la proiezione della versione {version} non è coerente "
+            f"({len(broken)} errori): il documento non viene servito",
+            [f.as_dict() for f in broken])
+
+    # --- 5. il giro completo, contro due riferimenti indipendenti ---
+    doc = assemble(model)
+    digest = canonical_sha256(doc)
+    if digest != recorded or digest != declared.projected_sha256:
+        raise ProjectionInconsistentError(
+            f"il documento riassemblato da SQL non è la versione {version} in testa",
+            [{"riassemblato_da_sql": digest,
+              "registrato_nella_versione": recorded,
+              "verificato_alla_costruzione": declared.projected_sha256,
+              "versione": version}])
+
+    return CurrentDocument(version=version, sha256=digest, doc=doc,
+                           warnings=[f.as_dict() for f in warnings(found)])
 
 
 # ==================================================================

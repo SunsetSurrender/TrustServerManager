@@ -4440,6 +4440,326 @@ con `digest_della_versione_incoerente`; la proiezione svuotata ha dato 503
 E2E del browser sono verdi, e dopo le scritture vere della E2E la proiezione ha
 seguito fino alla versione 2 da sola.
 
+### 8.46 Fase 2E: interrogazioni SQL sulla proiezione
+
+Tre endpoint di sola lettura sopra le tabelle normalizzate:
+
+    GET /api/inventory/search     ?q=&limit=&cursor=
+    GET /api/inventory/capacity
+    GET /api/inventory/expiries   ?warningDays=&limit=&cursor=
+
+Il principio che governa tutto il resto: **rendere interrogabili in SQL i concetti che
+l'applicazione ha già, senza cambiarne il significato**. Il riferimento semantico è il
+frontend per ricerca e capacità, lo scanner delle scadenze per l'interpretazione delle
+date. PostgreSQL sa fare molte cose che il JavaScript non fa; usarle cambierebbe il
+risultato, e il risultato è il prodotto.
+
+`GET /api/inventory` **resta**, e resta il percorso di fedeltà completa. Il frontend non
+è stato ricablato (§18 del requisito): la 2E prova le implementazioni sul server, e la
+sostituzione dei calcoli lato client è un commit successivo e delimitato. Il worker delle
+notifiche continua a leggere il documento (§19).
+
+#### 8.46.1 Le semantiche legacy scoperte
+
+Questa è la parte che vale più del codice. Ogni voce è stata estratta leggendo
+l'implementazione che gira, e ogni voce è coperta da fixture di parità.
+
+**Ricerca — la barra globale.** `q` viene messo in minuscolo e ripulito, poi:
+
+- se `parseIpQuery(q)` riconosce una forma di rete → si cercano **solo i dispositivi**
+  per intervallo di indirizzo. I rack non partecipano affatto, nemmeno uno che si
+  chiamasse `10.0.0.1`: il codice è `if (!ipRange && (rk.id...))`;
+- altrimenti → **sottostringa, senza distinzione di maiuscole**, sui dispositivi in
+  `name, model, ip, serial, owner` e sui rack in `id, name, seriali[]`.
+
+Le scoperte che contano:
+
+| | |
+|---|---|
+| i campi del dispositivo sono **cinque** | `id`, `type`, `stato` e `note` **non** sono cercati. Sembra una dimenticanza, ma aggiungerli darebbe più risultati sul server che nel browser |
+| un IP **esatto** non è una forma di rete | `parseIpQuery` gestisce CIDR, intervallo e jolly; per `10.0.0.1` restituisce `null`, quindi si cerca come **testo** — e come sottostringa, per cui `10.0.0.1` trova anche `10.0.0.100` |
+| `ipToNum` è **solo IPv4** | dotted-quad, ottetti ≤ 255. Un dispositivo con `2001:db8::1` non si trova per rete (si trova per testo) |
+| il jolly accetta 1-3 ottetti | `10.*`, `10.0.*`, `10.0.2.*`; non `10.0.2.3.*` |
+| CIDR allineato alla rete | `start = floor(base/size)*size`, quindi `10.0.0.5/24` cerca `10.0.0.0-255` |
+| la vista Inventario è **un'altra** ricerca | quattordici filtri per colonna, su valori **tradotti** (`Attivo`, `In manutenzione`). Non è questa, e non è stata riprodotta — vedi le deviazioni |
+
+**Capacità — la vista Capacità.** `used_u` **non è** `SUM(h)`. Il frontend costruisce un
+vettore di occupazione per rack e conta gli **slot distinti**:
+
+```js
+const occ = new Array(rk.u + 1).fill(false);
+for (const d of rk.devices) { … for (let k = d.u; k < d.u + (d.h || 1); k++)
+                                  if (k <= rk.u) occ[k] = true; }
+for (let k = 1; k <= rk.u; k++) { if (occ[k]) { rkUsed++; run = 0; } else { … } }
+```
+
+Da cui:
+
+| caso | comportamento |
+|---|---|
+| due dispositivi **sovrapposti** | gli slot in comune contano **una volta** |
+| un dispositivo che **sporge** | tagliato a `rk.u` |
+| `h` nullo o `0` | vale 1 (`d.h \|\| 1`) |
+| `h` negativo | non occupa niente (il ciclo non parte) |
+| slot iniziale ≤ 0 | fuori dal conteggio, che va da 1 a `rk.u` |
+| dispositivi **dismessi** | **occupano**: il ramo che dovrebbe escluderli è un blocco **vuoto** (`if (…) {}`) |
+
+⚠ L'ultima riga è la scoperta più imbarazzante e la più importante: la stessa
+applicazione **esclude** i dismessi dalle scadenze (con un `continue` vero) e li
+**include** nella capacità. È quasi certamente un difetto del frontend; è il
+comportamento attuale, ed è stato riprodotto invece di corretto. Correggerlo cambierebbe
+un numero mostrato agli utenti, da un commit che dichiara di non cambiare comportamento.
+
+⚠ E il **raggruppamento per fila** usa `rk.row || '—'`, cioè la stringa «—» come
+segnaposto per «nessuna fila». Nel seed di produzione esiste un rack la cui fila **è**
+«—» (`CS-Q01`): la sentinella collide col dato, e i due finiscono nello stesso gruppo.
+Riprodotto, sentinella compresa.
+
+⚠ Esistono **tre** implementazioni di «U occupate» nel frontend, e non concordano:
+
+| dove | formula |
+|---|---|
+| vista Capacità | slot distinti, tagliati a `rk.u` |
+| scheda rack a destra | `SUM(d.h \|\| 1)` — conta due volte le sovrapposizioni |
+| export Excel | `SUM(d.h \|\| 1)` — come sopra |
+
+L'endpoint riproduce la **vista Capacità**, perché è la funzione «capacità». Le altre due
+restano come sono, e la divergenza è qui perché qualcuno la troverà.
+
+**Scadenze — la vista Scadenze.** Dismessi saltati; garanzia e supporto sono due righe
+distinte per lo stesso dispositivo; valori vuoti o non interpretabili **non compaiono** e
+non sono un guasto; si ordina per data crescente e **tutti** i livelli compaiono
+(scaduto, entro N giorni, futuro). La soglia è la costante 90.
+
+⚠ Qui ci sono **due** implementazioni nel backend stesso, e divergono:
+
+| | vista Scadenze (frontend) | `due_items` (worker) |
+|---|---|---|
+| interpretazione delle date | `new Date(v)`, permissiva | `parse_expiry`, `YYYY-MM-DD` esatto |
+| dispositivi dismessi | saltati | **inclusi** |
+| elementi già scaduti | mostrati, livello «scaduta» | **esclusi** |
+| istante di riferimento | `Date.now()` | data di calendario nel fuso configurato |
+| soglie | 90 fisso | elenco configurabile |
+
+L'endpoint segue la **vista Scadenze** per che cosa restituisce, e `parse_expiry` per
+come interpreta le date — perché §10 del requisito impone di usare le colonne derivate, e
+quelle colonne le ha scritte `parse_expiry`. Conseguenza misurata: alcune forme che la
+vista Scadenze mostra **non** compaiono nella query.
+
+    2027-3-15   2027/03/15   March 15, 2027   2027-03-15T10:00:00Z   2027-03   2027
+    2027-02-30  ← V8 non la rifiuta: la ROTOLA al 2 marzo
+
+Otto forme, elencate per esteso in `test_the_date_parsing_divergence_is_exactly_this_set`.
+Non si è aggiunto un secondo interprete di date: due idee di «data valida» divergono, e
+divergono sui casi limite. Meglio una divergenza **nota** fra due strati che due parser
+che si credono d'accordo.
+
+⚠ E `today` è una data di **calendario** nel fuso configurato, non un istante. Il
+frontend fa `Math.round((dt - Date.now())/86400000)`, quindi il suo conteggio dipende
+dall'ora del giorno e può differire di uno dal nostro. I due coincidono **esattamente**
+a mezzanotte locale, che è la condizione sotto cui le fixture li confrontano.
+
+#### 8.46.2 Dove SQL ha richiesto una gestione speciale
+
+**Nessun `inet`, e nessuna colonna derivata nuova.** Il progetto originale prevedeva una
+colonna `inet`. Non c'è, per tre ragioni che si tengono insieme:
+
+1. `ipToNum` è IPv4 e rifiuta tutto il resto; `inet` accetterebbe anche IPv6 e le forme
+   abbreviate, cioè aggiungerebbe semantica che il prodotto non ha;
+2. una colonna derivata nuova cambia la distribuzione dei dati fra colonne, quindi
+   obbligherebbe ad alzare `MAPPER_VERSION` — e con essa a una finestra di manutenzione
+   con `--rebuild`, per una query che a questa scala funziona con una scansione;
+3. l'aritmetica si scrive come **espressione** (`queries.ipnum_sql`) ed è esatta.
+
+**`strpos`, non `LIKE`.** `LIKE` attribuisce un significato a `%` e `_`, che in una
+casella di ricerca sono caratteri normali: con `LIKE` una query contenente `%`
+troverebbe tutto. C'è un test dedicato.
+
+**Unione di intervalli, non `generate_series`.** Enumerare gli slot sarebbe la traduzione
+ovvia della capacità e sarebbe un difetto: `rack.u` è un `integer` senza massimo, e un
+`generate_series` su un rack da due miliardi di U produrrebbe due miliardi di righe dentro
+una richiesta HTTP. L'unione di intervalli (gaps-and-islands con funzioni finestra) costa
+quanto i **dispositivi** e sull'altezza non fa nessuna ipotesi. C'è un test che porta un
+rack a 2 000 000 000 U e pretende una risposta in meno di cinque secondi.
+
+**`extra` non si cerca.** Un valore che la mappa non ha potuto mettere in una colonna
+tipizzata sta in `extra`, e `validate_model` lo segnala con `carried_verbatim`, il cui
+messaggio dice: «quel campo, per questa riga, non risponde a una query». Questo modulo
+rispetta quella dichiarazione. Conseguenza misurata: un rack i cui `seriali` contengono un
+numero porta l'intero array in `extra`, e quei seriali non si trovano — mentre il
+frontend, che fa `String(sn)`, li trova.
+
+**Documenti che il frontend non sa calcolare.** Tre corpora di parità portano `quirks`,
+tutti trovati facendo girare il generatore e non leggendo il codice:
+
+| documento | cosa fa il frontend |
+|---|---|
+| `rack.u` assente | `new Array(NaN)` → **RangeError** |
+| `rack.u` = 3 000 000 000 | alloca tre miliardi di elementi → **memoria esaurita** (ha ucciso il generatore) |
+| `rack.u` = `"45"` | non solleva: **coerce**, e il totale della sala diventa la stringa `'04545'` |
+
+Là non c'è parità da misurare: si verifica che lo SQL risponda con numeri sensati e si
+registra la divergenza. Nota collaterale: `3 000 000 000` non entra nemmeno in un
+`integer`, quindi la mappa lo porta in `extra` e per lo SQL quel rack non ha altezza.
+
+**Il documento canonico è il riferimento, non quello grezzo.** La canonicalizzazione non
+riordina soltanto: **riempie**. Un dispositivo scritto senza `type` diventa
+`type: "altro"`, e i campi assenti diventano stringhe vuote. Il frontend non vede mai un
+documento non canonico — li riceve da `GET /api/inventory` — quindi le attese di parità si
+calcolano sul canonico. La prima stesura le calcolava sul grezzo, e il test è diventato
+rosso su `device.type`: `null` da una parte, `"altro"` dall'altra. Non era un difetto
+dello SQL, era un difetto del banco di prova. Da qui la catena a tre passi del generatore.
+
+#### 8.46.3 Indici: **nessuno aggiunto**, e le misure che lo dicono
+
+§13 del requisito chiede di aggiungerli deliberatamente, dichiarando quale query
+sostengono, e di non aggiungerne uno solo perché compariva nel documento di progetto.
+Quattro candidati, quattro rifiuti motivati:
+
+| candidato | verdetto |
+|---|---|
+| date di scadenza | **già presenti**: `ix_device_garanzia_date`/`ix_device_supporto_date`, PARZIALI su `IS NOT NULL`, dalla 0011. Il piano li usa |
+| chiavi esterne dei genitori | **già presenti**: `ix_device_rack`, `ix_rack_room`, `ix_room_location`, dalla 0010 |
+| `lower(name)` per la ricerca | **inutile**: la ricerca è una **sottostringa** e nessun btree la serve. Con l'indice presente il piano resta `Seq Scan` |
+| espressione IP | **misurato ma non giustificato**: a 1720 dispositivi porta la ricerca per rete da 14,7 a 8,4 ms. Sei millisecondi su quindici non sono un problema, e §13 lo dice: «a sequential scan that completes in milliseconds is acceptable» |
+
+⚠ E una scoperta sui tre indici che la 0010 aveva creato «per le interrogazioni per cui la
+normalizzazione esiste»: `ix_device_code`, `ix_device_ip`, `ix_device_serial` sono btree
+sulla colonna grezza, e la ricerca vera è una sottostringa. Per l'endpoint di ricerca
+quei tre indici sono **inerti**. Non si rimuovono — fuori scopo, e servirebbero a un
+confronto per uguaglianza che un giorno potrebbe esistere — ma non stanno sostenendo la
+ricerca che c'è.
+
+Se un giorno servisse, il primo da aggiungere è quello sull'espressione IP, e
+l'espressione da indicizzare è `queries.ipnum_sql('ip')`. Un test verifica che sia
+indicizzabile, creandolo e distruggendolo, così la via d'uscita non si scopre inesistente
+il giorno in cui serve.
+
+#### 8.46.4 Prestazioni misurate
+
+Percorso completo: client HTTPS → nginx/TLS → FastAPI → PostgreSQL. Stack Compose reale,
+un lavoratore `uvicorn`, 25-30 richieste per riga, **a statistiche assestate** (vedi
+l'avvertenza sotto).
+
+| | seed (197 righe) | ×10 (1 970) | ×30 (5 910) | risposta al ×30 |
+|---|---|---|---|---|
+| `search` testo (`q=srv`) | **16 ms** | 25 ms | 33 ms | 96 KiB |
+| `search` una lettera (`q=a`) | **19 ms** | 27 ms | 39 ms | 78 KiB |
+| `search` CIDR `/16` | **18 ms** | 29 ms | 35 ms | 95 KiB |
+| `search` jolly `10.*` | **17 ms** | 28 ms | 32 ms | 95 KiB |
+| `capacity` | **16 ms** | 35 ms | 84 ms | 615 KiB |
+| `expiries` | **16 ms** | 62 ms | 75 ms | 570 KiB |
+
+Alla scala che ci riguarda tutto sta **sotto i 20 ms mediani**, e a trenta volte quella
+scala tutto sta sotto i 100 ms. Nessuna cache è stata introdotta e nessuna ottimizzazione
+è stata fatta. Il p95 non supera 1,4× la mediana in nessuna riga.
+
+Nota di metodo: le righe del `×30` vanno misurate **su uno stack già assestato**. Una
+sonda che scrive 5 910 righe e misura subito dopo misura autoanalyze, non le query —
+vedi l'avvertenza qui sotto.
+
+La ripartizione al ×30, misurata dentro il processo dell'API:
+
+| strato | `search` | `capacity` | `expiries` |
+|---|---|---|---|
+| funzione (SQL + costruzione) | 25 ms | 47 ms | 48 ms |
+| validazione del `response_model` | 0,1 ms | 0,0 ms | 0,6 ms |
+| codifica JSON | 0,2 ms | 4,5 ms | 2,6 ms |
+
+Pydantic e la codifica JSON sono **rumore**: il costo è la funzione, e dentro la funzione
+è SQL. Il resto della latenza end-to-end è trasporto (TLS, nginx, il client).
+
+⚠ **L'avvertenza che vale più della tabella.** Le prime misure davano `capacity` a
+459 ms e `search` a 413 ms al ×30 — sette volte i valori qui sopra. La causa non era il
+codice: erano misure prese **subito dopo la scrittura di 5 910 righe**, mentre autoanalyze
+stava ancora lavorando e i piani si basavano su statistiche vecchie. A statistiche
+assestate: 65-84 ms e 37-39 ms. Un `ANALYZE` esplicito a quel punto non cambia più nulla
+(65,1 → 64,2 ms), perché autoanalyze aveva già finito.
+
+Lo stesso effetto aveva prodotto una misura da **471 ms** su `q.search` in una sonda
+precedente, non riproducibile in un esperimento controllato (14,7 ms). Le tre misure
+«misteriose» di questo commit hanno tutte questa spiegazione, ed è stata verificata:
+`pg_stat_user_tables` mostrava `last_autoanalyze` già valorizzato quando i numeri sono
+tornati normali.
+
+Questo ha una conseguenza operativa reale, e viene dalla fase 2C: `synchronise`
+**cancella e reinserisce tutte le righe a ogni salvataggio**, quindi ogni scrittura
+grande apre una finestra di qualche secondo in cui le statistiche sono vecchie e i piani
+sono peggiori. A 197 righe è invisibile; a 5 910 è un rallentamento transitorio di circa
+sette volte. Non si è fatto niente per rimediare — non è un problema alla scala di
+produzione, e un `ANALYZE` nel percorso di una richiesta sarebbe una scrittura — ma è il
+primo posto da guardare se un giorno qualcuno segnala «a volte è lento dopo un
+salvataggio». Il posto naturale dove metterlo, se servisse, è `project.py --rebuild`, che
+gira già come proprietario.
+
+Tre misure «misteriose» di questo commit hanno tutte la stessa spiegazione, ed è questa.
+
+#### 8.46.5 Il bilancio delle connessioni (§14 del requisito)
+
+Il conto è in testa a `app/db.py`, dove sta accanto al codice che lo determina:
+
+    per processo   (pool_size + max_overflow) × 2  =  (5 + 10) × 2  =  30
+    in totale      30 × lavoratori uvicorn         =  30 × 1        =  30
+
+Nessun terzo pool: le tre interrogazioni usano quello di **lettura** della fase 2D. Più il
+worker delle notifiche e il servizio `migrate` quando qualcuno esegue un comando; il
+`max_connections` predefinito di PostgreSQL è 100, quindi c'è margine ampio.
+
+⚠ Aumentare i lavoratori `uvicorn` non è una modifica locale: `--workers N` moltiplica per
+N **entrambi** i pool, e con N=4 si arriva a 120 connessioni possibili, cioè oltre
+`max_connections`. Il guasto che ne segue è «FATAL: sorry, too many clients already» su
+richieste qualunque, sotto carico. Chi tocca quel numero deve ricalcolare insieme: i due
+`pool_size`/`max_overflow`, `max_connections`, e la memoria della macchina. Le misure non
+danno nessuna ragione per aumentarli.
+
+#### 8.46.6 Come è verificato
+
+`tests/test_queries_pg.py` — 142 test su PostgreSQL vero, nessuno saltato. La parte che
+porta il peso è la **parità**: le attese non sono scritte a mano, sono calcolate facendo
+girare **il JavaScript che gira nel browser**, copiato alla lettera in
+`tools/make-query-fixtures.mjs`. Ventinove corpora, ventisei con parità **stretta**.
+
+⚠ Questo rovescia la scelta di `make-identity-fixtures.mjs`, che scrive le attese a mano
+di proposito. Là il rischio è che i test verifichino l'implementazione contro sé stessa;
+qui il rischio è l'opposto — attese scritte a mano dimostrerebbero che lo SQL corrisponde
+alla mia **lettura** del JavaScript, che è precisamente ciò di cui non ci si può fidare in
+una migrazione di comportamento. Un controllo statico verifica che le sedici righe
+dichiarate «VERBATIM» esistano ancora identiche nell'HTML: se il frontend cambia, il
+controllo diventa rosso e le fixture vanno rigenerate.
+
+La catena di generazione è a **tre passi**, e il passo di mezzo esiste per la scoperta
+sulla canonicalizzazione:
+
+    1. node   tools/make-query-fixtures.mjs --emit-docs   → _raw.json
+    2. python tools/canonicalise-query-docs.py            → _canonical.json
+    3. node   tools/make-query-fixtures.mjs               → i 29 corpora
+
+Coperto: i cinque campi cercati e i tre dei rack; maiuscole, sottostringhe a metà parola e
+a cavallo di uno spazio, Unicode (`Núñez`, `Ätna`, `città`), id duplicati, campi vuoti;
+`%` e `_` come caratteri normali; tutte le forme IP (esatta, CIDR, intervallo con e senza
+spazi e invertito, jolly a 1-3 ottetti, `/33`, `/0`, ottetti > 255, IPv6, testo,
+indirizzi con spazi attorno); capacità vuota, parziale, piena, multi-U, sovrapposta,
+sporgente, slot ≤ 0, `h` nullo/zero/negativo, altezze 1 e 47, dismessi, raggruppamento per
+fila con e senza etichetta e con la sentinella; scadenze oggi/ieri/domani/90/91/molto
+scadute/molto future, entrambe sullo stesso dispositivo, «in attesa», vuote, assenti,
+dismesso contro in-dismissione, id di business duplicati; paginazione che percorre tutto
+esattamente una volta; cursore rotto, di un'altra query, di un'altra versione; `limit` e
+`warningDays` fuori intervallo; 401, 403, `no-store`, i tre ruoli; il 503 su proiezione
+non attuale per tutte e tre le rotte, senza nomi di tabella nella risposta; e la prova che
+le query **non** riassemblano il documento (una colonna corrotta fa cadere
+`GET /api/inventory` e non le query).
+
+Un test chiude il cerchio sul filtro della parità: la marcatura `isoStrict` del generatore
+è una **riscrittura** di `parse_expiry` in JavaScript, e un test Python la confronta con
+`parse_expiry` vero su ogni data di ogni corpus. Senza quello, filtrare le righe che il
+backend non interpreta sarebbe confrontare lo SQL con sé stesso.
+
+La §16 di `tools/storage-config-test.py` copre il negativo: `strpos` e non `LIKE`, nessun
+`to_tsquery`, nessun `inet`, nessun `generate_series`, nessuna colonna derivata nuova,
+`MAPPER_VERSION` non alzata, cursore a chiave e non `OFFSET`, nessun terzo engine, le tre
+rotte di sola lettura senza parametri che nominino SQL o colonne, il worker non migrato,
+il frontend non ricablato, e nessuna migrazione nuova.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -4550,8 +4870,15 @@ seguito fino alla versione 2 da sola.
     `test_get_from_sql_pg.py`, §15 di `storage-config-test.py`. Le tabelle
     normalizzate sono lo stato corrente autorevole; l'istantanea JSONB resta storia e
     **giudice**, senza nessun ripiego automatico. Contratto HTTP invariato.
-17. **Endpoint di query SQL**: ricerca, capacità, scadenze da SQL, e il passaggio del
-    worker delle notifiche alle colonne derivate. **Prossimo commit.**
+17. ~~**Endpoint di query SQL**: ricerca, capacità, scadenze da SQL~~ ✔ **fatto**
+    (§8.46) — `app/inventory/queries.py`, `app/api/queries.py`,
+    `tools/make-query-fixtures.mjs`, 29 corpora di parità, `test_queries_pg.py`, §16 di
+    `storage-config-test.py`. Semantica del frontend riprodotta alla lettera,
+    divergenze misurate e documentate, **zero indici nuovi** perché le misure non ne
+    giustificano nessuno. Frontend e worker NON ricablati.
+18. **Migrazione dei consumatori**: il frontend alle rotte nuove e il worker delle
+    notifiche alle colonne derivate, con queste stesse fixture di parità. Due commit
+    distinti e delimitati. **Prossimi.**
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

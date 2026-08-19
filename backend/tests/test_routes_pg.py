@@ -328,6 +328,11 @@ def test_api_surface_is_the_expected_set():
         "/api/health", "/api/ready",
         "/api/auth/login", "/api/auth/logout", "/api/auth/me", "/api/auth/password",
         "/api/inventory",
+        # Le tre interrogazioni della fase 2E (§8.46). Sono TRE, nominate, di sola
+        # lettura: non esiste un endpoint che esegua una query fornita dal client, e
+        # `test_queries_pg.py` lo verifica anche sui PARAMETRI — nessuno di loro accetta
+        # `sql`, `where`, `orderBy` o un nome di colonna.
+        "/api/inventory/search", "/api/inventory/capacity", "/api/inventory/expiries",
         "/api/users", "/api/users/{user_id}",
         "/api/users/{user_id}/disable", "/api/users/{user_id}/enable",
         "/api/users/{user_id}/reset-password",

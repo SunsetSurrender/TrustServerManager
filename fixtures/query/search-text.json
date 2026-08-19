@@ -1,0 +1,1130 @@
+{
+  "name": "search-text",
+  "note": "sottostringhe, differenze di maiuscole, id duplicati, campi vuoti, Unicode. Nota: `owner: null` e `model: \"\"` non devono mai combaciare con una query non vuota.",
+  "doc": {
+    "schemaVersion": 1,
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000008",
+        "id": "pomezia",
+        "nome": "Pomezia",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "id": "sala-1",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000005",
+                "id": "R01",
+                "name": "Fila A primo",
+                "u": 42,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000001",
+                    "id": "srv-01",
+                    "name": "SRV-Web-01",
+                    "u": 1,
+                    "h": 1,
+                    "model": "PowerEdge R750",
+                    "ip": "10.0.2.15",
+                    "serial": "ABC123",
+                    "owner": "Rossi",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000002",
+                    "id": "srv-01",
+                    "name": "srv-web-02",
+                    "u": 1,
+                    "h": 1,
+                    "model": "poweredge r640",
+                    "ip": "10.0.2.16",
+                    "serial": "abc999",
+                    "owner": "ROSSI",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [
+                  "RK-AAA",
+                  "RK-BBB"
+                ],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000006",
+                "id": "R02",
+                "name": "rossi ha nominato questo rack",
+                "u": 42,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000003",
+                    "id": "sw-01",
+                    "name": "Switch Núñez — città",
+                    "u": 1,
+                    "h": 1,
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "type": "rete",
+                    "stato": "attivo",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000004",
+                    "id": "nas-01",
+                    "name": "NAS Ätna",
+                    "u": 1,
+                    "h": 1,
+                    "model": "Synology",
+                    "ip": "10.0.3.1",
+                    "serial": "Ätna-1",
+                    "owner": "Bianchi",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          }
+        ]
+      }
+    ]
+  },
+  "refDate": "2026-08-10",
+  "refNowMs": 1786312800000,
+  "warningDays": 90,
+  "quirks": [],
+  "search": [
+    {
+      "q": "srv",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "SRV",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "Srv-Web",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "poweredge",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "PowerEdge R750",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "rossi",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        }
+      ]
+    },
+    {
+      "q": "ROSSI",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        }
+      ]
+    },
+    {
+      "q": "R01",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        }
+      ]
+    },
+    {
+      "q": "r01",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        }
+      ]
+    },
+    {
+      "q": "RK-AAA",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        }
+      ]
+    },
+    {
+      "q": "rk-bbb",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        }
+      ]
+    },
+    {
+      "q": "Fila A",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        }
+      ]
+    },
+    {
+      "q": "núñez",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000003",
+            "code": "sw-01",
+            "name": "Switch Núñez — città",
+            "type": "rete",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "NÚÑEZ",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000003",
+            "code": "sw-01",
+            "name": "Switch Núñez — città",
+            "type": "rete",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "città",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000003",
+            "code": "sw-01",
+            "name": "Switch Núñez — città",
+            "type": "rete",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "ätna",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000004",
+            "code": "nas-01",
+            "name": "NAS Ätna",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "Ätna-1",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000004",
+            "code": "nas-01",
+            "name": "NAS Ätna",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "abc",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "ABC123",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    },
+    {
+      "q": "zzz",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "   ",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "a",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-01",
+            "name": "SRV-Web-01",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-01",
+            "name": "srv-web-02",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000005",
+            "code": "R01",
+            "name": "Fila A primo"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          },
+          "deviceCount": 2
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000004",
+            "code": "nas-01",
+            "name": "NAS Ätna",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000006",
+            "code": "R02",
+            "name": "rossi ha nominato questo rack"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000007",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000008",
+            "code": "pomezia",
+            "nome": "Pomezia"
+          }
+        }
+      ]
+    }
+  ],
+  "capacity": [
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000008",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000007",
+          "totalU": 84,
+          "usedU": 2,
+          "rackCount": 2,
+          "occupancyPercent": 2,
+          "bestRackCode": "R01",
+          "bestFreeRun": 41,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 84,
+              "usedU": 2
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000005",
+              "code": "R01",
+              "u": 42,
+              "usedU": 1,
+              "largestFreeRun": 41,
+              "deviceCount": 2,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000006",
+              "code": "R02",
+              "u": 42,
+              "usedU": 1,
+              "largestFreeRun": 41,
+              "deviceCount": 2,
+              "row": ""
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capacityThrows": null,
+  "expiries": [],
+  "expiriesThrows": null
+}

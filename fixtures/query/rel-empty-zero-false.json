@@ -1,0 +1,218 @@
+{
+  "name": "rel-empty-zero-false",
+  "note": "Documento «empty-zero-false» da fixtures/relational/build.py.",
+  "doc": {
+    "schemaVersion": 1,
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000001",
+        "id": "pomezia",
+        "nome": "Pomezia G0",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "id": "sala-1",
+            "nome": "Sala 1",
+            "w": 0,
+            "h": 0,
+            "area": "",
+            "dim": "",
+            "segnaposto": false,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000001",
+                "id": "R01",
+                "name": "",
+                "row": "",
+                "u": 0,
+                "x": 0,
+                "y": 0,
+                "w": 0.6,
+                "h": 0.65,
+                "seriali": [],
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000001",
+                    "id": "srv",
+                    "name": "srv",
+                    "u": 0,
+                    "h": 0,
+                    "type": "altro",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "refDate": "2026-08-10",
+  "refNowMs": 1786312800000,
+  "warningDays": 90,
+  "quirks": [],
+  "search": [
+    {
+      "q": "srv",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv",
+            "name": "srv",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 0,
+            "h": 0
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": ""
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        }
+      ]
+    },
+    {
+      "q": "R0",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": ""
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 1
+        }
+      ]
+    },
+    {
+      "q": "r0",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": ""
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 1
+        }
+      ]
+    },
+    {
+      "q": "10.0",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "10.0.*",
+      "ipRange": [
+        167772160,
+        167837695
+      ],
+      "results": []
+    },
+    {
+      "q": "a",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "Ätna",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "zzz",
+      "ipRange": null,
+      "results": []
+    }
+  ],
+  "capacity": [
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000001",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000001",
+          "totalU": 0,
+          "usedU": 0,
+          "rackCount": 1,
+          "occupancyPercent": 0,
+          "bestRackCode": null,
+          "bestFreeRun": 0,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 0,
+              "usedU": 0
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000001",
+              "code": "R01",
+              "u": 0,
+              "usedU": 0,
+              "largestFreeRun": 0,
+              "deviceCount": 1,
+              "row": ""
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capacityThrows": null,
+  "expiries": [],
+  "expiriesThrows": null
+}

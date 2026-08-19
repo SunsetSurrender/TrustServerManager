@@ -1319,10 +1319,17 @@ check("il GET non legge più il documento immutabile",
       "restituire l'istantanea era la fase 2C. Lasciarne la strada aperta "
       "significherebbe poterci ripiegare in caso di dubbio, e il ripiego nasconde "
       "esattamente il difetto che la fase 2 esiste per scoprire")
+# ⚠ Dalla fase 2E la lettura della testa sta in `require_current_head`, che
+# `current_document` e le tre interrogazioni condividono: il frammento cercato si è
+# SPOSTATO, e cercarlo solo in `current_document` faceva fallire il controllo per un
+# rifattorizzamento che non ha cambiato nessuna proprietà. Si guardano entrambe.
+head_fn = function_source(ROOT / "backend" / "app" / "inventory" / "projection.py",
+                         "require_current_head")
 check("nemmeno la funzione di lettura deserializza l'istantanea",
-      "SELECT canonical_sha256 FROM inventory_versions" in current_fn
-      and "doc FROM inventory_versions" not in current_fn
-      and ".doc" not in current_fn,
+      bool(head_fn)
+      and "SELECT canonical_sha256 FROM inventory_versions" in head_fn
+      and all("doc FROM inventory_versions" not in f for f in (current_fn, head_fn))
+      and all(".doc" not in f for f in (current_fn, head_fn)),
       "di `inventory_versions` legge il DIGEST, che è metadato e serve da giudice. "
       "Il documento no: se lo avesse in mano potrebbe restituirlo")
 check("il riassemblaggio passa dalla mappa già provata",
@@ -1465,6 +1472,251 @@ check("la risposta del GET ha ancora le quattro chiavi di sempre",
       all(t in class_source(INVENTORY_ROUTE, "InventoryOut")
           for t in ("version", "schemaVersion", "sha256", "doc")),
       "cambiare la fonte non è cambiare il contratto")
+
+
+# ==================================================================
+# 16. fase 2E: tre interrogazioni, e la semantica di prima (§8.46)
+# ==================================================================
+#
+# I test di parità provano che lo SQL risponde come il frontend, su 29 corpora. Qui si
+# copre ciò che un test di comportamento non vede: che non sia comparso un endpoint che
+# esegue query arbitrarie, che il worker e il frontend non siano stati toccati, che le
+# attese di parità vengano davvero dal JavaScript che gira, e che il modulo delle query
+# non abbia preso scorciatoie che cambiano il risultato.
+
+QUERIES = ROOT / "backend" / "app" / "inventory" / "queries.py"
+QUERY_ROUTES = ROOT / "backend" / "app" / "api" / "queries.py"
+queries_src = code_only(QUERIES)
+query_routes_src = code_only(QUERY_ROUTES)
+
+check("esistono le tre interrogazioni, e sono tre",
+      all(f"def {nome}(" in queries_src
+          for nome in ("search", "capacity", "expiries")),
+      "ricerca, capacità e scadenze: le tre famiglie che la fase 2 doveva sostenere")
+
+# --- la semantica della ricerca ---
+search_fn = function_source(QUERIES, "search")
+rows_fn = function_source(QUERIES, "_search_rows")
+check("la ricerca testuale usa `strpos`, non `LIKE`",
+      "strpos(lower(" in rows_fn and "LIKE" not in rows_fn,
+      "`LIKE` attribuisce un significato a `%` e `_`, che in una casella di ricerca "
+      "sono caratteri normali: una query contenente `%` troverebbe tutto")
+check("la ricerca NON è tokenizzata",
+      all(t not in queries_src for t in ("to_tsvector", "to_tsquery", "tsquery",
+                                         "plainto_", "websearch_", "@@")),
+      "la ricerca a testo pieno di PostgreSQL non trova `SRV-Web-01` cercando `web`: "
+      "sarebbe una ricerca «migliore» che perde risultati")
+check("i campi cercati sui dispositivi sono i CINQUE del frontend",
+      all(f"d.{c}" in rows_fn for c in ("name", "model", "ip", "serial", "owner"))
+      and "d.note" not in rows_fn and "d.type" not in rows_fn.split("dev_type")[0],
+      "`id`, `type`, `stato` e `note` NON sono cercati dalla barra globale. Sembra una "
+      "dimenticanza del frontend, ma aggiungerli qui darebbe più risultati sul server "
+      "che nel browser — due prodotti diversi")
+check("i rack si cercano su codice, nome e seriali",
+      "k.code" in rows_fn and "k.name" in rows_fn and "k.seriali" in rows_fn)
+# Senza virgolette esterne: `ast.unparse` normalizza i letterali (la trappola
+# documentata in `code_only`, e ci sono ricascato).
+check("in modalità intervallo IP i rack non partecipano",
+      "rack_where = " in rows_fn and "FALSE" in rows_fn,
+      "il frontend scrive `if (!ipRange && (rk.id...))`: quando la query è una rete, i "
+      "rack sono esclusi per costruzione")
+
+# --- nessun `inet`, che è la scorciatoia più tentatrice ---
+check("l'IP si confronta con l'aritmetica di `ipToNum`, non con `inet`",
+      "split_part" in queries_src
+      and all(t not in queries_src for t in ("::inet", "<<=", "inet_", "::cidr")),
+      "`inet` accetterebbe anche IPv6 e le forme abbreviate, cioè aggiungerebbe "
+      "semantica che il prodotto non ha: oggi un dispositivo con `2001:db8::1` non si "
+      "trova per intervallo, e trovarlo sarebbe un comportamento nuovo")
+check("non è stata aggiunta nessuna colonna derivata per l'IP",
+      "ip_inet" not in code_only(ROOT / "backend" / "app" / "inventory"
+                                / "relational.py"),
+      "una colonna derivata nuova cambia la distribuzione dei dati fra colonne, quindi "
+      "obbligherebbe ad alzare `MAPPER_VERSION` e a un `--rebuild` in manutenzione")
+check("la versione della mappa NON è stata alzata",
+      "MAPPER_VERSION = 1" in code_only(ROOT / "backend" / "app" / "inventory"
+                                        / "relational.py"),
+      "la fase 2E non cambia la proiezione: solo la interroga. Alzarla costringerebbe "
+      "a una ricostruzione per una funzione di sola lettura")
+
+# --- la semantica della capacità ---
+capacity_fn = function_source(QUERIES, "capacity")
+check("la capacità NON somma le altezze",
+      "SUM(h)" not in queries_src and "sum(d.h)" not in queries_src,
+      "`used_u` è il conteggio degli SLOT DISTINTI occupati: due dispositivi "
+      "sovrapposti contano una volta, uno che sporge viene tagliato")
+check("la capacità non enumera gli slot",
+      "generate_series" not in queries_src,
+      "`rack.u` è un `integer` senza massimo e il documento `oversized-integers` ne "
+      "contiene uno da tre miliardi: un `generate_series` su quello produrrebbe tre "
+      "miliardi di righe dentro una richiesta HTTP")
+check("la capacità unisce gli intervalli con funzioni finestra",
+      all(t in queries_src for t in ("OVER (PARTITION BY", "lag(", "lead(")),
+      "il costo cresce col numero di DISPOSITIVI, non con l'altezza dichiarata del rack")
+check("la sentinella del raggruppamento per fila è quella del frontend",
+      "ROW_SENTINEL" in queries_src,
+      "il frontend raggruppa per `rk.row || '—'`, e nel seed reale esiste un rack la "
+      "cui fila È «—»: la sentinella collide col dato, e i due finiscono nello stesso "
+      "gruppo. Rimapparla darebbe due gruppi dove l'utente ne vede uno")
+
+# --- la semantica delle scadenze ---
+expiries_fn = function_source(QUERIES, "expiries")
+check("le scadenze leggono le colonne DERIVATE",
+      "garanzia_date" in queries_src and "supporto_date" in queries_src,
+      "sono la sorgente interrogabile, e le ha scritte `parse_expiry`")
+# ⚠ `to_date(` con la parentesi: senza, il frammento combacia con `suppor·to_date`,
+# cioè con il nome di una colonna che DEVE esserci. Un controllo che fallisce perché ha
+# trovato la cosa giusta è un controllo scritto male.
+check("le scadenze non reinterpretano il testo",
+      all(t not in queries_src.lower()
+          for t in ("to_date(", "to_timestamp(", "date_parse", "::date)")),
+      "un secondo interprete di date divergerebbe dal primo, e divergerebbe sui casi "
+      "limite — che sono l'unico posto dove la differenza si vede")
+check("i dispositivi dismessi si escludono come nel frontend",
+      "nullif(d.stato, '')" in queries_src and "dismesso" in queries_src,
+      "il frontend scrive `(d.stato || 'attivo')`, e in JavaScript la stringa vuota è "
+      "falsa: `stato: \"\"` significa «attivo»")
+check("«oggi» viene dal fuso configurato, con il codice del worker",
+      "local_today" in query_routes_src,
+      "così «scaduto» significa la stessa cosa in un promemoria via posta e in questa "
+      "risposta")
+
+# --- il contratto delle rotte ---
+check("le tre rotte sono di sola lettura",
+      query_routes_src.count("@router.get(") == 3
+      and all(t not in query_routes_src for t in ("@router.post(", "@router.put(",
+                                                  "@router.delete(",
+                                                  "@router.patch(")),
+      "sono interrogazioni: non scrivono, non accettano un corpo")
+check("nessun endpoint esegue una query fornita dal client",
+      all(t not in query_routes_src for t in ("order_by", "orderBy", "raw_sql",
+                                              "sql=", "where=", "column=")),
+      "tre domande con un significato si possono autorizzare, verificare e misurare; "
+      "una domanda arbitraria no")
+check("le rotte non impongono un ruolo minimo",
+      "require_admin" not in query_routes_src and "require_actor" in query_routes_src,
+      "nel frontend la ricerca, la capacità e le scadenze le vede chiunque abbia una "
+      "sessione: renderle amministrative restringerebbe una funzione esistente (§2)")
+check("le rotte usano lo SNAPSHOT di sola lettura della fase 2D",
+      "get_snapshot_reader" in query_routes_src
+      and "get_connection" not in query_routes_src,
+      "una risposta deve descrivere un solo istante del database, testa e digest "
+      "compresi — e la connessione della richiesta non è utilizzabile (§8.45)")
+check("nessun terzo engine",
+      "create_engine" not in queries_src and "create_engine" not in query_routes_src
+      and code_only(ROOT / "backend" / "app" / "db.py").count("create_engine(") == 2,
+      "il requisito dice esplicitamente di non introdurne un terzo: i due pool sono "
+      "quello delle richieste e quello di lettura (§14)")
+check("ogni risposta porta la revisione che descrive",
+      query_routes_src.count("version=") >= 3 and "sha256=" in query_routes_src,
+      "senza, una ricerca fatta mentre un collega salva restituisce righe corrette per "
+      "una revisione che il client non ha, e il client non se ne accorge (§4)")
+check("le interrogazioni NON riassemblano il documento",
+      all(t not in queries_src for t in ("current_document", "assemble(",
+                                         "read_model(", "canonical_sha256")),
+      "la fedeltà completa costa il 70% Python misurato in §8.45.1: pagarla su ogni "
+      "ricerca sarebbe carico senza una ragione. Le query pretendono l'ATTUALITÀ (§12)")
+check("le interrogazioni pretendono comunque una proiezione attuale",
+      "require_current_head" in queries_src,
+      "e non ripiegano sul filtraggio del JSON, che darebbe la risposta giusta "
+      "nascondendo il difetto")
+
+# --- la paginazione ---
+check("il cursore è una CHIAVE, non un offset",
+      "OFFSET" not in queries_src and "encode_cursor" in queries_src,
+      "un `OFFSET` su un insieme che cambia salta o ripete righe, e lo fa proprio "
+      "quando qualcuno sta salvando (§8)")
+check("l'ordinamento ha l'`uid` come ultimo spareggio",
+      "sort_uid" in queries_src and "ORDER BY l_ord, r_ord, k_ord, kind_rank, d_ord, "
+      "sort_uid" in queries_src,
+      "l'ordine deve restare totale anche quando ordinali e nomi collidono")
+check("il cursore rotto ha un codice stabile",
+      "invalid_cursor" in queries_src
+      and "CursorRejected" in code_only(ROOT / "backend" / "app" / "api" / "errors.py"),
+      "422 e non 503: è un difetto della richiesta, e riprovare non lo risolve")
+
+# --- le fixture di parità vengono dal frontend VERO ---
+GENERATOR = ROOT / "tools" / "make-query-fixtures.mjs"
+check("esiste il generatore delle fixture di parità", GENERATOR.is_file())
+generator = GENERATOR.read_text(encoding="utf-8") if GENERATOR.is_file() else ""
+fixtures_dir = ROOT / "fixtures" / "query"
+corpora = sorted(p.name for p in fixtures_dir.glob("*.json")
+                 if not p.name.startswith("_")) if fixtures_dir.is_dir() else []
+check("i corpora di parità sono committati",
+      len(corpora) >= 25,
+      f"sono il contratto fra il JavaScript che gira e lo SQL nuovo: {len(corpora)}")
+
+#: Le righe che il generatore dichiara copiate ALLA LETTERA dal frontend. Se una non si
+#: trova più identica nell'HTML, il riferimento semantico si è spostato e le fixture
+#: vanno rigenerate — che è l'unico modo di accorgersene.
+VERBATIM = [
+    "const m = String(ip || '').trim().match(/^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/);",
+    "if (p.some(x => x > 255)) return null;",
+    "return ((p[0] * 256 + p[1]) * 256 + p[2]) * 256 + p[3];",
+    "const size = Math.pow(2, 32 - bits);",
+    "const start = Math.floor(base / size) * size;",
+    "return [Math.min(a, b), Math.max(a, b)];",
+    "while (lo.length < 4) { lo.push(0); hi.push(255); }",
+    "return [d.name, d.model, d.ip, d.serial, d.owner].some(v => (v || '').toLowerCase().includes(q));",
+    "const occ = new Array(rk.u + 1).fill(false);",
+    "for (let k = 1; k <= rk.u; k++) { if (occ[k]) { rkUsed++; run = 0; } else { run++; if (run > maxRun) maxRun = run; } }",
+    "if (maxRun > bestFree) { bestFree = maxRun; bestRack = rk.id; }",
+    "const rw = rk.row || '—';",
+    "const pct = tot ? used / tot : 0;",
+    "if ((d.stato || 'attivo') === 'dismesso') continue;",
+    "const lv = giorni < 0 ? 2 : (giorni <= 90 ? 1 : 0);",
+    "entries.sort((a, b) => a.dt - b.dt);",
+]
+
+#: Il sorgente dell'APPLICAZIONE, che sta nell'HTML a file unico e non nei `.js`.
+#:
+#: ⚠ `handoff` concatena soltanto `handoff/**/*.js` — dati del seed, modulo identità,
+#: client dell'API — e la logica di ricerca, capacità e scadenze non è là: è dentro
+#: `Sala Server v2.dc.html`. Cercare i frammenti in `handoff` li dichiarava tutti
+#: assenti, che è il modo in cui questo controllo sarebbe potuto passare per sbaglio se
+#: l'avessi scritto al negativo.
+FRONTEND_APP = ROOT / "handoff" / "Sala Server v2.dc.html"
+check("il sorgente dell'applicazione frontend è dove ci si aspetta",
+      FRONTEND_APP.is_file(),
+      "è il riferimento semantico della fase 2E: senza, la parità non ha un termine "
+      "di confronto")
+frontend_app = FRONTEND_APP.read_text(encoding="utf-8") if FRONTEND_APP.is_file() else ""
+
+mancanti_html = [frammento for frammento in VERBATIM
+                 if frammento not in frontend_app]
+check("gli algoritmi copiati nel generatore esistono ancora nel frontend",
+      not mancanti_html,
+      f"il riferimento semantico si è spostato: rigenerare le fixture. Non trovati: "
+      f"{[f[:60] for f in mancanti_html]}")
+mancanti_gen = [frammento for frammento in VERBATIM if frammento not in generator]
+check("il generatore contiene davvero quegli algoritmi",
+      not mancanti_gen,
+      f"un frammento nell'elenco ma non nel generatore rende il controllo vacuo: "
+      f"{[f[:60] for f in mancanti_gen]}")
+
+# --- ciò che la fase 2E NON fa ---
+check("il worker delle notifiche non è passato a SQL",
+      all(t not in worker_sources for t in ("garanzia_date", "supporto_date",
+                                            "inventory_devices", "queries."))
+      and "walk(" in worker_sources or "devices_with_expiries" in worker_sources,
+      "resta il suo scanner del documento (§19): il passaggio è un commit isolato, con "
+      "queste stesse fixture di parità")
+check("il frontend non è stato ricablato alle rotte nuove",
+      all(t not in handoff + frontend_app
+          for t in ("/api/inventory/search", "/api/inventory/capacity",
+                    "/api/inventory/expiries")),
+      "la 2E prova prima le implementazioni sul server (§18); la sostituzione dei "
+      "calcoli lato client è un commit successivo e delimitato")
+check("il frontend continua a calcolare da sé",
+      "parseIpQuery" in frontend_app and "new Array(rk.u + 1)" in frontend_app,
+      "se questi fossero spariti il frontend sarebbe già stato migrato, e la parità "
+      "non avrebbe più un riferimento")
+check("nessuna migrazione nuova per la fase 2E",
+      not (ROOT / "backend" / "migrations" / "versions" / "0013_query_indexes.py")
+      .is_file(),
+      "le misure non giustificano nessun indice nuovo: le chiavi esterne e le date "
+      "sono già indicizzate, e la ricerca è una sottostringa che nessun btree serve "
+      "(§8.46.1)")
 
 
 if __name__ == "__main__":

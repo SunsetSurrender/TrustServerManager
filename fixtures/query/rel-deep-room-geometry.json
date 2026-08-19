@@ -1,0 +1,857 @@
+{
+  "name": "rel-deep-room-geometry",
+  "note": "Documento «deep-room-geometry» da fixtures/relational/build.py.",
+  "doc": {
+    "schemaVersion": 1,
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000001",
+        "id": "pomezia",
+        "nome": "Pomezia G0",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "id": "sala-1",
+            "nome": "Sala 1",
+            "w": 8.5,
+            "h": 6.25,
+            "area": "53.13 m²",
+            "dim": "8.50 × 6.25 m",
+            "vani": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 2.5,
+                "h": 3.125,
+                "porta": {
+                  "lato": "top",
+                  "x": 0.5,
+                  "w": 0.9
+                }
+              },
+              {
+                "x": 2.5,
+                "y": 0,
+                "w": 2.5,
+                "h": 3.125,
+                "porta": {
+                  "lato": "right",
+                  "y": 0.25,
+                  "w": 1.05
+                }
+              },
+              {
+                "x": 0,
+                "y": 3.125,
+                "w": 5,
+                "h": 3.125
+              },
+              {
+                "x": 5,
+                "y": 0,
+                "w": 3.5,
+                "h": 6.25,
+                "porta": {
+                  "lato": "left",
+                  "y": 2.5,
+                  "w": 0.8
+                },
+                "porta2": {
+                  "lato": "bottom",
+                  "x": 1.25,
+                  "w": 1.2
+                },
+                "note": "vano tecnico"
+              }
+            ],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000001",
+                "id": "R01",
+                "name": "R01",
+                "row": "A",
+                "u": 45,
+                "x": 0.5,
+                "y": 1.25,
+                "w": 0.6,
+                "h": 0.65,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000001",
+                    "id": "srv-web",
+                    "name": "srv-web",
+                    "type": "server",
+                    "u": 1,
+                    "h": 1,
+                    "ip": "10.0.2.11",
+                    "serial": "SN-1",
+                    "owner": "Rossi",
+                    "garanzia": "2027-03-14",
+                    "supporto": "2027-03-14",
+                    "stato": "attivo",
+                    "model": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000002",
+                    "id": "srv-db",
+                    "name": "srv-db",
+                    "type": "storage",
+                    "u": 3,
+                    "h": 2,
+                    "supporto": "2026-12-31",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "note": ""
+                  }
+                ],
+                "foto": "3cedd91a-f520-4fac-9a26-6626a7acd68f",
+                "seriali": [
+                  "2006004084",
+                  "2006004085"
+                ]
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000002",
+                "id": "R02",
+                "name": "",
+                "row": "",
+                "u": 45,
+                "x": 0,
+                "y": 0,
+                "w": 0.6,
+                "h": 0.65,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000003",
+                    "id": "sw-core",
+                    "name": "sw-core",
+                    "type": "rete",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "manutenzione",
+                    "model": "",
+                    "ip": "",
+                    "note": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": ""
+                  }
+                ],
+                "seriali": []
+              }
+            ],
+            "segnaposto": false
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000002",
+            "id": "sala-2",
+            "nome": "Sala 2",
+            "w": 3,
+            "h": 3,
+            "segnaposto": true,
+            "vani": [],
+            "racks": [],
+            "area": "",
+            "dim": ""
+          }
+        ]
+      },
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000002",
+        "id": "oriolo",
+        "nome": "Oriolo Romano A0",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000003",
+            "id": "sala-a",
+            "nome": "Sala A",
+            "w": 5,
+            "h": 4,
+            "vani": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 5,
+                "h": 4,
+                "porta": null
+              }
+            ],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000003",
+                "id": "R01",
+                "name": "R01",
+                "row": "A",
+                "u": 45,
+                "x": 0.5,
+                "y": 1.25,
+                "w": 0.6,
+                "h": 0.65,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000004",
+                    "id": "srv-web",
+                    "name": "srv-web-oriolo",
+                    "type": "server",
+                    "u": 1,
+                    "h": 1,
+                    "owner": "Bianchi",
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "foto": "c2266c88-4b97-4023-9687-75ddd58df30c",
+                "seriali": []
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000004",
+                "id": "R02",
+                "name": "R02",
+                "row": "A",
+                "u": 45,
+                "x": 0.5,
+                "y": 1.25,
+                "w": 0.6,
+                "h": 0.65,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000005",
+                    "id": "ups-1",
+                    "name": "ups-1",
+                    "type": "alimentazione",
+                    "u": 0,
+                    "h": 1,
+                    "stato": "attivo",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": []
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          }
+        ]
+      }
+    ],
+    "manuale": [
+      {
+        "_uid": "eeeeeeee-0000-4000-8000-000000000001",
+        "id": "man-avvio",
+        "titolo": "Avvio",
+        "blocchi": [
+          {
+            "titolo": "",
+            "paragrafi": [
+              "Primo paragrafo.",
+              "Secondo paragrafo."
+            ]
+          }
+        ]
+      },
+      {
+        "_uid": "eeeeeeee-0000-4000-8000-000000000002",
+        "id": "man-backup",
+        "titolo": "Backup",
+        "custom": true,
+        "blocchi": [
+          {
+            "titolo": "Nastri",
+            "paragrafi": [
+              "Testo."
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "refDate": "2026-08-10",
+  "refNowMs": 1786312800000,
+  "warningDays": 90,
+  "quirks": [],
+  "search": [
+    {
+      "q": "srv",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-web",
+            "name": "srv-web",
+            "type": "server",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-db",
+            "name": "srv-db",
+            "type": "storage",
+            "stato": "attivo",
+            "u": 3,
+            "h": 2
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000004",
+            "code": "srv-web",
+            "name": "srv-web-oriolo",
+            "type": "server",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000003",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000003",
+            "code": "sala-a",
+            "nome": "Sala A"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000002",
+            "code": "oriolo",
+            "nome": "Oriolo Romano A0"
+          }
+        }
+      ]
+    },
+    {
+      "q": "R0",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 2
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000002",
+            "code": "R02",
+            "name": ""
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 1
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000003",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000003",
+            "code": "sala-a",
+            "nome": "Sala A"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000002",
+            "code": "oriolo",
+            "nome": "Oriolo Romano A0"
+          },
+          "deviceCount": 1
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000004",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000003",
+            "code": "sala-a",
+            "nome": "Sala A"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000002",
+            "code": "oriolo",
+            "nome": "Oriolo Romano A0"
+          },
+          "deviceCount": 1
+        }
+      ]
+    },
+    {
+      "q": "r0",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 2
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000002",
+            "code": "R02",
+            "name": ""
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 1
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000003",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000003",
+            "code": "sala-a",
+            "nome": "Sala A"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000002",
+            "code": "oriolo",
+            "nome": "Oriolo Romano A0"
+          },
+          "deviceCount": 1
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000004",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000003",
+            "code": "sala-a",
+            "nome": "Sala A"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000002",
+            "code": "oriolo",
+            "nome": "Oriolo Romano A0"
+          },
+          "deviceCount": 1
+        }
+      ]
+    },
+    {
+      "q": "10.0",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-web",
+            "name": "srv-web",
+            "type": "server",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        }
+      ]
+    },
+    {
+      "q": "10.0.*",
+      "ipRange": [
+        167772160,
+        167837695
+      ],
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-web",
+            "name": "srv-web",
+            "type": "server",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000001",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        }
+      ]
+    },
+    {
+      "q": "a",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000004",
+            "code": "srv-web",
+            "name": "srv-web-oriolo",
+            "type": "server",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-000000000003",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-000000000003",
+            "code": "sala-a",
+            "nome": "Sala A"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-000000000002",
+            "code": "oriolo",
+            "nome": "Oriolo Romano A0"
+          }
+        }
+      ]
+    },
+    {
+      "q": "",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "Ätna",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "zzz",
+      "ipRange": null,
+      "results": []
+    }
+  ],
+  "capacity": [
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000001",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000001",
+          "totalU": 90,
+          "usedU": 4,
+          "rackCount": 2,
+          "occupancyPercent": 4,
+          "bestRackCode": "R02",
+          "bestFreeRun": 44,
+          "rows": [
+            {
+              "row": "A",
+              "totalU": 45,
+              "usedU": 3
+            },
+            {
+              "row": "—",
+              "totalU": 45,
+              "usedU": 1
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000001",
+              "code": "R01",
+              "u": 45,
+              "usedU": 3,
+              "largestFreeRun": 41,
+              "deviceCount": 2,
+              "row": "A"
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000002",
+              "code": "R02",
+              "u": 45,
+              "usedU": 1,
+              "largestFreeRun": 44,
+              "deviceCount": 1,
+              "row": ""
+            }
+          ]
+        },
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000002",
+          "totalU": 0,
+          "usedU": 0,
+          "rackCount": 0,
+          "occupancyPercent": 0,
+          "bestRackCode": null,
+          "bestFreeRun": 0,
+          "rows": [],
+          "racks": []
+        }
+      ]
+    },
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000002",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000003",
+          "totalU": 90,
+          "usedU": 1,
+          "rackCount": 2,
+          "occupancyPercent": 1,
+          "bestRackCode": "R02",
+          "bestFreeRun": 45,
+          "rows": [
+            {
+              "row": "A",
+              "totalU": 90,
+              "usedU": 1
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000003",
+              "code": "R01",
+              "u": 45,
+              "usedU": 1,
+              "largestFreeRun": 44,
+              "deviceCount": 1,
+              "row": "A"
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000004",
+              "code": "R02",
+              "u": 45,
+              "usedU": 0,
+              "largestFreeRun": 45,
+              "deviceCount": 1,
+              "row": "A"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capacityThrows": null,
+  "expiries": [
+    {
+      "kind": "supporto",
+      "raw": "2026-12-31",
+      "daysRemaining": 143,
+      "level": "future",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000002",
+        "code": "srv-db",
+        "name": "srv-db",
+        "type": "storage",
+        "stato": "attivo",
+        "u": 3,
+        "h": 2
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000001",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2027-03-14",
+      "daysRemaining": 216,
+      "level": "future",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000001",
+        "code": "srv-web",
+        "name": "srv-web",
+        "type": "server",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000001",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "supporto",
+      "raw": "2027-03-14",
+      "daysRemaining": 216,
+      "level": "future",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000001",
+        "code": "srv-web",
+        "name": "srv-web",
+        "type": "server",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000001",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000001",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000001",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    }
+  ],
+  "expiriesThrows": null
+}

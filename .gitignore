@@ -11,3 +11,21 @@ venv/
 # perché un file binario di fixture nel repository non si può leggere in una
 # revisione e non si sa più che cosa dimostri.
 .photos-ui-tmp/
+
+# Intermedi della catena delle fixture di parità (fase 2E, §8.46).
+#
+# I 28 corpora `fixtures/query/*.json` SONO committati: sono il contratto fra il
+# JavaScript che gira nel browser e lo SQL nuovo, e vanno letti in una revisione.
+# Questi quattro no: sono i riversamenti e i passaggi intermedi della catena a tre
+# passi, si rigenerano con
+#
+#   node   tools/make-query-fixtures.mjs --emit-docs
+#   python tools/canonicalise-query-docs.py
+#   node   tools/make-query-fixtures.mjs
+#
+# e committarli significherebbe avere due copie degli stessi documenti che possono
+# divergere — con la copia sbagliata indistinguibile da quella giusta.
+fixtures/query/_raw.json
+fixtures/query/_canonical.json
+fixtures/query/_documents.json
+fixtures/query/_expiry.json

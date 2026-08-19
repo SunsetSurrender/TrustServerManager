@@ -1,0 +1,1351 @@
+{
+  "name": "expiry-fixture",
+  "note": "L'inventario delle scadenze costruito da fixtures/expiry/build.py, cioè quello su cui il worker delle notifiche è già provato.",
+  "doc": {
+    "schemaVersion": 1,
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "id": "pomezia",
+        "nome": "Pomezia G0",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "id": "sala-1",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-0000000000ea",
+                "id": "R01",
+                "name": "R01",
+                "u": 45,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000001",
+                    "id": "srv-oggi",
+                    "name": "srv-oggi",
+                    "u": 1,
+                    "garanzia": "2026-08-10",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000002",
+                    "id": "srv-7",
+                    "name": "srv-7",
+                    "u": 1,
+                    "garanzia": "2026-08-17",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000003",
+                    "id": "srv-6",
+                    "name": "srv-6",
+                    "u": 1,
+                    "garanzia": "2026-08-16",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000004",
+                    "id": "srv-30",
+                    "name": "srv-30",
+                    "u": 1,
+                    "garanzia": "2026-09-09",
+                    "supporto": "2026-09-09",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000005",
+                    "id": "srv-29",
+                    "name": "srv-29",
+                    "u": 1,
+                    "garanzia": "2026-09-08",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000006",
+                    "id": "srv-90",
+                    "name": "srv-90",
+                    "u": 1,
+                    "garanzia": "2026-11-08",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000007",
+                    "id": "srv-91",
+                    "name": "srv-91",
+                    "u": 1,
+                    "garanzia": "2026-11-09",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-0000000000eb",
+                "id": "R02",
+                "name": "R02",
+                "u": 45,
+                "x": 0.6,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 0.8,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000010",
+                    "id": "srv-scaduto",
+                    "name": "srv-scaduto",
+                    "u": 1,
+                    "garanzia": "2026-07-31",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000011",
+                    "id": "srv-scaduto-ieri",
+                    "name": "srv-scaduto-ieri",
+                    "u": 1,
+                    "garanzia": "2026-08-09",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000012",
+                    "id": "srv-senza-date",
+                    "name": "srv-senza-date",
+                    "u": 1,
+                    "garanzia": "",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000013",
+                    "id": "srv-data-rotta",
+                    "name": "srv-data-rotta",
+                    "u": 1,
+                    "garanzia": "in attesa",
+                    "supporto": "2026-13-45",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000020",
+                    "id": "SRV-DUP",
+                    "name": "dup-a",
+                    "u": 1,
+                    "garanzia": "2026-08-17",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000021",
+                    "id": "SRV-DUP",
+                    "name": "dup-b",
+                    "u": 1,
+                    "garanzia": "2026-09-09",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000030",
+                    "id": "srv-iniezione",
+                    "name": "<b>srv-x</b>\r\nBcc: qualcuno@altrove.example",
+                    "u": 1,
+                    "garanzia": "2026-08-17",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "h": 1,
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          }
+        ]
+      }
+    ]
+  },
+  "refDate": "2026-08-10",
+  "refNowMs": 1786312800000,
+  "warningDays": 90,
+  "quirks": [],
+  "search": [
+    {
+      "q": "srv",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000001",
+            "code": "srv-oggi",
+            "name": "srv-oggi",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000002",
+            "code": "srv-7",
+            "name": "srv-7",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000003",
+            "code": "srv-6",
+            "name": "srv-6",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000004",
+            "code": "srv-30",
+            "name": "srv-30",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000005",
+            "code": "srv-29",
+            "name": "srv-29",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000006",
+            "code": "srv-90",
+            "name": "srv-90",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000007",
+            "code": "srv-91",
+            "name": "srv-91",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000010",
+            "code": "srv-scaduto",
+            "name": "srv-scaduto",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000011",
+            "code": "srv-scaduto-ieri",
+            "name": "srv-scaduto-ieri",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000012",
+            "code": "srv-senza-date",
+            "name": "srv-senza-date",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000013",
+            "code": "srv-data-rotta",
+            "name": "srv-data-rotta",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000030",
+            "code": "srv-iniezione",
+            "name": "<b>srv-x</b>\r\nBcc: qualcuno@altrove.example",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        }
+      ]
+    },
+    {
+      "q": "R0",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 7
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 7
+        }
+      ]
+    },
+    {
+      "q": "r0",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000ea",
+            "code": "R01",
+            "name": "R01"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 7
+        },
+        {
+          "kind": "rack",
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          },
+          "deviceCount": 7
+        }
+      ]
+    },
+    {
+      "q": "10.0",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "10.0.*",
+      "ipRange": [
+        167772160,
+        167837695
+      ],
+      "results": []
+    },
+    {
+      "q": "a",
+      "ipRange": null,
+      "results": [
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000010",
+            "code": "srv-scaduto",
+            "name": "srv-scaduto",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000011",
+            "code": "srv-scaduto-ieri",
+            "name": "srv-scaduto-ieri",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000012",
+            "code": "srv-senza-date",
+            "name": "srv-senza-date",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000013",
+            "code": "srv-data-rotta",
+            "name": "srv-data-rotta",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000020",
+            "code": "SRV-DUP",
+            "name": "dup-a",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        },
+        {
+          "kind": "device",
+          "device": {
+            "uid": "dddddddd-0000-4000-8000-000000000030",
+            "code": "srv-iniezione",
+            "name": "<b>srv-x</b>\r\nBcc: qualcuno@altrove.example",
+            "type": "altro",
+            "stato": "attivo",
+            "u": 1,
+            "h": 1
+          },
+          "rack": {
+            "uid": "cccccccc-0000-4000-8000-0000000000eb",
+            "code": "R02",
+            "name": "R02"
+          },
+          "room": {
+            "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+            "code": "sala-1",
+            "nome": "Sala 1"
+          },
+          "location": {
+            "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+            "code": "pomezia",
+            "nome": "Pomezia G0"
+          }
+        }
+      ]
+    },
+    {
+      "q": "",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "Ätna",
+      "ipRange": null,
+      "results": []
+    },
+    {
+      "q": "zzz",
+      "ipRange": null,
+      "results": []
+    }
+  ],
+  "capacity": [
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+          "totalU": 90,
+          "usedU": 2,
+          "rackCount": 2,
+          "occupancyPercent": 2,
+          "bestRackCode": "R01",
+          "bestFreeRun": 44,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 90,
+              "usedU": 2
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-0000000000ea",
+              "code": "R01",
+              "u": 45,
+              "usedU": 1,
+              "largestFreeRun": 44,
+              "deviceCount": 7,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-0000000000eb",
+              "code": "R02",
+              "u": 45,
+              "usedU": 1,
+              "largestFreeRun": 44,
+              "deviceCount": 7,
+              "row": ""
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capacityThrows": null,
+  "expiries": [
+    {
+      "kind": "garanzia",
+      "raw": "2026-07-31",
+      "daysRemaining": -10,
+      "level": "expired",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000010",
+        "code": "srv-scaduto",
+        "name": "srv-scaduto",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000eb",
+        "code": "R02",
+        "name": "R02"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-09",
+      "daysRemaining": -1,
+      "level": "expired",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000011",
+        "code": "srv-scaduto-ieri",
+        "name": "srv-scaduto-ieri",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000eb",
+        "code": "R02",
+        "name": "R02"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-10",
+      "daysRemaining": 0,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000001",
+        "code": "srv-oggi",
+        "name": "srv-oggi",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-16",
+      "daysRemaining": 6,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000003",
+        "code": "srv-6",
+        "name": "srv-6",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-17",
+      "daysRemaining": 7,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000002",
+        "code": "srv-7",
+        "name": "srv-7",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-17",
+      "daysRemaining": 7,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000020",
+        "code": "SRV-DUP",
+        "name": "dup-a",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000eb",
+        "code": "R02",
+        "name": "R02"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-17",
+      "daysRemaining": 7,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000030",
+        "code": "srv-iniezione",
+        "name": "<b>srv-x</b>\r\nBcc: qualcuno@altrove.example",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000eb",
+        "code": "R02",
+        "name": "R02"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-09-08",
+      "daysRemaining": 29,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000005",
+        "code": "srv-29",
+        "name": "srv-29",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-09-09",
+      "daysRemaining": 30,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000004",
+        "code": "srv-30",
+        "name": "srv-30",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "supporto",
+      "raw": "2026-09-09",
+      "daysRemaining": 30,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000004",
+        "code": "srv-30",
+        "name": "srv-30",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-09-09",
+      "daysRemaining": 30,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000021",
+        "code": "SRV-DUP",
+        "name": "dup-b",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000eb",
+        "code": "R02",
+        "name": "R02"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-11-08",
+      "daysRemaining": 90,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000006",
+        "code": "srv-90",
+        "name": "srv-90",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-11-09",
+      "daysRemaining": 91,
+      "level": "future",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000007",
+        "code": "srv-91",
+        "name": "srv-91",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-0000000000ea",
+        "code": "R01",
+        "name": "R01"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-0000000000e1",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-0000000000e1",
+        "code": "pomezia",
+        "nome": "Pomezia G0"
+      }
+    }
+  ],
+  "expiriesThrows": null
+}

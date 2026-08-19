@@ -27,6 +27,7 @@ from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
 from app.api.notifications import router as notifications_router
 from app.api.photos import router as photos_router
+from app.api.queries import router as queries_router
 from app.api.request_context import origin_is_acceptable
 from app.api.settings import router as settings_router
 from app.api.users import router as users_router
@@ -164,6 +165,11 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 app.include_router(health_router, prefix="/api", tags=["operations"])
 app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(inventory_router, prefix="/api", tags=["inventory"])
+# Dopo `inventory_router`, e l'ordine non è indifferente: `/inventory/search` e
+# `/inventory` sono percorsi distinti e non si sovrappongono, ma tenere le tre
+# interrogazioni subito dopo il documento rende visibile in un colpo d'occhio che
+# parlano della stessa risorsa (§8.46).
+app.include_router(queries_router, prefix="/api", tags=["inventory"])
 app.include_router(users_router, prefix="/api", tags=["users"])
 app.include_router(audit_router, prefix="/api", tags=["audit"])
 app.include_router(settings_router, prefix="/api", tags=["settings"])

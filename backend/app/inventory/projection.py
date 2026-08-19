@@ -849,6 +849,45 @@ def _referenced_photo_ids(conn: Connection) -> set[str]:
     return {str(r[0]) for r in rows}
 
 
+def require_current_head(conn: Connection) -> tuple[int, str, Currency]:
+    """(versione, digest registrato, dichiarazione) della testa, con la proiezione
+    che la rispecchia.
+
+    I due passi che ogni lettura della proiezione deve fare prima di guardare una sola
+    riga di entità: leggere la testa, e pretendere che lo stato la dichiari. Solleva
+    `NotBootstrappedError` o `ProjectionNotCurrentError`.
+
+    Estratta perché dalla fase 2E ce ne sono QUATTRO di chiamanti —
+    `current_document` più le tre interrogazioni (§8.46) — e una precondizione copiata
+    quattro volte è una precondizione che prima o poi differisce in uno dei quattro
+    posti. Che poi è il posto dove nessuno guarderà.
+
+    ⚠ Legge il DIGEST della versione, non il documento. È la differenza fra un
+    metadato e un contenuto: chi ha in mano il digest può verificare, chi ha in mano il
+    documento può restituirlo — e allora prima o poi lo restituirà (§8.45).
+    """
+    head_row = conn.execute(text(
+        "SELECT version FROM inventory_head WHERE id IS TRUE")).first()
+    if head_row is None:
+        raise NotBootstrappedError(
+            "nessuna versione in testa: eseguire prima il bootstrap")
+    version = int(head_row[0])
+
+    sha_row = conn.execute(text(
+        "SELECT canonical_sha256 FROM inventory_versions WHERE version = :v"
+    ), {"v": version}).first()
+    if sha_row is None:                 # impossibile: c'è una FK dalla testa
+        raise NotBootstrappedError(
+            f"la testa punta alla versione {version}, che non esiste")
+
+    # Restituisce anche la `Currency` VERIFICATA, così chi ha bisogno del digest che
+    # la proiezione dichiara non deve rileggere lo stato: sarebbe una query in più e —
+    # peggio — una seconda lettura, che in teoria potrebbe rispondere diversamente se
+    # qualcuno la facesse fuori dallo snapshot.
+    declared = require_current(conn, version=version, sha256=sha_row[0])
+    return version, sha_row[0], declared
+
+
 def current_document(conn: Connection) -> CurrentDocument:
     """Il documento corrente, riassemblato dalle TABELLE. È ciò che `GET` restituisce.
 
@@ -898,24 +937,8 @@ def current_document(conn: Connection) -> CurrentDocument:
     guasto raro, non riproducibile, e con un messaggio che accusa la proiezione di
     essere corrotta quando invece funzionava.
     """
-    # --- 1. la testa: numero e digest REGISTRATO, non il documento ---
-    head_row = conn.execute(text(
-        "SELECT version FROM inventory_head WHERE id IS TRUE")).first()
-    if head_row is None:
-        raise NotBootstrappedError(
-            "nessuna versione in testa: eseguire prima il bootstrap")
-    version = int(head_row[0])
-
-    sha_row = conn.execute(text(
-        "SELECT canonical_sha256 FROM inventory_versions WHERE version = :v"
-    ), {"v": version}).first()
-    if sha_row is None:                 # impossibile: c'è una FK dalla testa
-        raise NotBootstrappedError(
-            f"la testa punta alla versione {version}, che non esiste")
-    recorded = sha_row[0]
-
-    # --- 2. la proiezione deve dichiarare esattamente questa coppia ---
-    declared = require_current(conn, version=version, sha256=recorded)
+    # --- 1/2. la testa, e la proiezione che deve dichiararla ---
+    version, recorded, declared = require_current_head(conn)
 
     # --- 3. le righe ---
     model = read_model(conn)

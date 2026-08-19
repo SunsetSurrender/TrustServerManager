@@ -502,6 +502,74 @@ La readiness guarda ciò che è dichiarato; riassemblare l'inventario a ogni son
 costerebbe un `--verify` completo ogni pochi secondi per sempre. Se si vuole la
 fedeltà, si chiede a `--verify`.
 
+#### Le tre interrogazioni (fase 2E, §8.46)
+
+Dalla fase 2E esistono tre endpoint di sola lettura sopra le stesse tabelle:
+
+```text
+GET /api/inventory/search?q=…     dispositivi e rack: testo o rete (10.0.0.0/24, 10.0.*)
+GET /api/inventory/capacity       unità occupate, libere, blocco contiguo per rack
+GET /api/inventory/expiries       garanzia e supporto, con giorni e livello
+```
+
+Le vedono tutti i ruoli autenticati (`view`, `edit`, `admin`), come le viste
+corrispondenti nell'interfaccia. Rifiutano con 503 `projection_not_current` se la
+proiezione non rispecchia la testa, esattamente come `GET /api/inventory` — quindi il
+rimedio è lo stesso, `project.py --rebuild`.
+
+⚠ **Non riassemblano il documento**, di proposito: pretendono che la proiezione sia
+*attuale* (tre confronti fra valori registrati) e si fidano delle tabelle. La
+conseguenza è la stessa asimmetria della readiness: una colonna corrotta a mano fa
+cadere `GET /api/inventory` e **non** le interrogazioni. Il percorso di fedeltà
+completa resta il `GET`; quello operativo `--verify`.
+
+⚠ **Il frontend non le usa ancora.** Continua a scaricare l'inventario intero e a
+calcolare in locale. È deliberato: la fase 2E prova le implementazioni sul server, e la
+sostituzione dei calcoli lato client è un commit successivo. Lo stesso per lo scanner
+delle notifiche, che continua a leggere il documento.
+
+#### «A volte è lento subito dopo un salvataggio grande»
+
+Se qualcuno lo segnala, la causa più probabile non è una query: è che
+`synchronise` **cancella e reinserisce tutte le righe della proiezione a ogni
+salvataggio** (fase 2C), quindi dopo una scrittura grande le statistiche del
+pianificatore sono vecchie per qualche secondo, finché autoanalyze non le rifà.
+
+Misurato: a 5 910 righe la vista Capacità passa da 65 ms a 459 ms subito dopo la
+scrittura, e torna a 65 ms appena autoanalyze ha finito. Alla scala di produzione
+(197 righe) è invisibile. Non c'è niente da fare in configurazione; se un giorno
+diventasse fastidioso, il posto dove aggiungere un `ANALYZE` è `project.py --rebuild`,
+che gira già come proprietario dello schema.
+
+Per verificare che sia questo:
+
+```bash
+docker compose exec db psql -U tsm -d tsm -c \
+  "SELECT relname, last_autoanalyze, n_mod_since_analyze FROM pg_stat_user_tables \
+    WHERE relname LIKE 'inventory_%' ORDER BY relname"
+```
+
+#### Bilancio delle connessioni al database
+
+Da tenere presente prima di toccare il numero di lavoratori `uvicorn`:
+
+```text
+per processo   (pool_size + max_overflow) × 2 pool  =  (5 + 10) × 2  =  30
+in totale      30 × lavoratori uvicorn              =  30 × 1        =  30
+```
+
+I due pool sono quello delle richieste e quello di **lettura** in
+`REPEATABLE READ, READ ONLY` (fase 2D): un `GET` ne tiene una di ciascuno insieme, e
+per questo sono due — con un pool solo, quindici richieste simultanee si bloccherebbero
+a vicenda. Il ragionamento completo, con i numeri, è in testa a `backend/app/db.py`.
+
+⚠ `--workers N` moltiplica per N **entrambi** i pool. Con N=4 si arriva a 120
+connessioni possibili, oltre il `max_connections` predefinito di PostgreSQL (100), e il
+guasto è «FATAL: sorry, too many clients already» su richieste qualunque, sotto carico.
+Chi cambia quel numero deve ricalcolare insieme i due pool, `max_connections` e la
+memoria della macchina. Le misure della fase 2D e 2E non danno nessuna ragione per
+cambiarlo.
+
 I comandi girano come **proprietario dello schema** — cioè dal servizio `migrate`,
 l'unico che ne ha la password:
 

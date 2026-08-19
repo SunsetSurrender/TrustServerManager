@@ -42,6 +42,7 @@ from app.inventory import (
     ProjectionNotCurrentError,
     VersionConflictError,
 )
+from app.inventory.queries import CursorRejected, QueryRejected
 from app.photos.errors import PhotoNotFound
 
 log = logging.getLogger(__name__)
@@ -106,6 +107,22 @@ def http_error_for(exc: Exception) -> HTTPException:
     # valore. È l'unica classe di errore in cui il messaggio del dominio raggiunge
     # il client, e il motivo per cui `PasswordRejected` non lo costruisce dal valore.
     if isinstance(exc, PasswordRejected):
+        return HTTPException(422,
+                             detail={"code": exc.code, "message": exc.message},
+                             headers=NO_STORE)
+
+    # --- 422: parametro di interrogazione non accettabile (§8.46) ---
+    #
+    # Prima del ramo generico di `InventoryError`, che risponderebbe 503 `unavailable`
+    # e direbbe al client «riprova più tardi» per un errore che riprovando si ripete
+    # identico. Un `limit` fuori intervallo o un cursore illeggibile sono difetti della
+    # RICHIESTA, e il client deve poterli distinguere da un servizio indisponibile.
+    #
+    # `exc.message` esce, ed è sicuro per costruzione: nomina il parametro e il limite,
+    # mai il contenuto dell'inventario. Per il cursore in particolare non si dice
+    # QUALE parte è illeggibile — è un valore opaco che abbiamo emesso noi, e
+    # spiegarne la struttura a chi lo rimanda non serve a niente.
+    if isinstance(exc, (QueryRejected, CursorRejected)):
         return HTTPException(422,
                              detail={"code": exc.code, "message": exc.message},
                              headers=NO_STORE)

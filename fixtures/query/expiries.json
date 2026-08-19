@@ -1,0 +1,698 @@
+{
+  "name": "expiries",
+  "note": "garanzia e supporto, oggi/ieri/domani, soglia 90 e 91, molto scaduta, molto futura, entrambe sullo stesso dispositivo, «in attesa», stringa vuota, campo assente, dismesso (ESCLUSO dalla vista scadenze) e in dismissione (incluso), due dispositivi con lo stesso id di business.",
+  "doc": {
+    "schemaVersion": 1,
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "id": "pomezia",
+        "nome": "Pomezia",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000088",
+            "id": "sala-1",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000087",
+                "id": "R-scad",
+                "name": "Rack",
+                "u": 42,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000072",
+                    "id": "e-oggi",
+                    "name": "oggi",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2026-08-10",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000073",
+                    "id": "e-ieri",
+                    "name": "ieri",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2026-08-09",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000074",
+                    "id": "e-scaduta",
+                    "name": "scaduta",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2025-07-06",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000075",
+                    "id": "e-domani",
+                    "name": "domani",
+                    "u": 1,
+                    "h": 1,
+                    "supporto": "2026-08-11",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000076",
+                    "id": "e-90",
+                    "name": "novanta",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2026-11-08",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000077",
+                    "id": "e-91",
+                    "name": "novantuno",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2026-11-09",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000078",
+                    "id": "e-futura",
+                    "name": "futura",
+                    "u": 1,
+                    "h": 1,
+                    "supporto": "2027-12-23",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000079",
+                    "id": "e-entrambe",
+                    "name": "entrambe",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2026-08-20",
+                    "supporto": "2027-02-26",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000080",
+                    "id": "e-attesa",
+                    "name": "in attesa",
+                    "u": 1,
+                    "h": 1,
+                    "supporto": "in attesa",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000081",
+                    "id": "e-vuota",
+                    "name": "vuota",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "",
+                    "supporto": "",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000082",
+                    "id": "e-assente",
+                    "name": "assente",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000083",
+                    "id": "e-dismesso",
+                    "name": "dismesso",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "dismesso",
+                    "garanzia": "2026-08-15",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000084",
+                    "id": "e-dismissione",
+                    "name": "in dismissione",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "dismissione",
+                    "garanzia": "2026-08-16",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000085",
+                    "id": "e-doppio",
+                    "name": "doppio uno",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2026-08-30",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000086",
+                    "id": "e-doppio",
+                    "name": "doppio due",
+                    "u": 1,
+                    "h": 1,
+                    "garanzia": "2026-08-30",
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          }
+        ]
+      }
+    ]
+  },
+  "refDate": "2026-08-10",
+  "refNowMs": 1786312800000,
+  "warningDays": 90,
+  "quirks": [],
+  "search": [],
+  "capacity": [
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000089",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000088",
+          "totalU": 42,
+          "usedU": 1,
+          "rackCount": 1,
+          "occupancyPercent": 2,
+          "bestRackCode": "R-scad",
+          "bestFreeRun": 41,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 42,
+              "usedU": 1
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000087",
+              "code": "R-scad",
+              "u": 42,
+              "usedU": 1,
+              "largestFreeRun": 41,
+              "deviceCount": 15,
+              "row": ""
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capacityThrows": null,
+  "expiries": [
+    {
+      "kind": "garanzia",
+      "raw": "2025-07-06",
+      "daysRemaining": -400,
+      "level": "expired",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000074",
+        "code": "e-scaduta",
+        "name": "scaduta",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-09",
+      "daysRemaining": -1,
+      "level": "expired",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000073",
+        "code": "e-ieri",
+        "name": "ieri",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-10",
+      "daysRemaining": 0,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000072",
+        "code": "e-oggi",
+        "name": "oggi",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "supporto",
+      "raw": "2026-08-11",
+      "daysRemaining": 1,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000075",
+        "code": "e-domani",
+        "name": "domani",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-16",
+      "daysRemaining": 6,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000084",
+        "code": "e-dismissione",
+        "name": "in dismissione",
+        "type": "altro",
+        "stato": "dismissione",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-20",
+      "daysRemaining": 10,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000079",
+        "code": "e-entrambe",
+        "name": "entrambe",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-30",
+      "daysRemaining": 20,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000085",
+        "code": "e-doppio",
+        "name": "doppio uno",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-08-30",
+      "daysRemaining": 20,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000086",
+        "code": "e-doppio",
+        "name": "doppio due",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-11-08",
+      "daysRemaining": 90,
+      "level": "warning",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000076",
+        "code": "e-90",
+        "name": "novanta",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "garanzia",
+      "raw": "2026-11-09",
+      "daysRemaining": 91,
+      "level": "future",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000077",
+        "code": "e-91",
+        "name": "novantuno",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "supporto",
+      "raw": "2027-02-26",
+      "daysRemaining": 200,
+      "level": "future",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000079",
+        "code": "e-entrambe",
+        "name": "entrambe",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    },
+    {
+      "kind": "supporto",
+      "raw": "2027-12-23",
+      "daysRemaining": 500,
+      "level": "future",
+      "isoStrict": true,
+      "device": {
+        "uid": "dddddddd-0000-4000-8000-000000000078",
+        "code": "e-futura",
+        "name": "futura",
+        "type": "altro",
+        "stato": "attivo",
+        "u": 1,
+        "h": 1
+      },
+      "rack": {
+        "uid": "cccccccc-0000-4000-8000-000000000087",
+        "code": "R-scad",
+        "name": "Rack"
+      },
+      "room": {
+        "uid": "bbbbbbbb-0000-4000-8000-000000000088",
+        "code": "sala-1",
+        "nome": "Sala 1"
+      },
+      "location": {
+        "uid": "aaaaaaaa-0000-4000-8000-000000000089",
+        "code": "pomezia",
+        "nome": "Pomezia"
+      }
+    }
+  ],
+  "expiriesThrows": null
+}

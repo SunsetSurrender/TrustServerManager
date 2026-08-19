@@ -1,0 +1,881 @@
+{
+  "name": "capacity",
+  "note": "vuoto, parziale, pieno, multi-U, sovrapposti (contano UNA volta), oltre l'altezza del rack (tagliati), u=0 e negativo, h=0 e negativo, dismessi (che il frontend NON esclude: il blocco è vuoto), altezze 1 e 47, raggruppamento per fila con e senza etichetta, e due sale la cui percentuale cade su mezzo punto (12,5% e 37,5%) per distinguere l'arrotondamento di JavaScript da quello di Python.",
+  "doc": {
+    "schemaVersion": 1,
+    "locations": [
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000065",
+        "id": "sito-1",
+        "nome": "Pomezia",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000063",
+            "id": "sala-a",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000030",
+                "id": "R-vuoto",
+                "name": "Rack",
+                "u": 10,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [],
+                "seriali": [],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000033",
+                "id": "R-parziale",
+                "name": "Rack",
+                "u": 10,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000031",
+                    "id": "a",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000032",
+                    "id": "b",
+                    "name": "srv-x",
+                    "u": 5,
+                    "h": 2,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000036",
+                "id": "R-pieno",
+                "name": "Rack",
+                "u": 4,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000034",
+                    "id": "p1",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 2,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000035",
+                    "id": "p2",
+                    "name": "srv-x",
+                    "u": 3,
+                    "h": 2,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000039",
+                "id": "R-overlap",
+                "name": "Rack",
+                "u": 10,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000037",
+                    "id": "o1",
+                    "name": "srv-x",
+                    "u": 2,
+                    "h": 4,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000038",
+                    "id": "o2",
+                    "name": "srv-x",
+                    "u": 3,
+                    "h": 4,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000064",
+            "id": "sala-b",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000041",
+                "id": "R-oltre",
+                "name": "Rack",
+                "u": 5,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000040",
+                    "id": "x1",
+                    "name": "srv-x",
+                    "u": 4,
+                    "h": 10,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000046",
+                "id": "R-limiti",
+                "name": "Rack",
+                "u": 6,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000042",
+                    "id": "z0",
+                    "name": "srv-x",
+                    "u": 0,
+                    "h": 2,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000043",
+                    "id": "zneg",
+                    "name": "srv-x",
+                    "u": -3,
+                    "h": 2,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000044",
+                    "id": "h0",
+                    "name": "srv-x",
+                    "u": 4,
+                    "h": 0,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000045",
+                    "id": "hneg",
+                    "name": "srv-x",
+                    "u": 5,
+                    "h": -2,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000049",
+                "id": "R-dismessi",
+                "name": "Rack",
+                "u": 8,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000047",
+                    "id": "s1",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 2,
+                    "stato": "dismesso",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  },
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000048",
+                    "id": "s2",
+                    "name": "srv-x",
+                    "u": 4,
+                    "h": 1,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          }
+        ]
+      },
+      {
+        "_uid": "aaaaaaaa-0000-4000-8000-000000000071",
+        "id": "sito-2",
+        "nome": "Pomezia",
+        "sale": [
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000066",
+            "id": "sala-c",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000051",
+                "id": "R-47",
+                "name": "Rack",
+                "u": 47,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000050",
+                    "id": "k1",
+                    "name": "srv-x",
+                    "u": 47,
+                    "h": 1,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000053",
+                "id": "R-1",
+                "name": "Rack",
+                "u": 1,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000052",
+                    "id": "k2",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000067",
+            "id": "sala-d",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000055",
+                "id": "R-fila-A",
+                "name": "Rack",
+                "u": 10,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000054",
+                    "id": "f1",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 3,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "row": "A",
+                "seriali": []
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000057",
+                "id": "R-fila-B",
+                "name": "Rack",
+                "u": 10,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000056",
+                    "id": "f2",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "row": "A",
+                "seriali": []
+              },
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000058",
+                "id": "R-senza-fila",
+                "name": "Rack",
+                "u": 10,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000068",
+            "id": "sala-vuota",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000069",
+            "id": "sala-12-5",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000060",
+                "id": "R-12-5",
+                "name": "Rack",
+                "u": 8,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000059",
+                    "id": "mp",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 1,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          },
+          {
+            "_uid": "bbbbbbbb-0000-4000-8000-000000000070",
+            "id": "sala-37-5",
+            "nome": "Sala 1",
+            "w": 10,
+            "h": 8,
+            "vani": [],
+            "racks": [
+              {
+                "_uid": "cccccccc-0000-4000-8000-000000000062",
+                "id": "R-37-5",
+                "name": "Rack",
+                "u": 8,
+                "x": 0.2,
+                "y": 0.2,
+                "w": 0.6,
+                "h": 1.2,
+                "devices": [
+                  {
+                    "_uid": "dddddddd-0000-4000-8000-000000000061",
+                    "id": "mq",
+                    "name": "srv-x",
+                    "u": 1,
+                    "h": 3,
+                    "stato": "attivo",
+                    "type": "altro",
+                    "model": "",
+                    "ip": "",
+                    "serial": "",
+                    "owner": "",
+                    "garanzia": "",
+                    "supporto": "",
+                    "note": ""
+                  }
+                ],
+                "seriali": [],
+                "row": ""
+              }
+            ],
+            "area": "",
+            "dim": "",
+            "segnaposto": false
+          }
+        ]
+      }
+    ]
+  },
+  "refDate": "2026-08-10",
+  "refNowMs": 1786312800000,
+  "warningDays": 90,
+  "quirks": [],
+  "search": [],
+  "capacity": [
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000065",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000063",
+          "totalU": 34,
+          "usedU": 12,
+          "rackCount": 4,
+          "occupancyPercent": 35,
+          "bestRackCode": "R-vuoto",
+          "bestFreeRun": 10,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 34,
+              "usedU": 12
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000030",
+              "code": "R-vuoto",
+              "u": 10,
+              "usedU": 0,
+              "largestFreeRun": 10,
+              "deviceCount": 0,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000033",
+              "code": "R-parziale",
+              "u": 10,
+              "usedU": 3,
+              "largestFreeRun": 4,
+              "deviceCount": 2,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000036",
+              "code": "R-pieno",
+              "u": 4,
+              "usedU": 4,
+              "largestFreeRun": 0,
+              "deviceCount": 2,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000039",
+              "code": "R-overlap",
+              "u": 10,
+              "usedU": 5,
+              "largestFreeRun": 4,
+              "deviceCount": 2,
+              "row": ""
+            }
+          ]
+        },
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000064",
+          "totalU": 19,
+          "usedU": 7,
+          "rackCount": 3,
+          "occupancyPercent": 37,
+          "bestRackCode": "R-dismessi",
+          "bestFreeRun": 4,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 19,
+              "usedU": 7
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000041",
+              "code": "R-oltre",
+              "u": 5,
+              "usedU": 2,
+              "largestFreeRun": 3,
+              "deviceCount": 1,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000046",
+              "code": "R-limiti",
+              "u": 6,
+              "usedU": 2,
+              "largestFreeRun": 2,
+              "deviceCount": 4,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000049",
+              "code": "R-dismessi",
+              "u": 8,
+              "usedU": 3,
+              "largestFreeRun": 4,
+              "deviceCount": 2,
+              "row": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000071",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000066",
+          "totalU": 48,
+          "usedU": 2,
+          "rackCount": 2,
+          "occupancyPercent": 4,
+          "bestRackCode": "R-47",
+          "bestFreeRun": 46,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 48,
+              "usedU": 2
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000051",
+              "code": "R-47",
+              "u": 47,
+              "usedU": 1,
+              "largestFreeRun": 46,
+              "deviceCount": 1,
+              "row": ""
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000053",
+              "code": "R-1",
+              "u": 1,
+              "usedU": 1,
+              "largestFreeRun": 0,
+              "deviceCount": 1,
+              "row": ""
+            }
+          ]
+        },
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000067",
+          "totalU": 30,
+          "usedU": 4,
+          "rackCount": 3,
+          "occupancyPercent": 13,
+          "bestRackCode": "R-senza-fila",
+          "bestFreeRun": 10,
+          "rows": [
+            {
+              "row": "A",
+              "totalU": 20,
+              "usedU": 4
+            },
+            {
+              "row": "—",
+              "totalU": 10,
+              "usedU": 0
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000055",
+              "code": "R-fila-A",
+              "u": 10,
+              "usedU": 3,
+              "largestFreeRun": 7,
+              "deviceCount": 1,
+              "row": "A"
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000057",
+              "code": "R-fila-B",
+              "u": 10,
+              "usedU": 1,
+              "largestFreeRun": 9,
+              "deviceCount": 1,
+              "row": "A"
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000058",
+              "code": "R-senza-fila",
+              "u": 10,
+              "usedU": 0,
+              "largestFreeRun": 10,
+              "deviceCount": 0,
+              "row": ""
+            }
+          ]
+        },
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000068",
+          "totalU": 0,
+          "usedU": 0,
+          "rackCount": 0,
+          "occupancyPercent": 0,
+          "bestRackCode": null,
+          "bestFreeRun": 0,
+          "rows": [],
+          "racks": []
+        },
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000069",
+          "totalU": 8,
+          "usedU": 1,
+          "rackCount": 1,
+          "occupancyPercent": 13,
+          "bestRackCode": "R-12-5",
+          "bestFreeRun": 7,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 8,
+              "usedU": 1
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000060",
+              "code": "R-12-5",
+              "u": 8,
+              "usedU": 1,
+              "largestFreeRun": 7,
+              "deviceCount": 1,
+              "row": ""
+            }
+          ]
+        },
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000070",
+          "totalU": 8,
+          "usedU": 3,
+          "rackCount": 1,
+          "occupancyPercent": 38,
+          "bestRackCode": "R-37-5",
+          "bestFreeRun": 5,
+          "rows": [
+            {
+              "row": "—",
+              "totalU": 8,
+              "usedU": 3
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000062",
+              "code": "R-37-5",
+              "u": 8,
+              "usedU": 3,
+              "largestFreeRun": 5,
+              "deviceCount": 1,
+              "row": ""
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capacityThrows": null,
+  "expiries": [],
+  "expiriesThrows": null
+}

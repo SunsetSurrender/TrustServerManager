@@ -26,6 +26,37 @@ rompere:
 C'è un test che la controlla. Rimpicciolire il pool di lettura «perché legge poco»
 reintrodurrebbe lo stallo, e lo reintrodurrebbe in produzione sotto carico, dove non
 si riproduce a mano.
+
+Il BILANCIO DELLE CONNESSIONI, per iscritto (§8.46.2)
+----------------------------------------------------
+Dalla fase 2E i due pool servono cinque percorsi: `GET /api/inventory`, il `PUT`, e le
+tre interrogazioni. Il conto non cambia — nessun terzo pool — ma va scritto, perché è
+il numero che qualcuno dovrà rifare il giorno in cui tocca i lavoratori.
+
+    per PROCESSO   capienza(pool richieste) + capienza(pool letture)
+                 = (pool_size + max_overflow) × 2
+                 = (5 + 10) × 2 = 30 connessioni al massimo
+
+    in TOTALE      30 × numero di lavoratori uvicorn
+                 = 30 × 1 = 30            (configurazione attuale)
+
+Più le connessioni degli altri servizi: il worker delle notifiche, e il servizio
+`migrate` quando qualcuno esegue un comando. Il valore predefinito di
+`max_connections` in PostgreSQL è 100, quindi oggi c'è margine ampio.
+
+⚠ AUMENTARE I LAVORATORI UVICORN NON È UNA MODIFICA LOCALE. `--workers N` moltiplica
+per N *entrambi* i pool, e con la capienza predefinita basta N=4 per arrivare a 120
+connessioni possibili, cioè oltre `max_connections`. Il guasto che ne segue non è un
+rallentamento: è «FATAL: sorry, too many clients already» su richieste qualunque, e
+compare sotto carico. Chi tocca il numero di lavoratori deve ricalcolare, insieme:
+
+  1. `pool_size` e `max_overflow` dei DUE engine qui sotto;
+  2. `max_connections` di PostgreSQL;
+  3. la memoria della macchina — ogni connessione PostgreSQL è un processo, e `work_mem`
+     si moltiplica per le operazioni di ordinamento concorrenti.
+
+Le misure della fase 2D (§8.45.1) non danno nessuna ragione per aumentarli: alla scala
+di produzione un `GET` costa 39 ms mediani, e il carico è una manciata di operatori.
 """
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine

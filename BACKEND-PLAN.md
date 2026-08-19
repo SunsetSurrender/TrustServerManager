@@ -3729,6 +3729,341 @@ una domanda diversa (`.strip()` che appartiene alla lettura del file della lista
 `password` che compare in `temporaryPassword`, `min_length` che appartiene allo
 username, e un letterale con le virgolette che `ast.unparse` normalizza).
 
+### 8.44 Fase 2C: scrittura doppia atomica
+
+Dalla fase 2C ogni salvataggio mantiene **due** rappresentazioni nella stessa
+transazione:
+
+1. l'**istantanea JSONB immutabile** con la sua storia, che resta l'unica fonte di
+   verità e l'unica che `GET` legge;
+2. la **proiezione relazionale** dello stato corrente, che nessuno legge ancora.
+
+#### L'invariante
+
+Dopo ogni `PUT` che cambia qualcosa:
+
+```
+projection_state.head_version == inventory_head.version
+projection_state.head_sha256  == inventory_versions.canonical_sha256 (della testa)
+canonicalise(assemble(proiezione)) == documento immutabile in testa
+digest(assemble(proiezione))       == canonical_sha256 della testa
+```
+
+Una transazione che non può dimostrarle tutte e quattro **si annulla per intero**.
+Non esiste uno stato committato in cui la testa JSON è avanzata e la proiezione no,
+né il contrario.
+
+Il meccanismo è il **rollback**, non l'ordine degli statement. L'ordine serve a dare
+messaggi d'errore sensati e a rispettare le dipendenze di chiave esterna; la garanzia
+sta nel fatto che qualunque passo può sollevare e portarsi via tutto. È la stessa
+distinzione già fatta per la riga di stato nella 2B, e vale la pena ripeterla perché è
+il punto su cui si sbaglia: leggere una sequenza di statement e concludere «qui è
+sicuro» è un ragionamento che si rompe al primo riordino.
+
+#### L'ordine della transazione
+
+Fuori dal database (rifiutare un documento malformato non deve prendere un lock):
+schema, radici congelate, segreti e foto, rappresentabilità numerica (§8.16),
+rappresentabilità testuale e delle chiavi, canonicalizzazione, limiti di dimensione.
+
+Dentro **una** transazione:
+
+1. lock di `inventory_head` con `SELECT … FOR UPDATE`;
+2. lettura di versione, documento e digest **registrato** della testa;
+3. **la proiezione deve già rispecchiare quella testa**, o si rifiuta;
+4. no-op canonico: digest uguale → `changed=false`, nessuna scrittura;
+5. confronto con `baseVersion`;
+6. transizione di identità;
+7. eventi di dominio deterministici;
+8. autorizzazione dell'insieme completo;
+9. esistenza delle foto referenziate;
+10. modello relazionale del candidato e sua coerenza;
+11. inserimento dell'istantanea immutabile, con la versione generata dal database;
+12. **sincronizzazione** della proiezione al modello del candidato;
+13. riga di stato con versione, digest, versione della mappa e metadati di radice;
+14. **rilettura da SQL**;
+15. modello riletto == modello scritto; modello riletto coerente; documento
+    riassemblato == istantanea; digest == digest dell'istantanea;
+16. `inventory_photo_refs` per la versione nuova;
+17. audit;
+18. avanzamento della testa;
+19. commit.
+
+Il passo 3 sta **prima** del no-op, e non è un dettaglio: un no-op è una risposta di
+*successo*, e restituirla mentre la proiezione è vecchia direbbe al client «tutto in
+ordine» da un backend che ha smesso di mantenere una delle due rappresentazioni. Se
+la richiesta ripetuta arrivasse proprio in quel momento, il difetto resterebbe
+invisibile esattamente al cliente che sta riprovando.
+
+#### Precondizione: si fallisce chiuso, e non ci si cura da soli
+
+La 2B ammetteva deliberatamente una proiezione vecchia. La 2C no. Se la proiezione è
+assente, vecchia di versione, vecchia di digest, o scritta da una versione della mappa
+diversa, ogni salvataggio è rifiutato con **`projection_not_current`** → **503**.
+
+Il rimedio è esplicito: `project.py --rebuild`, come proprietario dello schema.
+L'API **non si ripara da sola**, e la ragione non è la sincronizzazione — che
+produrrebbe comunque lo stato giusto, essendo una sostituzione integrale. È che
+finché la proiezione non rispecchia la testa, l'applicazione **non sta facendo quello
+che dichiara**; ripararlo di nascosto, al primo salvataggio di un utente qualunque,
+farebbe passare il sistema da «disallineato e visibile» ad «allineato», cancellando
+ogni traccia del fatto che per un certo tempo non lo era — e con essa l'unica
+occasione di chiedersi perché. Un disallineamento ha una causa: una migrazione a metà,
+una scrittura fuori dall'API, un `--rebuild` mai eseguito, un ripristino parziale da
+backup.
+
+#### Sostituzione integrale, non differenza incrementale
+
+La sincronizzazione **svuota e riscrive**. È la scelta più difficile da sbagliare, e a
+questa scala non costa niente di misurabile: il seed reale è di 197 righe.
+
+- **Produce per costruzione lo stato del candidato.** Una differenza incrementale
+  produce «lo stato precedente più le modifiche che ho saputo calcolare», che è la
+  stessa cosa solo se il calcolo è completo. Aggiunte, rimozioni, aggiornamenti,
+  ridenominazioni, spostamenti fra genitori, riordini e
+  ridenominazione-più-spostamento nello stesso `PUT` sono sei occasioni di sbagliare
+  che così non esistono.
+- **Rende innocui gli scambi di chiavi ambito.** Due rack che si scambiano il `code`
+  nella stessa sala violerebbero `uq_rack_code` a metà di un `UPDATE` incrementale —
+  il vincolo è `DEFERRABLE INITIALLY IMMEDIATE` proprio per sopravvivere a quel
+  momento. Cancellando prima e inserendo dopo il conflitto non nasce: non serve
+  appoggiarsi al rinvio, e non serve ricordarsi che servirebbe.
+- **`DELETE`, non `TRUNCATE`.** `TRUNCATE` prende un lock `ACCESS EXCLUSIVE` che
+  bloccherebbe anche i lettori — oggi non ce ne sono, la 2D ne avrà — e richiede un
+  privilegio che non si è concesso. La cascata dai siti porta via sale, rack e
+  dispositivi; le voci di manuale non hanno genitore.
+
+Il costo è righe morte a ogni salvataggio: a duecento righe, lavoro di autovacuum
+invisibile. Se un giorno fossero centomila, `synchronise` è il posto dove cambiare
+strategia — e i test la interrogano dal **comportamento**, non
+dall'implementazione, quindi resterebbero validi.
+
+#### Una sola verifica per i due scrittori
+
+`synchronise` è un corpo solo, usato dal salvataggio e da `rebuild`. Se il
+salvataggio avesse una verifica propria, copiata dalla ricostruzione, il giorno in cui
+una delle due si irrobustisce l'altra resterebbe indietro — e sarebbe quella sul
+percorso delle richieste, cioè quella che protegge i dati degli utenti invece di un
+comando che un sistemista lancia a mano.
+
+#### `mapper_version`: il guasto che il digest non vede
+
+La proiezione è una rappresentazione **derivata**, e una derivata è valida solo
+rispetto al codice che l'ha prodotta. Se domani un campo passasse da `extra` a una
+colonna tipizzata, le righe già scritte riassemblerebbero **lo stesso documento** —
+quindi lo stesso digest, quindi nessun allarme dal confronto — mentre le query per cui
+la colonna esiste non troverebbero niente. Il confronto dei digest è cieco esattamente
+lì.
+
+`inventory_projection_state.mapper_version` registra quale mappa ha scritto la
+proiezione; il salvataggio e la readiness pretendono che sia quella corrente. Si
+incrementa quando cambia la **distribuzione** dei dati fra le colonne, non quando si
+aggiunge un test o si rinomina una variabile.
+
+La colonna nasce **NULL e senza default**. Le righe della 2B non dichiarano nessuna
+mappa, e noi non sappiamo quale le ha scritte: lo sappiamo per deduzione — ce n'è
+stata una sola — ma «per deduzione» non è un dato. Scrivere `1` al loro posto
+significherebbe inventare un'informazione che nessuno ha registrato per far tornare un
+controllo. NULL è la verità, e fa fallire chiuso: la proiezione va ricostruita, che è
+il passo di attivazione previsto.
+
+#### Il bootstrap proietta anche lui
+
+`repository.bootstrap` scrive entrambe le rappresentazioni come un salvataggio. È una
+**deviazione dalla specifica**, decisa e riportata: senza, un database appena
+inizializzato avrebbe una testa e nessuna proiezione, e il primo `PUT` di un utente
+riceverebbe 503 finché qualcuno non eseguisse `--rebuild` a mano. Un'installazione
+nuova nascerebbe rotta e il rimedio sarebbe un passo che nessuno ha motivo di
+sospettare. Il bootstrap gira già come proprietario dello schema, quindi non chiede
+nessun privilegio nuovo.
+
+#### Privilegi (migrazione 0012)
+
+La 0010 aveva **negato** la scrittura ai ruoli di runtime scrivendo perché: «i
+privilegi di scrittura li concede la fase 2C, con il codice che li usa». Questa è
+quella migrazione.
+
+| | `tsm_api` | `tsm_worker` |
+|---|---|---|
+| tabelle della proiezione | `SELECT, INSERT, UPDATE, DELETE` | `SELECT` |
+| stato della proiezione | `SELECT, INSERT, UPDATE, DELETE` | `SELECT` |
+| `TRUNCATE` su entrambe | **no** | **no** |
+| `inventory_versions` | `SELECT, INSERT` — mai `UPDATE`, mai `DELETE` | `SELECT` |
+| `audit` | append-only | append-only |
+| `photos` | `SELECT, INSERT` — mai `UPDATE`/`DELETE` dei byte | `SELECT, DELETE` (GC) |
+| tabelle del worker | nessun accesso | come prima |
+
+`inventory_versions` resta immutabile, e in fase 2C acquista un **secondo mestiere**:
+è il riferimento contro cui la proiezione si verifica. Poterla riscrivere renderebbe
+quella verifica una tautologia.
+
+Il worker resta in sola lettura: le colonne data derivate esistono per le query, e il
+passaggio dello scanner è una decisione successiva con i suoi test, non un effetto
+collaterale di questo commit.
+
+#### Foto: stato corrente e raggiungibilità storica sono due cose
+
+`inventory_racks.photo_id` è la foto **corrente** e cambia con lo stato.
+`inventory_photo_refs` sono le dipendenze **storiche**, una riga per versione, e sono
+ciò che la GC guarda.
+
+```
+v20 → FOTO_A          racks.photo_id = FOTO_B
+v21 → FOTO_B          inventory_photo_refs: v20→A, v21→B  →  la GC conserva A
+```
+
+Appiattirli renderebbe la foto di una versione storica cancellabile appena il rack ne
+monta un'altra, e un rollback a quella versione mostrerebbe un riquadro rotto per
+sempre.
+
+**Conseguenza scoperta popolando le tabelle:** `inventory_racks.photo_id` è una
+seconda chiave esterna verso `photos`, quindi il database ora **rifiuta** di cancellare
+una foto che lo stato corrente usa — anche al proprietario dello schema. Non è un
+ostacolo: è una difesa in più che regge se la query della GC venisse riscritta male, e
+non può scattare durante un giro normale, perché ogni foto referenziata dai rack ha per
+costruzione una riga in `inventory_photo_refs` per la versione in testa (le due
+scritture stanno nella stessa transazione). Ha però un effetto pratico: le fixture che
+azzerano lo stato devono svuotare la proiezione **prima** di cancellare le foto.
+
+#### Colonne data derivate
+
+`garanzia`/`supporto` in testo restano **autoritative** per la ricostruzione del
+documento; `garanzia_date`/`supporto_date` restano derivate e solo per le query. Si
+popolano col parser dello scanner delle scadenze — non un secondo parser, che
+divergerebbe sui casi limite, che sono i valori che l'inventario reale contiene. Un
+valore non interpretabile lascia la colonna a `NULL` e **conserva** il testo: la fase 2
+non è più severa della fase 1.
+
+`validate_model` continua a vedere una data derivata sbagliata, ed è l'unico controllo
+che possa: il digest è cieco a queste colonne, perché non tornano nel documento.
+
+Un test di integrazione confronta i risultati di una query SQL sulle date con
+`due_items` calcolato dal documento: se dissentissero, la colonna interrogabile
+risponderebbe una cosa e le notifiche un'altra, e nessuna delle due saprebbe di avere
+torto.
+
+#### Che cosa NON cambia
+
+- **`GET /api/inventory` legge il JSON.** Il passaggio a SQL è la 2D, e avviene solo
+  dopo che il confronto è stato verde ripetutamente su dati veri. Un `GET` che
+  assembla male restituisce un documento plausibile, il client lo rimanda con un
+  `PUT`, e la differenza diventa una versione nuova con un contenuto che nessuno ha
+  scritto.
+- I contratti di `GET` e `PUT` sono invariati; il frontend non è stato toccato e non
+  sa che la proiezione esista.
+- Lo scheduler delle notifiche legge il documento.
+- Nessun endpoint di query, nessuna pulizia dei dati di produzione.
+
+#### Readiness
+
+«Pronto» ora vuol dire cinque cose: database raggiungibile, migrazioni al livello
+atteso, inventario inizializzato, stato della proiezione presente con una mappa
+supportata, e versione/digest uguali a quelli della testa.
+
+Un backend che risponde «pronto» con la proiezione vecchia **mente**: rifiuterà tutte
+le scritture. `GET` funzionerebbe ancora — legge il JSON — ed è proprio questo che
+renderebbe il guasto difficile da vedere: l'applicazione sembra viva e non si può
+salvare.
+
+Si controlla lo **stato**, non la fedeltà: tre confronti fra valori già registrati,
+cioè tre query. Riassemblare l'inventario a ogni sonda costerebbe quanto un `--verify`
+completo, ripetuto ogni pochi secondi per sempre. La fedeltà la dimostrano la verifica
+transazionale dopo ogni scrittura e `project.py --verify`.
+
+#### `project.py` dopo la 2C
+
+`--rebuild` non è più il modo normale di tenere aggiornata la proiezione. Gli restano
+due mestieri, entrambi da proprietario: il passo di **attivazione**, e il
+**ripristino** dopo un guasto (una scrittura fuori dall'API, un ripristino parziale,
+una versione della mappa cambiata da un aggiornamento).
+
+`--verify` resta lo strumento **indipendente**: la verifica automatica dopo ogni
+scrittura dimostra che *quel* salvataggio era fedele, non che lo sia ancora oggi. Da
+questa fase esce con 1 anche su una proiezione soltanto **vecchia** — in 2B era
+normale, adesso è lo stato in cui l'API rifiuta le scritture. Fedeltà e attualità
+restano riportate separatamente, perché hanno cause diverse: un difetto del codice
+contro un comando mancante.
+
+### 8.44.1 Sequenza di aggiornamento (documentazione, NON si esegue ancora)
+
+Deployment su un host solo con Compose: si preferisce una **finestra di manutenzione
+esplicita** invece di fingere che serva la complessità di una migrazione senza
+interruzione. Un rolling upgrade con due versioni dell'API attive
+contemporaneamente — una che mantiene la proiezione e una che non la conosce —
+produrrebbe esattamente lo stato che l'invariante vieta.
+
+1. fermare le scritture dell'applicazione;
+2. applicare la migrazione di schema e privilegi (`0012_dual_write`);
+3. eseguire `project.py --rebuild` come **proprietario dello schema**;
+4. pretendere che `project.py --verify` riesca;
+5. avviare l'API della fase 2C;
+6. pretendere la readiness verde;
+7. riaprire l'accesso.
+
+Il passo 3 non è facoltativo e non è automatizzabile dall'API: la colonna
+`mapper_version` nasce NULL, quindi finché non si ricostruisce ogni salvataggio è
+rifiutato con `projection_not_current`. È deliberato — vedi la precondizione.
+
+**Non si distribuisce ancora.** Il rilascio in produzione resta bloccato fino a: fase
+2C completa, fase 2D completa, funzionalità SQL/query completa, controllo finale di
+funzionalità e sicurezza, pulizia e bootstrap del dataset di produzione, e suite
+completa verde in ambiente pulito.
+
+### 8.44.2 Come è verificato
+
+`tests/test_dual_write_pg.py` — 101 test su PostgreSQL vero, nessuno saltato:
+
+- **ogni documento** di prova (venticinque: seed di produzione, inventario delle
+  scadenze, voci di manuale, `vani` come oggetti-valore, campi ignoti in `extra`,
+  valori falsi espliciti, `seriali` di tipi misti, date valide e rotte, numeri ostili,
+  interi fuori scala) passa sia dal bootstrap sia da un `PUT` reale, e ogni volta si
+  verifica l'invariante **completo** con una funzione sola — averla in un posto è ciò
+  che rende impossibile scrivere un test nuovo che ne verifica tre quarti;
+- le forme di modifica: aggiunte, rimozioni, ridenominazioni con identità conservata,
+  spostamenti fra genitori, riordini, scambio di codici ambito,
+  ridenominazione-più-spostamento nello stesso `PUT`, righe non toccate, `id`
+  duplicati;
+- foto: sostituzione della corrente con conservazione della storica, la GC che
+  conserva la foto di una versione vecchia, e l'invariante che rende la chiave esterna
+  non attivabile dalla GC;
+- date derivate, valori non interpretabili conservati, e la query SQL che concorda con
+  `due_items`;
+- no-op canonico che non scrive **niente** — compreso il timestamp di
+  sincronizzazione, che è l'unica cosa che rivelerebbe una riscrittura con contenuto
+  identico — replay idempotente di una risposta persa, conflitto di `baseVersion`;
+- la precondizione: stato assente, vecchio di versione, vecchio di digest, mappa
+  sbagliata, mappa NULL della 2B, e il controllo che precede il no-op;
+- **dodici iniezioni di guasto**, ognuna su una funzione reale del percorso:
+  svuotamento, inserimento, riga di stato, rilettura, confronto dei modelli,
+  riassemblaggio, validazione, inserimento della versione, audit, testa, riferimenti
+  alle foto, e un guasto del **database** (violazione di chiave esterna a metà della
+  sincronizzazione). Dopo ognuna si confronta una fotografia di *tutto* — testa,
+  versioni, audit, riferimenti storici, tutte le righe della proiezione, riga di
+  stato — così un test nuovo non può dimenticare una tabella;
+- concorrenza: due salvataggi in parallelo dalla stessa versione, con la prova che il
+  perdente riceve un conflitto normale e che lo stato finale è allineato;
+- `GET` che serve ancora il JSON, con i **tre digest** che coincidono (risposta,
+  riassemblaggio dalla proiezione, digest registrato in testa), e il contratto del
+  filo invariato.
+
+Le **17 mutazioni**: nove sul comportamento (il salvataggio che non sincronizza, il
+bootstrap che non proietta, la precondizione assente o spostata dopo il no-op, i
+confronti disattivati, lo svuotamento rimosso, la versione della mappa ignorata, la
+readiness che non guarda) e otto sui controlli statici. Ognuna deve far diventare
+rossi i test nominati; cento test verdi non dimostrano che la scrittura doppia
+funzioni, dimostrano che i test passano.
+
+La §14 di `tools/storage-config-test.py` copre il negativo: che nessun altro percorso
+scriva la proiezione, che `GET` non sia passato a SQL, che lo scanner non sia passato
+alle colonne derivate, che la readiness possa chiedere lo stato ma **non** riassemblare,
+che la 0012 non conceda `TRUNCATE` né tocchi l'immutabilità delle istantanee.
+
+Una mutazione ha trovato un difetto nelle sonde stesse: i controlli d'ordine usavano
+`source.index(...)` nudo, e togliendo `require_current` lo strumento moriva con un
+`ValueError` invece di stampare un `[FAIL]` leggibile — l'invariante era violata e chi
+leggeva l'output vedeva un guasto della sonda. Ora l'ordine si verifica con un
+guardiano di presenza.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -3825,10 +4160,16 @@ username, e un letterale con le virgolette che `ast.unparse` normalizza).
     `test_password_policy_pg.py`, §13 di `storage-config-test.py`. Verifica e
     irrobustimento: chiude il 503 su un hash illeggibile e quello su un surrogato
     spaiato, e la divergenza fra i tre punti che stabilivano una password.
-15. **Fase 2C**: il `PUT` sincronizza le tabelle e inserisce istantanea, audit e
-    riferimenti alle foto in una transazione sola. **Prossimo commit.**
+15. ~~**Fase 2C**: il `PUT` sincronizza le tabelle e inserisce istantanea, audit e
+    riferimenti alle foto in una transazione sola~~ ✔ **fatto** (§8.44) —
+    `0012_dual_write`, `app/inventory/{projection,digest}.py`, `repository.py`,
+    `test_dual_write_pg.py`, §14 di `storage-config-test.py`. Precondizione che
+    fallisce chiuso (`projection_not_current`), `mapper_version`, readiness estesa,
+    sostituzione integrale sotto la testa bloccata. Nessuno LEGGE ancora la
+    proiezione.
 16. **Fase 2D**: il `GET` assembla da SQL, solo dopo che la rappresentazione in
     ombra ha dimostrato ripetutamente di combaciare con la testa canonica.
+    **Prossimo commit.**
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

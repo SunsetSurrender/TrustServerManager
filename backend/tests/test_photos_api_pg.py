@@ -109,6 +109,15 @@ def db(engine):
         # versioni: è l'ordine imposto dalle chiavi esterne, non una scorciatoia.
         c.execute(text("TRUNCATE inventory_head, inventory_versions "
                        "RESTART IDENTITY CASCADE"))
+        # La PROIEZIONE prima delle foto, e l'ordine non è negoziabile (§8.44).
+        #
+        # Dalla fase 2C il bootstrap popola `inventory_racks`, che ha una chiave
+        # esterna verso `photos`: cancellare le foto con i rack ancora in tabella
+        # fallisce con una violazione di chiave esterna. Non è un difetto della
+        # fixture — è la stessa protezione che impedisce alla GC di cancellare la
+        # foto che lo stato corrente sta usando, vista da qui.
+        c.execute(text("DELETE FROM inventory_locations"))
+        c.execute(text("DELETE FROM inventory_manual_entries"))
         c.execute(text("DELETE FROM photos"))
         c.execute(text("DELETE FROM maintenance_runs"))
         c.execute(text("DELETE FROM login_attempts"))
@@ -856,6 +865,45 @@ def _privilege(engine, role: str, table: str, priv: str) -> bool:
     ("tsm_api", "worker_heartbeat", "UPDATE", False),
     ("tsm_worker", "reminders", "UPDATE", True),
     ("tsm_worker", "worker_heartbeat", "UPDATE", True),
+    # --- fase 2C: l'API mantiene la proiezione, quindi la scrive (§8.44) ---
+    #
+    # È il privilegio che la 0010 aveva NEGATO scrivendo «li concede la fase 2C, con
+    # il codice che li usa». Adesso quel codice esiste. `TRUNCATE` resta escluso: la
+    # sincronizzazione usa `DELETE`, per non prendere un lock che bloccherebbe anche
+    # i lettori della fase 2D.
+    ("tsm_api", "inventory_locations", "SELECT", True),
+    ("tsm_api", "inventory_locations", "INSERT", True),
+    ("tsm_api", "inventory_locations", "UPDATE", True),
+    ("tsm_api", "inventory_locations", "DELETE", True),
+    ("tsm_api", "inventory_locations", "TRUNCATE", False),
+    ("tsm_api", "inventory_racks", "INSERT", True),
+    ("tsm_api", "inventory_racks", "DELETE", True),
+    ("tsm_api", "inventory_racks", "TRUNCATE", False),
+    ("tsm_api", "inventory_devices", "INSERT", True),
+    ("tsm_api", "inventory_devices", "TRUNCATE", False),
+    ("tsm_api", "inventory_projection_state", "INSERT", True),
+    ("tsm_api", "inventory_projection_state", "UPDATE", True),
+    ("tsm_api", "inventory_projection_state", "DELETE", True),
+    ("tsm_api", "inventory_projection_state", "TRUNCATE", False),
+    # L'istantanea immutabile resta immutabile, e in fase 2C acquista un secondo
+    # mestiere: è il riferimento contro cui la proiezione si verifica. Poterla
+    # riscrivere renderebbe quella verifica una tautologia.
+    ("tsm_api", "inventory_versions", "SELECT", True),
+    ("tsm_api", "inventory_versions", "INSERT", True),
+    ("tsm_api", "inventory_versions", "UPDATE", False),
+    ("tsm_api", "inventory_versions", "DELETE", False),
+    ("tsm_api", "inventory_versions", "TRUNCATE", False),
+    ("tsm_api", "audit", "UPDATE", False),
+    ("tsm_api", "audit", "DELETE", False),
+    # Il worker non scrive la proiezione: le colonne data derivate esistono per le
+    # query, e il passaggio dello scanner è una decisione successiva.
+    ("tsm_worker", "inventory_locations", "SELECT", True),
+    ("tsm_worker", "inventory_locations", "INSERT", False),
+    ("tsm_worker", "inventory_locations", "UPDATE", False),
+    ("tsm_worker", "inventory_locations", "DELETE", False),
+    ("tsm_worker", "inventory_devices", "UPDATE", False),
+    ("tsm_worker", "inventory_projection_state", "SELECT", True),
+    ("tsm_worker", "inventory_projection_state", "UPDATE", False),
 ])
 def test_the_privilege_matrix(engine, role, table, priv, expected):
     assert _privilege(engine, role, table, priv) is expected

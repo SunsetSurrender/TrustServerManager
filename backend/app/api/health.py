@@ -6,11 +6,26 @@
 /api/ready    readiness — il servizio può servire richieste. Tocca il DB.
                           È questo che il reverse proxy deve guardare.
 
-Da quando esistono le rotte dell'inventario, «pronto» vuol dire tre cose insieme
-(§8.23): database raggiungibile, migrazioni al livello atteso, e testa
-dell'inventario presente. Un'istanza che risponde 200 con lo schema vecchio o
-senza inventario inizializzato manderebbe in errore ogni richiesta, e sarebbe un
-guasto molto più difficile da diagnosticare di un 503 sincero.
+Da quando esistono le rotte dell'inventario, «pronto» vuol dire quattro cose insieme
+(§8.23, §8.44): database raggiungibile, migrazioni al livello atteso, testa
+dell'inventario presente, e PROIEZIONE relazionale attuale. Un'istanza che risponde
+200 con lo schema vecchio o senza inventario inizializzato manderebbe in errore ogni
+richiesta, e sarebbe un guasto molto più difficile da diagnosticare di un 503
+sincero.
+
+La quarta condizione è nuova con la fase 2C, e c'è perché da quella fase l'API
+PROMETTE di mantenere due rappresentazioni a ogni salvataggio. Se la proiezione non
+rispecchia la testa, quella promessa non è mantenibile: ogni `PUT` verrà rifiutato
+con 503 `projection_not_current`. Un backend che risponde «pronto» e poi rifiuta
+tutte le scritture sta mentendo al reverse proxy, e a chi legge un grafico di
+disponibilità. `GET` funzionerebbe ancora — legge il JSON — e proprio per questo il
+guasto sarebbe difficile da vedere: l'applicazione sembra viva e non si può salvare.
+
+⚠ Si controlla lo STATO, non la fedeltà. Versione, digest e versione della mappa sono
+tre confronti fra valori già registrati, cioè tre query. Riassemblare l'inventario da
+SQL a ogni sonda costerebbe quanto un `--verify` completo, ripetuto ogni pochi
+secondi per sempre, e trasformerebbe la readiness in carico. La fedeltà la dimostrano
+la verifica transazionale dopo ogni scrittura e `project.py --verify` (§8.44).
 """
 from __future__ import annotations
 
@@ -50,10 +65,11 @@ def health() -> dict:
     return {"status": "ok", "version": get_settings().app_version}
 
 
-@router.get("/ready", summary="Readiness: DB, migrazioni e inventario")
+@router.get("/ready", summary="Readiness: DB, migrazioni, inventario, proiezione")
 def ready(response: Response) -> dict:
     response.headers["Cache-Control"] = "no-store"
-    checks = {"database": False, "migrations": False, "inventory": False}
+    checks = {"database": False, "migrations": False, "inventory": False,
+              "projection": False}
     try:
         with get_engine().connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -67,6 +83,13 @@ def ready(response: Response) -> dict:
             head = conn.execute(
                 text("SELECT version FROM inventory_head WHERE id IS TRUE")).scalar()
             checks["inventory"] = head is not None
+
+            # Importata per nome e non dal pacchetto: `app.inventory` non riesporta
+            # `projection` di proposito, così un `from app.inventory import
+            # projection` scritto per sbaglio in una rotta non compila (§8.42).
+            # Qui l'import è VOLUTO, e chiede solo lo stato.
+            from app.inventory import projection
+            checks["projection"] = projection.currency(conn).current
     except Exception as exc:
         # Il dettaglio nei log: la stringa di connessione e la topologia interna
         # non escono dall'API.

@@ -3,32 +3,62 @@
 Questo è il modulo che tocca SQL. La mappa (`relational.py`) resta pura; qui c'è
 tutto ciò che sa di colonne, di legature di parametri e di transazioni.
 
-    status(conn)    che versione la proiezione dichiara di rispecchiare
-    verify(conn)    riassembla da SQL e confronta i digest: SOLA LETTURA
-    rebuild(conn)   ricostruisce tutto, e ABORTA se il giro non torna
+    currency(conn)        la proiezione rispecchia la testa? Strutturale, 3 query
+    require_current(...)  come sopra, ma SOLLEVA. La usa il salvataggio
+    status(conn)          rapporto completo per una persona, conteggi compresi
+    verify(conn)          riassembla da SQL e confronta: SOLA LETTURA
+    synchronise(conn, …)  porta la proiezione a un modello, e lo DIMOSTRA
+    rebuild(conn)         ricostruisce dalla testa, e ABORTA se il giro non torna
 
-⚠ Nessuno consuma la proiezione. Non `GET`, non `PUT`, non la readiness, non lo
-scheduler, non il frontend (§8.42). La fase 2B costruisce una rappresentazione in
-ombra e la confronta; il passaggio è la 2D, e avviene solo dopo che il confronto è
-stato verde ripetutamente su dati veri. Un `GET` che assembla male restituisce un
-documento plausibile, il client lo rimanda con un `PUT`, e la differenza diventa una
-versione nuova con un contenuto che nessuno ha scritto.
+Chi la scrive, e chi NON la legge (fase 2C, §8.44)
+-------------------------------------------------
+Dalla fase 2C la proiezione si mantiene a ogni salvataggio: `repository.save` chiama
+`synchronise` DENTRO la transazione della richiesta, e `repository.bootstrap` fa lo
+stesso per la versione 1. Sono gli unici due scrittori del percorso applicativo;
+`scripts/project.py --rebuild` resta lo scrittore esplicito del proprietario.
 
-L'ordine della ricostruzione, che è la sostanza
-----------------------------------------------
+Chi la legge è ancora **nessuno**, e questa metà del requisito non è cambiata:
+
+  - `GET /api/inventory` restituisce l'istantanea JSON. Il passaggio è la 2D, e
+    avviene solo dopo che il confronto è stato verde ripetutamente su dati veri. Un
+    `GET` che assembla male restituisce un documento plausibile, il client lo rimanda
+    con un `PUT`, e la differenza diventa una versione nuova con un contenuto che
+    nessuno ha scritto;
+  - lo scheduler delle notifiche continua a leggere il documento, non le colonne
+    data derivate;
+  - il frontend non sa che la proiezione esista.
+
+L'unica lettura nuova è la READINESS, e legge solo lo STATO — versione, digest,
+versione della mappa — non le righe: è un confronto fra numeri già registrati, non
+una ricostruzione (§8.44).
+
+L'ordine, che è la sostanza
+--------------------------
+Un salvataggio (l'ordine completo sta in `repository.save`):
+
+  … lock della testa → la proiezione DEVE già rispecchiarla → no-op / conflitto /
+  autorizzazione → si inserisce l'istantanea nuova → `synchronise` sul candidato →
+  rilettura e quattro controlli → riferimenti alle foto → audit → testa.
+
+Una ricostruzione:
+
   1. LOCK della riga di testa (`FOR UPDATE`), come fa un salvataggio (§8.11)
   2. lettura del documento e del digest REGISTRATO di quella versione
   3. il digest registrato deve combaciare con quello ricalcolato
   4. `normalise` + `validate_model`: nessun errore, o si aborta prima di scrivere
-  5. si svuota la proiezione e la si riscrive per intero, riga di stato compresa
-  6. si rilegge **da SQL** e si riassembla
-  7. il modello riletto deve essere uguale a quello scritto **e** il digest del
-     documento riassemblato deve combaciare con quello registrato
+  5. `synchronise`: svuota, riscrive, rilegge da SQL, e pretende i quattro controlli
 
 Il passo 1 è ciò che rende «atomica sotto la testa bloccata» una frase con un
 significato: un `PUT` concorrente aspetta lì, quindi la proiezione non può
-rispecchiare una testa che è cambiata sotto di lei. Il passo 7 è la ragione di
-tutto il resto: un popolamento «che sembra andato bene» non vale niente.
+rispecchiare una testa che è cambiata sotto di lei. Il passo 5 è la ragione di tutto
+il resto: un popolamento «che sembra andato bene» non vale niente.
+
+Perché la verifica è la STESSA per i due scrittori
+-------------------------------------------------
+`synchronise` è un corpo solo. Se il salvataggio avesse una verifica propria, copiata
+da `rebuild`, il giorno in cui una delle due si irrobustisce l'altra resta indietro —
+e sarebbe quella sul percorso delle richieste, cioè quella che protegge i dati degli
+utenti invece di un comando che un sistemista lancia a mano.
 
 La transazione è del CHIAMANTE
 ------------------------------
@@ -49,10 +79,16 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.identity import canonicalise, diff_as_dicts
-from app.inventory.errors import InventoryError, NotBootstrappedError
+from app.inventory.digest import canonical_sha256
+from app.inventory.errors import (
+    InventoryError,
+    NotBootstrappedError,
+    ProjectionNotCurrentError,
+)
 from app.inventory.relational import (
     DERIVED,
     FIELD_MAP,
+    MAPPER_VERSION,
     DeviceRow,
     LocationRow,
     ManualRow,
@@ -65,7 +101,6 @@ from app.inventory.relational import (
     to_column_number,
 )
 from app.inventory.relational_validate import errors, validate_model, warnings
-from app.inventory.repository import canonical_sha256
 
 STATE_TABLE = "inventory_projection_state"
 
@@ -107,6 +142,68 @@ class ProjectionAborted(InventoryError):
 
 
 @dataclass(frozen=True)
+class Currency:
+    """Attualità: la proiezione rispecchia la testa di ADESSO, e con quale mappa.
+
+    Solo confronti STRUTTURALI — numeri e stringhe già registrati — quindi tre query
+    e nessun riassemblaggio. È la distinzione che permette alla readiness di fare
+    questa domanda a ogni sonda (§8.44): la fedeltà, che costa un giro completo, la
+    dimostrano la verifica transazionale dopo ogni scrittura e `project.py --verify`.
+    """
+
+    head_version: int | None = None
+    head_sha256: str | None = None
+    projected_version: int | None = None
+    projected_sha256: str | None = None
+    mapper_version: int | None = None
+
+    @property
+    def present(self) -> bool:
+        """L'assenza della riga è un dato: «non rispecchia nessuna versione»."""
+        return self.projected_version is not None
+
+    @property
+    def mapper_supported(self) -> bool:
+        """La mappa che ha scritto la proiezione è quella che gira adesso.
+
+        `None` (proiezione della fase 2B, che non lo registrava) NON è supportata: la
+        distribuzione dei dati fra colonne ed `extra` non è verificabile a posteriori,
+        e presumerla è il modo di scoprirla sbagliata quando qualcuno interrogherà.
+        """
+        return self.mapper_version == MAPPER_VERSION
+
+    @property
+    def current(self) -> bool:
+        return (self.present
+                and self.projected_version == self.head_version
+                and self.projected_sha256 == self.head_sha256
+                and self.mapper_supported)
+
+    def problem(self) -> str | None:
+        """Il motivo tecnico, o None. Serve alla diagnosi, non al contratto: sul filo
+        il codice è uno solo, `projection_not_current`."""
+        if self.head_version is None:
+            return "inventario_non_inizializzato"
+        if not self.present:
+            return "proiezione_assente"
+        if self.projected_version != self.head_version:
+            return "proiezione_vecchia_di_versione"
+        if self.projected_sha256 != self.head_sha256:
+            return "proiezione_vecchia_di_digest"
+        if not self.mapper_supported:
+            return "versione_della_mappa_non_supportata"
+        return None
+
+    def as_dict(self) -> dict:
+        return {"testa_versione": self.head_version,
+                "testa_digest": self.head_sha256,
+                "proiezione_versione": self.projected_version,
+                "proiezione_digest": self.projected_sha256,
+                "versione_mappa": self.mapper_version,
+                "versione_mappa_attesa": MAPPER_VERSION}
+
+
+@dataclass(frozen=True)
 class ProjectionStatus:
     """Che cosa la proiezione dichiara, e che cos'è vero adesso."""
 
@@ -115,7 +212,16 @@ class ProjectionStatus:
     projected_version: int | None = None
     projected_sha256: str | None = None
     projected_at: datetime | None = None
+    mapper_version: int | None = None
     counts: dict = field(default_factory=dict)
+
+    @property
+    def currency(self) -> Currency:
+        return Currency(head_version=self.head_version,
+                        head_sha256=self.head_sha256,
+                        projected_version=self.projected_version,
+                        projected_sha256=self.projected_sha256,
+                        mapper_version=self.mapper_version)
 
     @property
     def present(self) -> bool:
@@ -124,9 +230,7 @@ class ProjectionStatus:
 
     @property
     def fresh(self) -> bool:
-        return (self.present
-                and self.projected_version == self.head_version
-                and self.projected_sha256 == self.head_sha256)
+        return self.currency.current
 
     @property
     def behind(self) -> int | None:
@@ -137,33 +241,59 @@ class ProjectionStatus:
     def describe(self) -> str:
         """Una riga in italiano, perché la legge una persona.
 
-        Una proiezione non aggiornata **è prevista** in questa fase: la
-        sincronizzazione a ogni salvataggio è la 2C. Il messaggio lo dice, così chi
-        lo legge non va a cercare un guasto che non c'è.
+        ⚠ Il significato di «non aggiornata» è cambiato con la fase 2C, e il
+        messaggio con esso. In 2B era NORMALE — nessuno sincronizzava — e dirlo
+        serviva a non far cercare un guasto che non c'era. Adesso ogni salvataggio
+        mantiene le due rappresentazioni, quindi una proiezione vecchia significa una
+        cosa sola: **l'API sta rifiutando le scritture**, e finché resta così le
+        rifiuterà. Il rimedio va detto, perché chi legge questa riga è la persona che
+        deve applicarlo.
         """
         if self.head_version is None:
             return "nessuna versione in testa: non c'è niente da rispecchiare"
         if not self.present:
-            return ("la proiezione non rispecchia nessuna versione "
-                    "(mai costruita, oppure svuotata)")
+            return ("la proiezione non rispecchia nessuna versione (mai costruita, "
+                    "oppure svuotata): l'API RIFIUTA i salvataggi finché non si "
+                    "esegue `project.py --rebuild`")
         if self.fresh:
             return f"aggiornata alla versione {self.projected_version}"
         if self.projected_version != self.head_version:
             return (f"NON aggiornata: rispecchia la {self.projected_version}, "
                     f"la testa è la {self.head_version} "
                     f"({self.behind} version{'e' if self.behind == 1 else 'i'} "
-                    "di scarto). È previsto: la sincronizzazione a ogni "
-                    "salvataggio è la fase 2C")
-        return ("NON aggiornata: stessa versione ma digest diverso. La versione "
-                f"{self.projected_version} è stata verificata con "
-                f"{(self.projected_sha256 or '')[:12]}… e adesso in testa risulta "
-                f"{(self.head_sha256 or '')[:12]}… — un'istantanea immutabile non "
-                "cambia, quindi qualcosa l'ha cambiata fuori dall'API")
+                    "di scarto). Dalla fase 2C ogni salvataggio la mantiene, quindi "
+                    "questo scarto NON è previsto: l'API rifiuta i salvataggi "
+                    "finché non si esegue `project.py --rebuild`")
+        if self.projected_sha256 != self.head_sha256:
+            return ("NON aggiornata: stessa versione ma digest diverso. La versione "
+                    f"{self.projected_version} è stata verificata con "
+                    f"{(self.projected_sha256 or '')[:12]}… e adesso in testa risulta "
+                    f"{(self.head_sha256 or '')[:12]}… — un'istantanea immutabile non "
+                    "cambia, quindi qualcosa l'ha cambiata fuori dall'API")
+        return ("NON utilizzabile: la proiezione è stata scritta da una versione "
+                f"della mappa diversa da questa ({self.mapper_version} invece di "
+                f"{MAPPER_VERSION}). Le righe riassemblerebbero lo stesso documento "
+                "e starebbero nelle colonne sbagliate, cosa che il digest non vede: "
+                "serve `project.py --rebuild`")
 
 
 @dataclass(frozen=True)
 class VerifyResult:
-    """L'esito di un confronto a sola lettura."""
+    """L'esito di un confronto a sola lettura.
+
+    Due domande distinte, e restano distinte perché hanno cause diverse:
+
+      - `faithful`: le tabelle riassemblano ESATTAMENTE la versione che dichiarano
+        di rispecchiare. Un guasto qui è un difetto del codice o una scrittura fuori
+        dall'API;
+      - `current`: quella versione è la testa di adesso, con una mappa supportata.
+        Un guasto qui è operativo — un `--rebuild` mai eseguito dopo un
+        aggiornamento — e dalla fase 2C significa che l'API rifiuta le scritture.
+
+    In fase 2B `current` non era un requisito e `ok` era solo `faithful`. Adesso
+    servono entrambe: una proiezione fedele a una versione vecchia è esattamente lo
+    stato che la 2C non ammette.
+    """
 
     status: ProjectionStatus
     faithful: bool
@@ -171,8 +301,12 @@ class VerifyResult:
     details: list = field(default_factory=list)
 
     @property
+    def current(self) -> bool:
+        return self.status.currency.current
+
+    @property
     def ok(self) -> bool:
-        return self.faithful
+        return self.faithful and self.current
 
 
 @dataclass(frozen=True)
@@ -180,6 +314,16 @@ class RebuildReport:
     version: int
     sha256: str
     counts: dict
+    rows_written: int
+    warnings: list = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SyncReport:
+    """Esito di una sincronizzazione già VERIFICATA. Se esiste, il giro è tornato."""
+
+    version: int
+    sha256: str
     rows_written: int
     warnings: list = field(default_factory=list)
 
@@ -230,16 +374,85 @@ def counts(conn: Connection) -> dict[str, int]:
             for kind, table, _parent in LEVELS}
 
 
+def currency(conn: Connection) -> Currency:
+    """Attualità, con tre query e NESSUN riassemblaggio.
+
+    Volutamente separata da `status`: quella conta anche le righe (cinque
+    `count(*)`) e serve a una persona che legge un rapporto. Questa risponde alla
+    sola domanda strutturale, ed è quella che stanno sul percorso di una richiesta —
+    la readiness a ogni sonda, il salvataggio prima di scrivere.
+
+    Non legge il documento e non tocca `inventory_versions.doc`: confronta il numero
+    di versione e il digest REGISTRATO, che sono già entrambi materializzati. Un
+    controllo di attualità che riassemblasse l'inventario intero costerebbe, a ogni
+    sonda della readiness, quanto un `--verify` (§8.44).
+    """
+    head_row = conn.execute(text(
+        "SELECT version FROM inventory_head WHERE id IS TRUE")).first()
+    if head_row is None:
+        head_version, head_sha = None, None
+    else:
+        head_version = int(head_row[0])
+        # Il digest REGISTRATO nella versione, non ricalcolato: è quello che lo
+        # stato della proiezione dichiara di aver verificato, quindi è quello con cui
+        # va confrontato. Ricalcolarlo qui confronterebbe due cose diverse.
+        sha_row = conn.execute(text(
+            "SELECT canonical_sha256 FROM inventory_versions WHERE version = :v"),
+            {"v": head_version}).first()
+        head_sha = None if sha_row is None else sha_row[0]
+
+    state = conn.execute(text(
+        f"SELECT head_version, head_sha256, mapper_version FROM {STATE_TABLE}"
+    )).first()
+    return Currency(
+        head_version=head_version,
+        head_sha256=head_sha,
+        projected_version=None if state is None else int(state[0]),
+        projected_sha256=None if state is None else state[1],
+        mapper_version=None if state is None or state[2] is None else int(state[2]),
+    )
+
+
+def require_current(conn: Connection, *, version: int, sha256: str) -> Currency:
+    """Pretende che la proiezione rispecchi ESATTAMENTE (version, sha256). O solleva.
+
+    `version` e `sha256` li passa chi ha già la testa in mano e BLOCCATA — il
+    salvataggio — invece di rileggerla: rileggerla qui significherebbe fare la
+    domanda su una testa che, senza il lock, potrebbe non essere la stessa su cui si
+    sta per scrivere.
+
+    Solleva `ProjectionNotCurrentError`, che è un 503: non è colpa del client, ed è
+    un rifiuto di operare, non un errore del documento.
+    """
+    state = conn.execute(text(
+        f"SELECT head_version, head_sha256, mapper_version FROM {STATE_TABLE}"
+    )).first()
+    found = Currency(
+        head_version=version, head_sha256=sha256,
+        projected_version=None if state is None else int(state[0]),
+        projected_sha256=None if state is None else state[1],
+        mapper_version=None if state is None or state[2] is None else int(state[2]),
+    )
+    if not found.current:
+        raise ProjectionNotCurrentError(
+            "la proiezione relazionale non rispecchia la testa "
+            f"({found.problem()}): eseguire `project.py --rebuild` come "
+            "proprietario dello schema",
+            [found.as_dict()])
+    return found
+
+
 def status(conn: Connection) -> ProjectionStatus:
     """Confronto fra ciò che la proiezione dichiara e la testa vera. Sola lettura.
 
-    È il modo previsto di vedere che la proiezione è vecchia: non un guasto da
-    nascondere, ma una domanda a cui si può rispondere in qualunque momento invece
-    di fidarsi di un'esecuzione andata bene mesi prima.
+    È il modo previsto di vedere che la proiezione è vecchia: una domanda a cui si
+    può rispondere in qualunque momento invece di fidarsi di un'esecuzione andata
+    bene mesi prima.
     """
     head = _head(conn)
     state = conn.execute(text(
-        f"SELECT head_version, head_sha256, synchronised_at FROM {STATE_TABLE}"
+        f"SELECT head_version, head_sha256, synchronised_at, mapper_version "
+        f"  FROM {STATE_TABLE}"
     )).first()
     return ProjectionStatus(
         head_version=None if head is None else head[0],
@@ -247,6 +460,7 @@ def status(conn: Connection) -> ProjectionStatus:
         projected_version=None if state is None else int(state[0]),
         projected_sha256=None if state is None else state[1],
         projected_at=None if state is None else state[2],
+        mapper_version=None if state is None or state[3] is None else int(state[3]),
         counts=counts(conn),
     )
 
@@ -341,15 +555,22 @@ def write_model(conn: Connection, model: RelationalModel) -> int:
 
 def _write_state(conn: Connection, model: RelationalModel, *, version: int,
                  sha256: str) -> None:
+    """La ricevuta: che versione la proiezione rispecchia, e con quale mappa.
+
+    `mapper_version` si scrive da `MAPPER_VERSION`, cioè dal codice che sta scrivendo
+    in questo istante. È l'unico valore che può essere vero: dedurlo dalle righe o
+    lasciarlo al chiamante lo renderebbe una dichiarazione senza garanzia.
+    """
     conn.execute(text(f"""
         INSERT INTO {STATE_TABLE}
-               (id, head_version, head_sha256, schema_version, has_manual,
-                root_extra, synchronised_at)
-        VALUES (TRUE, :version, :sha, :schema_version, :has_manual,
+               (id, head_version, head_sha256, mapper_version, schema_version,
+                has_manual, root_extra, synchronised_at)
+        VALUES (TRUE, :version, :sha, :mapper, :schema_version, :has_manual,
                 CAST(:root_extra AS jsonb), now())
     """), {
         "version": version,
         "sha": sha256,
+        "mapper": MAPPER_VERSION,
         "schema_version": model.schema_version
         if isinstance(model.schema_version, int) else None,
         "has_manual": model.has_manual,
@@ -463,12 +684,18 @@ def verify(conn: Connection) -> VerifyResult:
     Sola lettura, nessun lock: si può eseguire quando si vuole, anche su una
     proiezione vecchia.
 
-    ⚠ Fedeltà e attualità sono due domande diverse, e questa funzione risponde
-    alla prima. «Le tabelle riassemblano esattamente la versione che dichiarano di
-    rispecchiare» è la fedeltà, ed è l'unica cosa che può essere un guasto adesso.
-    «Rispecchiano l'ultima versione» è l'attualità, e in fase 2B **non esserlo è
-    normale**: la sincronizzazione a ogni salvataggio è la 2C. Confonderle
-    significherebbe che ogni salvataggio fa suonare un allarme.
+    ⚠ Fedeltà e attualità restano due domande diverse, e questa funzione MISURA la
+    prima. «Le tabelle riassemblano esattamente la versione che dichiarano di
+    rispecchiare» è la fedeltà; «rispecchiano l'ultima versione» è l'attualità, che
+    si legge da `status`/`currency` e che il risultato riporta a parte
+    (`VerifyResult.current`).
+
+    Sono separate perché hanno cause diverse — un difetto del codice contro un
+    comando mai eseguito — e perché la fedeltà si può ancora misurare su una
+    proiezione vecchia, il che è precisamente ciò che serve a chi sta diagnosticando.
+    Dalla fase 2C però servono entrambe: una proiezione fedele a una versione vecchia
+    è lo stato in cui l'API rifiuta le scritture, quindi `ok` le pretende tutte e
+    due, e lo strumento esce con 1.
     """
     state = status(conn)
     if not state.present:
@@ -516,6 +743,109 @@ def verify(conn: Connection) -> VerifyResult:
 
 
 # ==================================================================
+# sincronizzazione: scrivere, rileggere, e pretendere la prova
+# ==================================================================
+
+def synchronise(conn: Connection, model: RelationalModel, *, version: int,
+                sha256: str, known_photo_ids: set[str] | None = None) -> SyncReport:
+    """Porta la proiezione a `model`, e non torna se non l'ha DIMOSTRATO.
+
+    È il cuore della fase 2C, e lo usano entrambi gli scrittori: il salvataggio
+    (dentro la transazione della richiesta) e `rebuild` (dentro quella del comando
+    del proprietario). Un solo corpo di proprietà, non due: se la verifica dopo un
+    salvataggio fosse una copia di quella della ricostruzione, il giorno in cui una
+    delle due si irrobustisce l'altra resta indietro — e sarebbe quella sul percorso
+    delle richieste, cioè quella che conta.
+
+    ── Perché SOSTITUZIONE INTEGRALE e non differenza incrementale ──────────────
+
+    Si svuota e si riscrive. Non è pigrizia, è la scelta più difficile da sbagliare,
+    e a questa scala non costa niente di misurabile (il seed reale: 197 righe).
+
+      - **produce per costruzione lo stato del candidato.** Una differenza
+        incrementale produce «lo stato precedente più le modifiche che ho saputo
+        calcolare», che è la stessa cosa solo se il calcolo è completo. Aggiunte,
+        rimozioni, aggiornamenti, ridenominazioni, spostamenti fra genitori,
+        riordini, e ridenominazione-più-spostamento nello stesso PUT sono sei
+        occasioni di sbagliare che qui semplicemente non esistono;
+
+      - **rende innocui gli scambi di chiavi ambito.** Due rack che si scambiano il
+        `code` nella stessa sala violerebbero l'unicità a metà di un `UPDATE`
+        incrementale; il vincolo è `DEFERRABLE INITIALLY IMMEDIATE` proprio per
+        questo. Cancellando prima e inserendo dopo, il conflitto non nasce: non
+        serve appoggiarsi al rinvio, e non serve ricordarsi che serve;
+
+      - **niente `TRUNCATE`.** `DELETE`, che è un privilegio ordinario e non prende
+        un lock ACCESS EXCLUSIVE — quello bloccherebbe anche i lettori della fase
+        2D. La cascata dai siti porta via sale, rack e dispositivi; le voci di
+        manuale non hanno genitore e si cancellano a parte.
+
+    Il costo è righe morte a ogni salvataggio, che a duecento righe è lavoro di
+    autovacuum invisibile. Se un giorno le righe fossero centomila, questa funzione è
+    il posto dove cambiare strategia — e i test la interrogano dal comportamento, non
+    dall'implementazione, quindi resterebbero validi.
+
+    ── I quattro controlli, che sono il motivo di tutto il resto ────────────────
+
+    Non fa `commit` e non intercetta niente: SOLLEVA `ProjectionAborted` e la
+    transazione del chiamante si annulla per intero. È il rollback a garantire che
+    non sopravviva una proiezione a metà — non l'ordine degli statement.
+    """
+    # --- si svuota e si riscrive, riga di stato COMPRESA ---
+    #
+    # ⚠ La riga di stato si scrive QUI, non dopo la rilettura. Porta anche
+    # `schemaVersion`, `has_manual` e `root_extra`, cioè il livello di RADICE del
+    # documento: scritta dopo, la rilettura vedrebbe una radice vuota e il confronto
+    # fallirebbe su una differenza che la scrittura non ha commesso. È un errore già
+    # commesso una volta, in `rebuild`.
+    clear(conn)
+    written = write_model(conn, model)
+    _write_state(conn, model, version=version, sha256=sha256)
+
+    # --- rilettura DA SQL ---
+    read_back = read_model(conn)
+
+    # --- 1. il modello riletto è quello scritto ---
+    #
+    # Non basta confrontare i documenti: un valore che passasse da una colonna a
+    # `extra` lascerebbe il documento identico e il digest uguale. Vedi
+    # `model_differences`.
+    differences = model_differences(model, read_back)
+    if differences:
+        raise ProjectionAborted(
+            "modello_riletto_diverso",
+            f"la proiezione della versione {version} non rilegge come è stata "
+            f"scritta: {len(differences)} differenze",
+            differences[:40])
+
+    # --- 2. il modello riletto è coerente ---
+    #
+    # Sul modello RILETTO, non su quello scritto: qui si guarda ciò che il database
+    # contiene adesso. È anche l'unico controllo che vede le colonne DERIVATE, a cui
+    # il digest è cieco — `garanzia_date` non torna nel documento, quindi una data
+    # interpretata male lo lascerebbe identico.
+    found = validate_model(read_back, known_photo_ids=known_photo_ids)
+    if errors(found):
+        raise ProjectionAborted(
+            "modello_riletto_incoerente",
+            f"la proiezione riletta della versione {version} non è coerente: "
+            f"{len(errors(found))} errori",
+            [f.as_dict() for f in errors(found)])
+
+    # --- 3/4. il documento riassemblato è quello dell'istantanea ---
+    rebuilt = assemble(read_back)
+    digest = canonical_sha256(rebuilt)
+    if digest != sha256:
+        raise ProjectionAborted(
+            "digest_diverso",
+            f"il documento riassemblato da SQL non è la versione {version}",
+            [{"riassemblato_da_sql": digest, "atteso": sha256}])
+
+    return SyncReport(version=version, sha256=digest, rows_written=written,
+                      warnings=[f.as_dict() for f in warnings(found)])
+
+
+# ==================================================================
 # ricostruzione
 # ==================================================================
 
@@ -559,47 +889,16 @@ def rebuild(conn: Connection) -> RebuildReport:
             f"coerente: {len(errors(found))} errori",
             [f.as_dict() for f in errors(found)])
 
-    # --- 5. si svuota e si riscrive, riga di stato COMPRESA ---
+    # --- 5/7. scrittura e prova, con lo STESSO corpo che usa il salvataggio ---
     #
-    # ⚠ La riga di stato si scrive QUI, non alla fine, e il primo tentativo la
-    # scriveva alla fine. Sembrava più prudente — «nessuna riga dichiara una
-    # proiezione fedele finché non lo è» — ed era sbagliato: quella riga porta anche
-    # `schemaVersion`, `has_manual` e `root_extra`, cioè il livello di RADICE del
-    # documento. Scritta dopo la rilettura, il passo 6 rileggeva una radice vuota e
-    # il confronto fallisce su una differenza che il popolamento non ha commesso.
-    #
-    # La prudenza non serviva: `rebuild` solleva e la transazione del chiamante va
-    # in rollback, quindi una riga che esiste è una riga la cui verifica è passata.
-    # È il rollback a garantirlo, non l'ordine degli statement.
-    clear(conn)
-    written = write_model(conn, model)
-    _write_state(conn, model, version=version, sha256=recorded)
+    # `synchronise` svuota, riscrive, rilegge da SQL e pretende i quattro controlli.
+    # Non è una comodità: se la ricostruzione e il salvataggio avessero due verifiche
+    # separate, il giorno in cui una si irrobustisce l'altra resta indietro — e
+    # scoprirlo richiederebbe di confrontare a mano due funzioni lunghe.
+    report = synchronise(conn, model, version=version, sha256=recorded,
+                         known_photo_ids=known)
 
-    # --- 6. rilettura DA SQL ---
-    read_back = read_model(conn)
-
-    # --- 7. i due confronti ---
-    #
-    # Il modello e il documento. Non sono la stessa domanda: un valore che passasse
-    # da una colonna a `extra` lascerebbe il documento identico. Vedi
-    # `model_differences`.
-    differences = model_differences(model, read_back)
-    if differences:
-        raise ProjectionAborted(
-            "modello_riletto_diverso",
-            f"la proiezione della versione {version} non rilegge come è stata "
-            f"scritta: {len(differences)} differenze",
-            differences[:40])
-
-    rebuilt = assemble(read_back)
-    digest = canonical_sha256(rebuilt)
-    if digest != recorded:
-        raise ProjectionAborted(
-            "digest_diverso",
-            f"il documento riassemblato da SQL non è la versione {version}",
-            [{"riassemblato_da_sql": digest, "registrato": recorded}]
-            + diff_as_dicts(canonicalise(doc), rebuilt)[:20])
-
-    return RebuildReport(version=version, sha256=digest, counts=model.counts(),
-                         rows_written=written,
-                         warnings=[f.as_dict() for f in warnings(found)])
+    return RebuildReport(version=version, sha256=report.sha256,
+                         counts=model.counts(),
+                         rows_written=report.rows_written,
+                         warnings=report.warnings)

@@ -79,6 +79,23 @@ from app.identity.model import UUID_RE
 from app.inventory.json_numbers import is_number, is_representable
 from app.inventory.json_strings import is_representable_text
 
+#: Versione della MAPPA, non dello schema del documento. Sono due cose diverse e
+#: confonderle sarebbe un guaio: `schemaVersion` dice com'è fatto il documento,
+#: questa dice come questo codice lo distribuisce fra colonne, `extra` e colonne
+#: derivate.
+#:
+#: Serve perché la proiezione è una rappresentazione DERIVATA, e una derivata è
+#: valida solo rispetto al codice che l'ha prodotta. Se domani un campo passasse da
+#: `extra` a una colonna tipizzata, le righe già scritte resterebbero
+#: sintatticamente valide e semanticamente sbagliate: riassemblerebbero anche lo
+#: stesso documento — quindi lo stesso digest — mentre le query per cui la colonna
+#: esiste non troverebbero niente. Il digest non può accorgersene (§8.44), e questo
+#: numero sì.
+#:
+#: Si incrementa quando cambia la DISTRIBUZIONE dei dati fra le colonne. Non quando
+#: si aggiunge un test, si corregge un commento o si rinomina una variabile.
+MAPPER_VERSION = 1
+
 # ==================================================================
 # vocabolari
 # ==================================================================

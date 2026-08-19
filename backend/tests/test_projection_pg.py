@@ -35,7 +35,7 @@ from app.inventory import Actor, InventoryRepository, canonical_sha256
 from app.inventory import projection
 from app.inventory.document import strip_legacy_fields
 from app.inventory.projection import ProjectionAborted
-from app.inventory.relational import assemble
+from app.inventory.relational import MAPPER_VERSION, assemble
 from app.inventory.relational_validate import errors, validate_model
 
 DSN = os.environ.get("TSM_DB_URL")
@@ -465,18 +465,26 @@ def test_a_rebuild_that_does_not_round_trip_aborts(db, engine, monkeypatch):
         doc["locations"][0]["sale"][0]["racks"].pop()
         return doc
 
+    prima = status(engine)
+    assert prima.fresh, "il bootstrap deve aver già scritto la proiezione"
+
     monkeypatch.setattr(projection, "assemble", assemble_bacato)
     with pytest.raises(ProjectionAborted) as err:
         rebuild(engine)
     assert err.value.reason == "digest_diverso"
     assert err.value.details
 
-    # E nel database non è cambiato niente.
-    with engine.begin() as c:
-        assert projection.counts(c) == {"locations": 0, "rooms": 0, "racks": 0,
-                                        "devices": 0, "manual": 0}
-        assert c.execute(text("SELECT count(*) FROM inventory_projection_state"
-                              )).scalar_one() == 0
+    # ⚠ E nel database non è cambiato NIENTE. L'asserzione è cambiata con la fase
+    # 2C: prima si pretendeva una proiezione vuota, perché il bootstrap non ne
+    # scriveva una. Adesso quella del bootstrap esiste, e «niente è cambiato»
+    # significa che è ancora lì e ancora fedele — che è un'asserzione più forte,
+    # perché un rollback incompleto la lascerebbe a metà invece che assente.
+    monkeypatch.undo()
+    dopo = status(engine)
+    assert dopo.projected_version == prima.projected_version
+    assert dopo.projected_sha256 == prima.projected_sha256
+    assert dopo.counts == prima.counts
+    assert verify(engine).ok
 
 
 def test_an_abort_leaves_the_previous_projection_untouched(db, engine, monkeypatch):
@@ -561,39 +569,68 @@ def test_a_rebuild_without_an_inventory_refuses(db, engine):
 # 4. una proiezione vecchia si vede
 # ==================================================================
 
-def test_a_save_leaves_the_projection_behind_and_it_shows(db, engine):
-    """⚠ Il comportamento previsto, non un guasto.
+def test_a_save_now_carries_the_projection_with_it(db, engine):
+    """⚠ Il rovescio esatto del test che stava qui, e la fase 2C è quel rovescio.
 
-    La sincronizzazione a ogni salvataggio è la fase 2C. Fino a quel commit un `PUT`
-    lascia la proiezione indietro, e l'unico requisito è che la cosa sia VISIBILE:
-    versione e digest dichiarati contro versione e digest della testa vera.
+    Fino alla 2B un `PUT` lasciava la proiezione indietro e l'unico requisito era che
+    la cosa fosse VISIBILE. Adesso il salvataggio la porta con sé nella stessa
+    transazione: la versione dichiarata, il digest dichiarato e il contenuto delle
+    righe si muovono insieme alla testa.
+
+    Si conserva la parte che continua a valere — il rack rinominato — ma con
+    l'aspettativa invertita: dopo il salvataggio è la proiezione a dover contenere il
+    nome NUOVO, senza che nessuno abbia eseguito `--rebuild`.
     """
     prima = bootstrap(engine, DOCUMENTS["base"])
-    rebuild(engine)
+    # ⚠ Nessun `rebuild` qui, e l'assenza è il punto: il bootstrap ha già scritto la
+    # proiezione. Un database appena inizializzato è utilizzabile subito.
     assert status(engine).fresh
 
     dopo = save(engine, relbuild.variant_renamed())
     assert dopo > prima
 
     state = status(engine)
-    assert not state.fresh
-    assert state.projected_version == prima and state.head_version == dopo
-    assert state.projected_sha256 != state.head_sha256
-    assert state.behind == 1
-    assert "NON aggiornata" in state.describe() and "fase 2C" in state.describe()
+    assert state.fresh
+    assert state.projected_version == dopo == state.head_version
+    assert state.projected_sha256 == state.head_sha256
+    assert state.behind == 0
+    assert "aggiornata alla versione" in state.describe()
 
-    # ⚠ E la proiezione contiene ancora il documento VECCHIO: una proiezione vecchia
-    # resta indietro, non si aggiorna a metà. Il rack rinominato non c'è.
+    # Le righe sono quelle nuove: il codice rinominato c'è.
+    #
+    # ⚠ Non si asserisce che «R01» sia sparito: l'unicità dei codici è AMBITO alla
+    # sala, e la fixture ne ha più di una — un altro rack in un'altra sala si chiama
+    # ancora R01, legittimamente. La prima stesura di questo test lo pretendeva e
+    # falliva su un fatto del documento, non su un difetto della proiezione.
     with engine.begin() as c:
-        codes = {r[0] for r in c.execute(text("SELECT code FROM inventory_racks")).all()}
-    assert "R01" in codes and "R01-NUOVO" not in codes
+        codes = [r[0] for r in c.execute(text("SELECT code FROM inventory_racks")).all()]
+    assert "R01-NUOVO" in codes
 
-    # Ed è ancora FEDELE alla versione che dichiara: attualità e fedeltà sono due
-    # domande diverse, e confonderle farebbe suonare un allarme a ogni salvataggio.
-    assert verify(engine).ok
+    # Fedele E attuale: in fase 2C `ok` pretende entrambe.
+    result = verify(engine)
+    assert result.faithful and result.current and result.ok
 
-    rebuild(engine)
-    assert status(engine).fresh
+
+def test_the_projection_state_records_the_mapper_version(db, engine):
+    """La ricevuta dice anche CON QUALE MAPPA è stata scritta.
+
+    Serve perché il digest è cieco alla distribuzione dei dati: se un campo passasse
+    da `extra` a una colonna tipizzata, le righe vecchie riassemblerebbero lo stesso
+    documento — stesso digest, nessun allarme — e le query per cui la colonna esiste
+    non troverebbero niente.
+    """
+    bootstrap(engine, DOCUMENTS["base"])
+    with engine.begin() as c:
+        recorded = c.execute(text(
+            "SELECT mapper_version FROM inventory_projection_state")).scalar_one()
+    assert recorded == MAPPER_VERSION
+    assert status(engine).currency.mapper_supported
+
+    save(engine, relbuild.variant_renamed())
+    with engine.begin() as c:
+        assert c.execute(text(
+            "SELECT mapper_version FROM inventory_projection_state"
+        )).scalar_one() == MAPPER_VERSION
 
 
 def test_the_rebuild_holds_the_head_lock(db, engine):
@@ -686,26 +723,97 @@ def test_the_api_still_serves_the_json_snapshot(db, engine):
     assert len(racks) == 102, "GET deve servire l'istantanea, non la proiezione"
 
 
-def test_readiness_ignores_the_projection(db, engine):
-    """La readiness ha tre condizioni (§8.23) e la proiezione non è la quarta.
+def test_readiness_now_requires_a_current_projection(db, engine):
+    """⚠ L'opposto di quello che valeva in fase 2B, e per una ragione precisa.
 
-    Farla diventare una condizione significherebbe che il servizio non parte perché
-    una rappresentazione che nessuno legge non è aggiornata.
+    In 2B la proiezione non era una condizione di readiness: farla diventare tale
+    avrebbe impedito al servizio di partire perché una rappresentazione che nessuno
+    legge non era aggiornata.
+
+    Dalla 2C l'API PROMETTE di mantenerla a ogni salvataggio. Se non rispecchia la
+    testa, quella promessa non è mantenibile e ogni `PUT` verrà rifiutato: un backend
+    che risponde «pronto» e poi rifiuta tutte le scritture mente al reverse proxy.
+    `GET` funzionerebbe ancora — legge il JSON — ed è proprio questo che renderebbe
+    il guasto difficile da vedere: l'applicazione sembra viva e non si può salvare.
     """
     from app.main import app
     from conftest import api_client
 
     bootstrap(engine, DOCUMENTS["base"])
     with api_client(app) as client:
-        assert status(engine).present is False
+        # Il bootstrap ha già scritto la proiezione: pronto subito.
+        assert status(engine).fresh
         r = client.get("/api/ready")
         assert r.status_code == 200 and r.json()["status"] == "ready"
+        assert r.json()["projection"] == "ok"
 
-        rebuild(engine)
-        save(engine, relbuild.variant_renamed())    # proiezione vecchia di proposito
-        assert not status(engine).fresh
+        # Si svuota la proiezione da SOTTO, come farebbe un ripristino parziale.
+        with engine.begin() as c:
+            projection.clear(c)
         r = client.get("/api/ready")
-        assert r.status_code == 200 and r.json()["status"] == "ready"
+        assert r.status_code == 503, r.text
+        assert r.json()["projection"] == "not-ready"
+        # Le altre tre condizioni restano OK: il rapporto dice QUALE manca.
+        assert r.json()["database"] == "ok" and r.json()["inventory"] == "ok"
+
+        # E torna pronta dopo la ricostruzione, senza riavviare niente.
+        rebuild(engine)
+        assert client.get("/api/ready").status_code == 200
+
+
+def test_readiness_rejects_a_projection_written_by_another_mapper(db, engine):
+    """Una mappa diversa è un guasto che il digest non vede.
+
+    Le righe riassemblerebbero lo stesso documento e starebbero nelle colonne
+    sbagliate. La readiness lo vede perché confronta un numero registrato, non il
+    contenuto.
+    """
+    from app.main import app
+    from conftest import api_client
+
+    bootstrap(engine, DOCUMENTS["base"])
+    with api_client(app) as client:
+        assert client.get("/api/ready").status_code == 200
+        with engine.begin() as c:
+            c.execute(text("UPDATE inventory_projection_state "
+                           "   SET mapper_version = mapper_version + 1"))
+        r = client.get("/api/ready")
+        assert r.status_code == 503
+        assert r.json()["projection"] == "not-ready"
+
+
+def test_readiness_does_not_reassemble_the_inventory(db, engine):
+    """⚠ La readiness fa confronti STRUTTURALI, non un giro completo.
+
+    Il rischio non è teorico: riassemblare l'inventario da SQL a ogni sonda
+    costerebbe quanto un `--verify`, ripetuto ogni pochi secondi per sempre.
+
+    Si prova dal COMPORTAMENTO e non leggendo il codice: si corrompe una RIGA della
+    proiezione lasciando intatto lo stato (versione, digest, mappa). Chi riassembla se
+    ne accorge; chi confronta i numeri registrati no — e deve restare pronto, perché
+    la fedeltà non è la domanda della readiness.
+    """
+    from app.main import app
+    from conftest import api_client
+
+    bootstrap(engine, DOCUMENTS["base"])
+    # Si corrompe `name` e una riga SOLA: `code` è sotto un vincolo di unicità
+    # ambito alla sala, e riscriverlo su tutte le righe fallirebbe per il vincolo
+    # invece di produrre lo stato che serve al test.
+    with engine.begin() as c:
+        c.execute(text("""
+            UPDATE inventory_racks SET name = 'CORROTTO'
+             WHERE uid = (SELECT uid FROM inventory_racks ORDER BY uid LIMIT 1)
+        """))
+
+    with api_client(app) as client:
+        r = client.get("/api/ready")
+        assert r.status_code == 200, "la readiness ha riassemblato: costa troppo"
+        assert r.json()["projection"] == "ok"
+
+    # E la fedeltà, quella, il guasto lo vede: è il mestiere di `--verify`.
+    result = verify(engine)
+    assert result.current and not result.faithful
 
 
 def test_the_photo_gc_still_runs_with_a_populated_projection(db, engine):
@@ -745,22 +853,67 @@ def test_the_photo_gc_still_runs_with_a_populated_projection(db, engine):
     assert verify(engine).ok
 
 
-@pytest.mark.parametrize("role", ["tsm_api", "tsm_worker"])
-def test_no_runtime_role_can_build_the_projection(db, engine, role):
-    """Il popolamento gira come PROPRIETARIO dello schema, e i ruoli di runtime non
-    possono farlo nemmeno provandoci.
+def test_the_worker_role_cannot_build_the_projection(db, engine):
+    """Il worker non scrive la proiezione, e non può nemmeno provandoci.
 
-    Non è una difesa in più rispetto ai privilegi già verificati: è la stessa
-    difesa, guardata dal lato del codice che la userebbe. `SET ROLE` è il modo di
-    provarla senza la password del ruolo.
+    ⚠ Questo test valeva per ENTRAMBI i ruoli di runtime fino alla fase 2B. Adesso
+    `tsm_api` la scrive per mestiere — è il senso della 2C — e la parametrizzazione è
+    stata sciolta invece di essere allargata: due ruoli con la stessa aspettativa
+    erano un test solo, due ruoli con aspettative opposte sono due test, e uno che
+    dicesse «l'API può, il worker no» in una parametrizzazione booleana nasconderebbe
+    quale dei due sta davvero verificando.
+
+    Il worker resta in sola lettura perché le colonne data derivate esistono per le
+    query e il passaggio dello scanner è una decisione successiva (§8.44).
     """
     bootstrap(engine, DOCUMENTS["base"])
     with engine.connect() as c:
         with c.begin():
-            c.execute(text(f"SET ROLE {role}"))
+            c.execute(text("SET ROLE tsm_worker"))
             with pytest.raises(Exception) as err:
                 projection.rebuild(c)
     assert "permission denied" in str(err.value).lower()
 
-    with engine.begin() as c:
-        assert projection.counts(c)["locations"] == 0
+    # E la proiezione del bootstrap è INTATTA: il tentativo non ha rotto niente.
+    assert verify(engine).ok
+
+
+def test_the_api_role_can_maintain_the_projection_but_not_truncate_it(db, engine):
+    """L'altra metà: l'API la scrive, e resta senza `TRUNCATE`.
+
+    La 0010 aveva negato la scrittura scrivendo «i privilegi li concede la fase 2C,
+    con il codice che li usa». Questo è quel codice, e questo è il test che la
+    concessione sia esattamente quanto serve — non `ALL`.
+    """
+    bootstrap(engine, DOCUMENTS["base"])
+    with engine.connect() as c:
+        with c.begin():
+            c.execute(text("SET ROLE tsm_api"))
+            # Scrivere: si può. Si prova per davvero, non con
+            # `has_table_privilege`: il privilegio dichiarato e il comportamento sono
+            # due cose, e la seconda è quella che conta.
+            c.execute(text("UPDATE inventory_racks SET code = code"))
+            c.execute(text("DELETE FROM inventory_manual_entries"))
+            c.execute(text("UPDATE inventory_projection_state "
+                           "   SET synchronised_at = now()"))
+        c.rollback()
+
+    with engine.connect() as c:
+        with c.begin():
+            c.execute(text("SET ROLE tsm_api"))
+            with pytest.raises(Exception) as err:
+                c.execute(text("TRUNCATE inventory_locations"))
+        c.rollback()
+    assert "permission denied" in str(err.value).lower()
+
+    # E l'istantanea immutabile resta immutabile anche adesso che l'API scrive la
+    # proiezione: sono due tabelle e due contratti diversi.
+    for statement in ("UPDATE inventory_versions SET canonical_sha256 = 'x'",
+                      "DELETE FROM inventory_versions"):
+        with engine.connect() as c:
+            with c.begin():
+                c.execute(text("SET ROLE tsm_api"))
+                with pytest.raises(Exception) as err:
+                    c.execute(text(statement))
+            c.rollback()
+        assert "permission denied" in str(err.value).lower(), statement

@@ -2,15 +2,24 @@
 """Proiezione relazionale dell'inventario: stato, verifica, ricostruzione.
 
 Comando ESPLICITO, che gira come PROPRIETARIO dello schema. Non è una migrazione di
-dati e non è un servizio, e la differenza è deliberata (§8.42):
+dati, e la differenza è deliberata (§8.42, §8.44): una migrazione si esegue una volta
+sola, all'avvio, senza che nessuno la guardi, e se aborta ferma il deployment. Questa
+ricostruzione deve poter essere rieseguita, deve confrontare un digest, deve poter
+dire di no, e il suo esito deve essere LETTO da una persona.
 
-  - una migrazione di dati si esegue una volta sola, all'avvio, senza che nessuno la
-    guardi, e se aborta ferma il deployment. Questo popolamento deve poter essere
-    rieseguito, deve confrontare un digest, deve poter dire di no, e il suo esito
-    deve essere LETTO da una persona;
-  - un servizio lo eseguirebbe da solo. Nessuno consuma ancora la proiezione: farla
-    aggiornare in automatico vorrebbe dire mantenere una rappresentazione che nessuno
-    legge, e scoprire i guasti quando qualcuno comincerà a leggerla.
+⚠ Che cosa è cambiato con la fase 2C. Adesso ogni salvataggio mantiene la proiezione
+dentro la propria transazione, quindi **`--rebuild` non è più il modo normale di
+tenerla aggiornata**. Gli restano due mestieri, entrambi da proprietario:
+
+  1. il passo di ATTIVAZIONE. Finché la proiezione non rispecchia la testa, l'API
+     rifiuta i salvataggi con 503 `projection_not_current`: non si cura da sola, di
+     proposito (vedi `ProjectionNotCurrentError`). `--rebuild` è il passo 3 della
+     sequenza di aggiornamento documentata;
+  2. il RIPRISTINO dopo un guasto: una scrittura fuori dall'API, un ripristino
+     parziale da backup, una versione della mappa cambiata da un aggiornamento.
+
+E `--verify` resta lo strumento indipendente: la verifica automatica dopo ogni
+scrittura dimostra che quel salvataggio era fedele, non che lo sia ancora oggi.
 
 Uso:
     python scripts/project.py --status     che versione rispecchia (sola lettura)
@@ -23,13 +32,15 @@ In Compose gira dal servizio che è già il proprietario dello schema:
 
 Codici di uscita, e la ragione della differenza:
 
-    --status    sempre 0. È un rapporto. Una proiezione non aggiornata in fase 2B
-                è NORMALE — la sincronizzazione a ogni salvataggio è la 2C — e un
-                codice di errore qui insegnerebbe a ignorarlo.
-    --verify    0 se le tabelle riassemblano esattamente la versione che dichiarano
-                di rispecchiare, 1 altrimenti. È un'asserzione: la fedeltà è l'unica
-                cosa che può essere un guasto adesso. L'attualità viene riportata a
-                parte, senza influire sul codice.
+    --status    sempre 0. È un rapporto, non un'asserzione: serve a guardare, anche
+                (e soprattutto) quando qualcosa non va.
+    --verify    0 se la proiezione è FEDELE **e** ATTUALE, 1 altrimenti.
+                ⚠ In fase 2B l'attualità non contava: una proiezione vecchia era
+                normale, perché nessuno la sincronizzava, e farla fallire avrebbe
+                insegnato a ignorare il codice di uscita. Adesso una proiezione
+                vecchia è lo stato in cui l'API rifiuta le scritture, quindi è un
+                guasto. Le due cause restano riportate a parte, perché sono diverse:
+                la fedeltà è un difetto del codice, l'attualità un comando mancante.
     --rebuild   0 se costruita e verificata, 1 se abortita (e in quel caso nel
                 database non è cambiato niente).
 """
@@ -66,6 +77,13 @@ def _print_status(state: projection.ProjectionStatus) -> None:
         print(f"  proiezione   versione {state.projected_version}, "
               f"digest {(state.projected_sha256 or '')[:12]}…, "
               f"costruita il {state.projected_at:%Y-%m-%d %H:%M:%S %Z}")
+        # La versione della MAPPA, non dello schema: dice come i dati sono
+        # distribuiti fra colonne ed `extra`. Una proiezione scritta da una mappa
+        # diversa riassembla lo stesso documento e sta nelle colonne sbagliate,
+        # cosa che il digest non vede.
+        atteso = projection.MAPPER_VERSION
+        marca = "" if state.mapper_version == atteso else f"  ⚠ attesa {atteso}"
+        print(f"  mappa        versione {state.mapper_version}{marca}")
     else:
         print("  proiezione   nessuno stato registrato")
     _print_counts(state.counts)
@@ -108,13 +126,28 @@ def main() -> int:
                 result = projection.verify(conn)
             print("proiezione dell'inventario — verifica")
             _print_status(result.status)
+
+            # Le due domande si stampano SEMPRE entrambe, anche quando la prima
+            # fallisce: sono cause diverse e chi diagnostica ha bisogno di sapere se
+            # ne ha una o due. Riportarne solo la prima costringerebbe a rieseguire
+            # il comando dopo ogni rimedio per scoprire la successiva.
             if result.faithful:
                 print("  fedeltà      OK: le tabelle riassemblano la versione che "
                       "dichiarano di rispecchiare")
-                return 0
-            print(f"  fedeltà      FALLITA ({result.reason})")
-            _print_details(result.details)
-            return 1
+            else:
+                print(f"  fedeltà      FALLITA ({result.reason})")
+                _print_details(result.details)
+
+            if result.current:
+                print("  attualità    OK: rispecchia la testa, con una mappa "
+                      "supportata")
+            else:
+                print("  attualità    FALLITA "
+                      f"({result.status.currency.problem()})")
+                print("               dalla fase 2C l'API rifiuta i salvataggi in "
+                      "questo stato: eseguire `--rebuild`")
+
+            return 0 if result.ok else 1
 
         # --- ricostruzione ---
         #

@@ -549,13 +549,21 @@ check("i vani restano JSONB e non una tabella",
 # proiezione è vecchia diventa una risposta sbagliata servita a un utente.
 
 #: Chi non deve nemmeno poter raggiungere la proiezione: le rotte, l'avvio, il
-#: worker. La readiness sta in `app/api/health.py`, lo scheduler in
-#: `app/notifications/worker.py`.
-CONSUMERS_FORBIDDEN = (
-    sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
-    + sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py"))
-    + [ROOT / "backend" / "app" / "main.py"]
-)
+#: worker. Lo scheduler sta in `app/notifications/worker.py`.
+#:
+#: ⚠ `app/api/health.py` è ESCLUSO dal divieto a partire dalla fase 2C, e non è un
+#: allentamento: la readiness deve sapere se la proiezione rispecchia la testa,
+#: perché da questa fase un backend con una proiezione vecchia rifiuta tutte le
+#: scritture (§8.44). Ha un controllo suo, più stretto, qui sotto: può guardare lo
+#: STATO e non può riassemblare.
+READINESS = ROOT / "backend" / "app" / "api" / "health.py"
+CONSUMERS_FORBIDDEN = [
+    p for p in (
+        sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
+        + sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py"))
+        + [ROOT / "backend" / "app" / "main.py"]
+    ) if p != READINESS
+]
 
 consumatori = []
 for path in CONSUMERS_FORBIDDEN:
@@ -565,9 +573,26 @@ for path in CONSUMERS_FORBIDDEN:
     for table in NORMALISED_TABLES:
         if table in source:
             consumatori.append(f"{path.name}: nomina {table}")
-check("né le rotte, né la readiness, né il worker toccano la proiezione",
+check("né le rotte dell'inventario né il worker leggono la proiezione",
       not consumatori,
       f"il passaggio della lettura è la fase 2D: {consumatori}")
+
+# --- la readiness: può chiedere lo STATO, non può ricostruire ---
+readiness_src = code_only(READINESS)
+check("la readiness controlla lo stato della proiezione",
+      "projection.currency(conn).current" in readiness_src,
+      "dalla fase 2C un backend con una proiezione vecchia rifiuta ogni scrittura: "
+      "dire «pronto» sarebbe mentire al reverse proxy")
+check("la readiness NON riassembla l'inventario a ogni sonda",
+      all(t not in readiness_src for t in ("read_model", "assemble", "verify(",
+                                           "rebuild(", "synchronise")),
+      "riassemblare costerebbe quanto un `--verify` completo, ripetuto ogni pochi "
+      "secondi per sempre: la fedeltà la dimostrano la verifica transazionale dopo "
+      "ogni scrittura e `project.py --verify` (§8.44)")
+check("la readiness non nomina le tabelle della proiezione",
+      all(t not in readiness_src for t in NORMALISED_TABLES
+          if t != "inventory_projection_state"),
+      "chiede a `projection` di rispondere, non interroga le tabelle per conto suo")
 
 inv_init = code_only(ROOT / "backend" / "app" / "inventory" / "__init__.py")
 check("il pacchetto inventory non riesporta `projection`",
@@ -584,8 +609,13 @@ check("la ricostruzione non fa commit: la transazione è del chiamante",
       ".commit()" not in proj,
       "un fallimento deve SOLLEVARE e lasciare che il chiamante annulli tutto: "
       "non esiste un esito «proiezione a metà»")
+# ⚠ Due frammenti in due funzioni diverse dopo il rifattorizzamento della fase 2C:
+# `rebuild` verifica che il digest registrato nella versione valga, `synchronise`
+# confronta il riassemblato con quello atteso. Cercare `digest != recorded` — come
+# faceva questo controllo — falliva perché la seconda metà si è spostata, non perché
+# la proprietà fosse venuta meno.
 check("la ricostruzione confronta il digest REGISTRATO, non solo il ricalcolato",
-      "recorded != recomputed" in proj and "digest != recorded" in proj,
+      "recorded != recomputed" in proj and "digest != sha256" in proj,
       "confrontare col ricalcolato sarebbe confrontare il codice con sé stesso")
 check("la verifica guarda anche la coerenza del modello",
       "validate_model" in proj,
@@ -630,11 +660,11 @@ check("gli indici sulle scadenze sono parziali",
       "postgresql_where" in mig11,
       "la domanda implica IS NOT NULL, e nel seed reale la maggior parte dei "
       "dispositivi non ha date")
-check("la 0011 non concede scrittura ai ruoli di runtime",
+check("la 0011 non concedeva scrittura ai ruoli di runtime",
       "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {STATE_TABLE} " in mig11
       and "GRANT INSERT" not in mig11 and "GRANT ALL" not in mig11,
-      "il popolamento gira come proprietario; i privilegi di scrittura li concede "
-      "la fase 2C, con il codice che li usa")
+      "il popolamento girava come proprietario; i privilegi di scrittura li concede "
+      "la 0012, con il codice che li usa (§8.44)")
 # ⚠ Sul CODICE, non sul testo grezzo: la docstring della 0011 spiega perché il
 # popolamento non sta lì e cita `scripts/project.py --rebuild`. È la terza volta che
 # questo controllo cade nella stessa trappola — la prosa contiene le parole che si
@@ -657,10 +687,15 @@ check("il comando pretende un'azione esplicita",
       and "--verify" in cli,
       "una ricostruzione non deve poter partire perché qualcuno ha lanciato il "
       "comando senza argomenti")
-check("il comando distingue fedeltà e attualità nei codici di uscita",
-      "faithful" in cli,
-      "una proiezione vecchia in fase 2B è NORMALE: un codice di errore lì "
-      "insegnerebbe a ignorarlo")
+check("il comando riporta fedeltà e attualità separatamente",
+      "faithful" in cli and "result.current" in cli,
+      "sono cause diverse — un difetto del codice contro un comando mancante — e "
+      "riportarne solo la prima costringerebbe a rieseguire il comando dopo ogni "
+      "rimedio per scoprire la successiva")
+check("dalla fase 2C `--verify` fallisce anche su una proiezione vecchia",
+      "result.ok" in cli,
+      "una proiezione fedele a una versione vecchia è lo stato in cui l'API rifiuta "
+      "le scritture: in 2B era normale, adesso è un guasto (§8.44)")
 
 handoff = ""
 for path in sorted((ROOT / "handoff").rglob("*.js")):
@@ -1029,6 +1064,174 @@ check("il bootstrap non contiene una password predefinita",
       not re.search(r'(admin|password)\s*=\s*["\'](admin|password)',
                     code_only(ROOT / "backend" / "scripts" / "bootstrap.py")),
       "il database di produzione non deve nascere con `admin / admin` (§8.43)")
+
+
+# ==================================================================
+# 14. fase 2C: la scrittura è doppia, la lettura no (§8.44)
+# ==================================================================
+#
+#     Dopo ogni PUT riuscito le due rappresentazioni sono allineate, e non esiste uno
+#     stato committato in cui una è avanzata e l'altra no.
+#
+# I test lo provano dal comportamento, su PostgreSQL vero, con nove mutazioni che
+# dimostrano che sanno fallire. Qui si copre il NEGATIVO — che nessun altro percorso
+# scriva la proiezione, che `GET` non sia passato a SQL, che il worker non sia passato
+# alle colonne derivate — cioè le cose che un test verifica solo dove guarda.
+
+repo_src = code_only(ROOT / "backend" / "app" / "inventory" / "repository.py")
+proj_src = code_only(ROOT / "backend" / "app" / "inventory" / "projection.py")
+
+check("il repository sincronizza la proiezione nel salvataggio",
+      "projection.synchronise" in repo_src,
+      "è il senso della fase 2C: le due rappresentazioni si muovono insieme")
+check("il repository pretende una proiezione attuale PRIMA di scrivere",
+      "projection.require_current" in repo_src,
+      "una proiezione vecchia non si ripara di nascosto al primo salvataggio di un "
+      "utente qualunque: quello cancellerebbe l'unica traccia del disallineamento")
+
+# L'ORDINE dentro la funzione, non nel file: `save` contiene sia la precondizione sia
+# il ritorno del no-op, e cercarli nel modulo direbbe solo che esistono entrambi.
+save_fn = function_source(ROOT / "backend" / "app" / "inventory" / "repository.py",
+                          "save")
+
+
+def ordered(source: str, first: str, second: str) -> bool:
+    """`first` compare prima di `second`, e ENTRAMBI compaiono.
+
+    ⚠ Il guardiano di presenza non è pedanteria. Con `source.index(...)` nudo, un
+    frammento SPARITO fa sollevare `ValueError` e lo strumento muore con un traceback
+    invece di stampare un `[FAIL]` leggibile: l'invariante è violata e chi legge
+    l'output vede un guasto della sonda. Trovato mutando `require_current` via da
+    `repository.py` — il controllo «reagiva», ma nel modo sbagliato.
+    """
+    return first in source and second in source \
+        and source.index(first) < source.index(second)
+
+
+check("la precondizione precede il ritorno del no-op",
+      ordered(save_fn, "require_current", "created=False"),
+      "un no-op è una risposta di SUCCESSO: restituirla con la proiezione vecchia "
+      "direbbe «tutto in ordine» da un backend che ha smesso di mantenerla")
+check("la precondizione segue il lock della testa",
+      ordered(save_fn, "FOR UPDATE", "require_current"),
+      "senza il lock, la domanda «la proiezione rispecchia la testa?» riguarderebbe "
+      "una testa che può cambiare prima della scrittura")
+check("la sincronizzazione segue l'inserimento della versione",
+      ordered(save_fn, "_insert_version", "synchronise"),
+      "la proiezione dichiara una versione, e quella versione deve esistere")
+check("la testa si sposta per ULTIMA",
+      ordered(save_fn, "synchronise", "_update_head"),
+      "la testa è il punto di serializzazione: spostarla prima renderebbe visibile "
+      "una versione la cui proiezione non è ancora stata dimostrata")
+check("il repository non fa commit: la transazione è del chiamante",
+      ".commit()" not in repo_src,
+      "è il ROLLBACK il meccanismo di atomicità, non l'ordine degli statement")
+
+# --- un solo corpo di verifica per i due scrittori ---
+sync_fn = function_source(ROOT / "backend" / "app" / "inventory" / "projection.py",
+                          "synchronise")
+rebuild_fn = function_source(ROOT / "backend" / "app" / "inventory" / "projection.py",
+                             "rebuild")
+check("la sincronizzazione rilegge da SQL e confronta tutto",
+      all(t in sync_fn for t in ("read_model", "model_differences", "validate_model",
+                                 "assemble", "canonical_sha256")),
+      "un popolamento «che sembra andato bene» non vale niente")
+check("la ricostruzione usa lo STESSO corpo del salvataggio",
+      "synchronise(" in rebuild_fn
+      and all(t not in rebuild_fn for t in ("model_differences", "read_model")),
+      "due verifiche separate divergono, e quella che resta indietro è quella sul "
+      "percorso delle richieste — cioè quella che protegge i dati degli utenti")
+check("la sincronizzazione svuota invece di troncare",
+      "clear(conn)" in sync_fn and "TRUNCATE" not in proj_src,
+      "`TRUNCATE` prende un lock ACCESS EXCLUSIVE che bloccherebbe anche i lettori "
+      "della fase 2D, e richiede un privilegio che non si è concesso")
+
+# --- la versione della mappa ---
+rel_src = code_only(ROOT / "backend" / "app" / "inventory" / "relational.py")
+check("la mappa dichiara la propria versione",
+      "MAPPER_VERSION" in rel_src,
+      "la proiezione è una derivata, e una derivata è valida solo rispetto al codice "
+      "che l'ha prodotta: se un campo passasse da `extra` a una colonna, le righe "
+      "vecchie riassemblerebbero lo stesso documento — stesso digest, nessun "
+      "allarme — con i dati nel posto sbagliato")
+check("lo stato registra la versione della mappa, e la si controlla",
+      "mapper_version" in proj_src and "MAPPER_VERSION" in proj_src,
+      "registrarla senza controllarla sarebbe una dichiarazione senza garanzia")
+
+mig12_path = ROOT / "backend" / "migrations" / "versions" / "0012_dual_write.py"
+check("esiste la migrazione della fase 2C", mig12_path.is_file())
+mig12 = mig12_path.read_text(encoding="utf-8") if mig12_path.is_file() else ""
+mig12_code = code_only(mig12_path) if mig12_path.is_file() else ""
+check("la 0012 concede all'API la DML sulla proiezione",
+      "GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {API_ROLE}" in mig12,
+      "è il privilegio che la 0010 aveva rimandato a questa fase")
+check("la 0012 NON concede TRUNCATE",
+      "REVOKE TRUNCATE ON {table} FROM {API_ROLE}" in mig12
+      and "GRANT TRUNCATE" not in mig12 and "GRANT ALL" not in mig12,
+      "un privilegio che non serve è un privilegio che può essere sfruttato (§8.19)")
+# ⚠ Sul CODICE e non sul testo, e senza scorciatoie: la prima stesura di questo
+# controllo aveva un `or "FROM {WORKER_ROLE}" in mig12` come ripiego, che lo rendeva
+# quasi sempre vero — la stringa compare anche nella `downgrade`. Un controllo che
+# passa perché una parola esiste da qualche parte non è un controllo.
+worker_grants = [riga for riga in mig12_code.splitlines()
+                 if "GRANT" in riga and "WORKER_ROLE" in riga]
+check("la 0012 concede al worker solo SELECT sulla proiezione",
+      worker_grants and all("GRANT SELECT ON" in riga and "INSERT" not in riga
+                            and "UPDATE" not in riga and "DELETE" not in riga
+                            for riga in worker_grants),
+      f"il worker non scrive l'inventario, e in fase 2C nemmeno la sua proiezione: "
+      f"{worker_grants}")
+check("la 0012 revoca esplicitamente la scrittura al worker",
+      "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON " in mig12
+      and "WORKER_ROLE" in mig12,
+      "le REVOKE esplicite mettono l'intenzione nello schema invece che in un "
+      "commento")
+check("la 0012 ribadisce che l'istantanea immutabile resta immutabile",
+      "REVOKE UPDATE, DELETE, TRUNCATE ON inventory_versions" in mig12,
+      "in fase 2C acquista un secondo mestiere — è il riferimento contro cui la "
+      "proiezione si verifica — e poterla riscrivere renderebbe quella verifica una "
+      "tautologia")
+check("la 0012 aggiunge `mapper_version` senza inventare un valore",
+      'sa.Column("mapper_version", sa.Integer)' in mig12
+      and "server_default" not in mig12.split("mapper_version")[1][:400],
+      "le righe della fase 2B non dichiarano nessuna mappa e noi non sappiamo quale "
+      "le ha scritte: NULL è la verità, e fa fallire chiuso il controllo")
+check("la 0012 non è una migrazione di dati",
+      all(t not in mig12_code.lower() for t in ("normalise(", "rebuild(", "synchronise(",
+                                                "insert into inventory_")),
+      "la ricostruzione resta un comando esplicito del proprietario, che una persona "
+      "esegue e di cui LEGGE l'esito")
+
+# --- ciò che la fase 2C NON fa ---
+inventory_route = code_only(ROOT / "backend" / "app" / "api" / "inventory.py")
+check("`GET /api/inventory` non è passato a SQL",
+      all(t not in inventory_route for t in NORMALISED_TABLES)
+      and "assemble" not in inventory_route and "read_model" not in inventory_route,
+      "un GET che assembla male restituisce un documento plausibile, il client lo "
+      "rimanda con un PUT, e la differenza diventa una versione nuova con un "
+      "contenuto che nessuno ha scritto. Il passaggio è la fase 2D")
+worker_sources = "".join(
+    code_only(p) for p in sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py")))
+check("lo scanner delle scadenze non è passato alle colonne derivate",
+      "garanzia_date" not in worker_sources and "supporto_date" not in worker_sources,
+      "sarebbe una decisione da prendere di proposito, con i suoi test, non un "
+      "effetto collaterale della fase 2C")
+check("nessun endpoint di query è stato aggiunto",
+      not [p.name for p in sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
+           if "query" in p.name or "search" in p.name],
+      "fuori dallo scopo di questo commit")
+check("il frontend continua a non sapere che la proiezione esista",
+      all(t not in handoff for t in NORMALISED_TABLES)
+      and "garanzia_date" not in handoff and "mapper_version" not in handoff,
+      "il contratto del frontend è il documento (§8.22)")
+
+check("l'errore della precondizione ha un codice stabile e diventa 503",
+      "projection_not_current" in code_only(
+          ROOT / "backend" / "app" / "inventory" / "errors.py")
+      and "ProjectionNotCurrentError" in code_only(
+          ROOT / "backend" / "app" / "api" / "errors.py"),
+      "la richiesta era valida: è il backend che si rifiuta di operare, e chi legge "
+      "il log di un 503 deve poter sapere quale comando lo risolve")
 
 
 if __name__ == "__main__":

@@ -411,18 +411,38 @@ referenzia una foto che non esiste: non è un guasto del server, è un client ch
 sta salvando un UUID che non ha caricato (o che la GC ha già raccolto perché il
 salvataggio era rimasto indietro di più di ventiquattro ore).
 
-### 3.8 La proiezione relazionale: si costruisce a mano, e nessuno la legge
+### 3.8 La proiezione relazionale: la mantiene ogni salvataggio, e nessuno la legge
 
-Le migrazioni `0010_normalised` e `0011_projection` creano le tabelle dello stato
-operativo (`inventory_locations`, `inventory_rooms`, `inventory_racks`,
-`inventory_devices`, `inventory_manual_entries`, `inventory_projection_state`).
-**Nessuno le legge**: `GET` e `PUT` continuano a lavorare sull'istantanea JSON, come
-prima, e la readiness non le guarda (§8.42).
+Le migrazioni `0010_normalised`, `0011_projection` e `0012_dual_write` creano le
+tabelle dello stato operativo (`inventory_locations`, `inventory_rooms`,
+`inventory_racks`, `inventory_devices`, `inventory_manual_entries`,
+`inventory_projection_state`) e, dalla fase 2C, danno all'API i privilegi per
+mantenerle.
 
-Non c'è niente di obbligatorio da fare in fase di deployment: le tabelle vuote sono
-uno stato corretto. Chi vuole costruire la proiezione lo fa con un comando esplicito,
-che gira come **proprietario dello schema** — cioè dal servizio `migrate`, l'unico che
-ne ha la password:
+**Che cosa è cambiato con la fase 2C (§8.44).** Ogni `PUT` che cambia qualcosa
+mantiene la proiezione **nella stessa transazione** dell'istantanea JSON: dopo un
+salvataggio riuscito le due rappresentazioni sono allineate, sempre. Non esiste uno
+stato in cui una è avanzata e l'altra no.
+
+**Che cosa NON è cambiato:** nessuno la LEGGE. `GET` restituisce l'istantanea JSON,
+lo scanner delle scadenze legge il documento, il frontend non sa che esista. Il
+passaggio della lettura è la fase 2D.
+
+> ⚠ **Passo obbligatorio all'aggiornamento.** Le proiezioni costruite prima della 2C
+> non dichiarano la versione della mappa (`mapper_version` nasce NULL), quindi l'API
+> **rifiuta tutti i salvataggi** con `projection_not_current` (503) finché non si
+> esegue `--rebuild`. È deliberato: una proiezione disallineata ha una causa, e
+> ripararla di nascosto al primo salvataggio di un utente cancellerebbe l'unica
+> occasione di scoprirla. La sequenza completa è in §8.44.1:
+>
+> 1. fermare le scritture; 2. migrazione; 3. `--rebuild` come proprietario;
+> 4. `--verify` deve riuscire; 5. avviare l'API; 6. readiness verde; 7. riaprire.
+>
+> La **readiness** ora comprende la proiezione: un'istanza con la proiezione vecchia
+> risponde 503 invece di dire «pronto» e poi rifiutare ogni scrittura.
+
+I comandi girano come **proprietario dello schema** — cioè dal servizio `migrate`,
+l'unico che ne ha la password:
 
 ```bash
 # che versione rispecchia (sola lettura, non cambia niente)
@@ -441,24 +461,35 @@ riassembla e confronta il digest con quello registrato nell'istantanea. Se qualc
 non torna **aborta e non cambia niente** — nessuna proiezione a metà, e la precedente
 resta buona.
 
-Uscite: `--status` esce sempre 0 (è un rapporto). `--verify` esce 1 solo se le tabelle
-**non** riassemblano la versione che dichiarano di rispecchiare.
+Uscite: `--status` esce sempre 0 (è un rapporto). `--verify` esce 1 se le tabelle
+**non** riassemblano la versione che dichiarano di rispecchiare (fedeltà) **oppure** se
+quella versione non è la testa (attualità). Le due cause sono riportate separatamente,
+perché sono diverse: la prima è un difetto del codice, la seconda un comando mancante.
 
-⚠ **Una proiezione vecchia è normale, non un guasto.** Ogni salvataggio la lascia
-indietro: la sincronizzazione automatica arriva con la fase 2C. `--status` lo dice
-esplicitamente, confrontando versione e digest dichiarati con quelli della testa vera:
+⚠ **Dalla fase 2C una proiezione vecchia È un guasto.** Fino alla 2B era normale —
+nessuno la sincronizzava — e `--status` lo diceva per non far cercare un problema che
+non c'era. Adesso significa che l'API sta rifiutando le scritture:
 
 ```text
   testa        versione 42, digest 7fdbf3d8e42c…
   proiezione   versione 39, digest 1b90a4c5e0aa…, costruita il 2026-08-12 03:31:07 UTC
+  mappa        versione 1
   esito        NON aggiornata: rispecchia la 39, la testa è la 42 (3 versioni di
-               scarto). È previsto: la sincronizzazione a ogni salvataggio è la fase 2C
+               scarto). Dalla fase 2C ogni salvataggio la mantiene, quindi questo
+               scarto NON è previsto: l'API rifiuta i salvataggi finché non si
+               esegue `project.py --rebuild`
 ```
 
+Se `mappa` mostra un numero diverso da quello atteso (o nessuno), la proiezione è
+stata scritta da una versione precedente del codice: le righe riassemblerebbero lo
+stesso documento e starebbero nelle colonne sbagliate, cosa che il confronto dei
+digest non può vedere. Serve un `--rebuild`.
+
 ⚠ **Non popolarle a mano.** La verifica del digest è la sola prova che la proiezione è
-fedele, e una `INSERT` scritta a mano la salta. I ruoli di runtime hanno **solo
-`SELECT`**: non potrebbero comunque, e i privilegi di scrittura arriveranno con la
-fase 2C, insieme al codice che sincronizza.
+fedele, e una `INSERT` scritta a mano la salta. L'API ha `INSERT/UPDATE/DELETE` perché
+il suo codice le mantiene, ma **non** `TRUNCATE`; il worker resta in sola lettura; e
+`inventory_versions` resta senza `UPDATE` e senza `DELETE` per chiunque, perché è il
+riferimento contro cui la proiezione si verifica.
 
 ---
 

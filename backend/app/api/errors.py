@@ -38,6 +38,7 @@ from app.inventory import (
     InventoryError,
     NotAuthorizedError,
     NotBootstrappedError,
+    ProjectionNotCurrentError,
     VersionConflictError,
 )
 from app.photos.errors import PhotoNotFound
@@ -187,6 +188,24 @@ def http_error_for(exc: Exception) -> HTTPException:
                              detail={"code": exc.code,
                                      "message": "transizione di identità non accettabile",
                                      "problems": _sanitise(exc.details)},
+                             headers=NO_STORE)
+
+    # --- 503: la proiezione relazionale non rispecchia la testa (§8.44) ---
+    #
+    # Prima del ramo generico di `InventoryError`, che risponderebbe `unavailable` e
+    # nasconderebbe la causa. Qui il codice deve arrivare intatto: è l'unico errore
+    # dell'inventario il cui rimedio è un COMANDO — `project.py --rebuild` — e chi
+    # legge il log di un 503 deve poter sapere quale.
+    #
+    # Non è colpa del client e non è un 4xx: la richiesta era valida, è il backend
+    # che si rifiuta di operare finché mantiene una promessa a metà.
+    if isinstance(exc, ProjectionNotCurrentError):
+        log.error("proiezione non attuale: salvataggi rifiutati. "
+                  "Eseguire `project.py --rebuild`. Dettagli: %s", exc.details)
+        return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                             detail={"code": exc.code,
+                                     "message": "il servizio non può accettare "
+                                                "modifiche in questo momento"},
                              headers=NO_STORE)
 
     # --- 503 ---

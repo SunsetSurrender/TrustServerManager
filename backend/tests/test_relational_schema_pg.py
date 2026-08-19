@@ -25,7 +25,14 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from app.inventory import Actor, InventoryRepository, canonical_sha256
-from app.inventory.relational import ROW_CLASS, assemble, column_names, normalise
+from app.inventory import projection
+from app.inventory.relational import (
+    MAPPER_VERSION,
+    ROW_CLASS,
+    assemble,
+    column_names,
+    normalise,
+)
 from app.inventory.relational_validate import errors, validate_model
 
 DSN = os.environ.get("TSM_DB_URL")
@@ -164,19 +171,29 @@ def test_the_table_columns_match_the_dataclass_fields(engine, kind):
 
 
 def a_version(engine) -> int:
-    """Una versione vera in testa: `head_version` la referenzia ed è `NOT NULL`.
+    """Una versione vera in testa, e la tabella di stato VUOTA.
 
     Una riga di stato senza versione o senza digest non significherebbe niente —
     «la proiezione rispecchia... boh» — e l'assenza della RIGA è già il modo di dire
     «non rispecchia nulla». La terza via è impossibile per costruzione (0011), e
     questi test devono quindi partire da una versione che esiste davvero.
+
+    ⚠ Dalla fase 2C il bootstrap scrive ANCHE la proiezione, riga di stato compresa.
+    I test che seguono verificano i VINCOLI di quella tabella inserendo righe a
+    mano, quindi hanno bisogno di trovarla vuota: senza questa ripulitura il primo
+    `insert_state` fallirebbe per conflitto di chiave primaria, cioè per un vincolo
+    diverso da quello in prova, e il test passerebbe (o fallirebbe) per il motivo
+    sbagliato.
     """
     with engine.begin() as c:
         c.execute(text("TRUNCATE inventory_head, inventory_versions "
                        "RESTART IDENTITY CASCADE"))
     with engine.begin() as c:
-        return InventoryRepository(c).bootstrap(
+        version = InventoryRepository(c).bootstrap(
             document(), Actor(username="capo", role="admin")).version
+    with engine.begin() as c:
+        projection.clear(c)
+    return version
 
 
 def insert_state(conn, version: int, *, id_value: str = "TRUE") -> None:
@@ -530,36 +547,65 @@ def test_the_current_photo_also_protects_the_bytes(db, engine):
 
 
 # ==================================================================
-# 5. privilegi: nessuno scrive, ancora
+# 5. privilegi: dalla fase 2C li ha l'API, e solo l'API
 # ==================================================================
 
-@pytest.mark.parametrize("role", ["tsm_api", "tsm_worker"])
-@pytest.mark.parametrize("table", sorted(set(TABLE.values()) | {"inventory_projection_state"}))
-def test_no_runtime_role_can_write_the_projection(engine, role, table):
-    """Le tabelle esistono e nessuno le scrive: la sincronizzazione è la fase 2C, ed
-    è quella migrazione a dover concedere i privilegi. Concederli adesso vorrebbe
-    dire lasciare in giro il permesso di modificare lo stato dell'inventario mesi
-    prima che esista il codice che lo fa (§8.19)."""
+PROJECTION_TABLES = sorted(set(TABLE.values()) | {"inventory_projection_state"})
+
+
+@pytest.mark.parametrize("table", PROJECTION_TABLES)
+def test_the_api_role_can_maintain_the_projection(engine, table):
+    """⚠ L'aspettativa OPPOSTA a quella della fase 2B, per la stessa tabella.
+
+    La 0010 negava la scrittura a entrambi i ruoli di runtime e scriveva perché: «i
+    privilegi di scrittura li concede la fase 2C, con il codice che li usa». Adesso
+    quel codice esiste, e questo test è il rovescio di quello che c'era.
+
+    `TRUNCATE` resta però negato, e non è un dettaglio: la sincronizzazione usa
+    `DELETE` di proposito, per non prendere un lock ACCESS EXCLUSIVE che bloccherebbe
+    anche i lettori della fase 2D. Un privilegio che non serve è un privilegio che
+    può essere sfruttato (§8.19).
+    """
+    with engine.begin() as c:
+        for privilege, expected in (("SELECT", True), ("INSERT", True),
+                                    ("UPDATE", True), ("DELETE", True),
+                                    ("TRUNCATE", False)):
+            got = c.execute(text("SELECT has_table_privilege(:r, :t, :p)"),
+                            {"r": "tsm_api", "t": table, "p": privilege}).scalar_one()
+            assert got is expected, f"tsm_api {privilege} {table} = {got}"
+
+
+@pytest.mark.parametrize("table", PROJECTION_TABLES)
+def test_the_worker_role_still_cannot_write_the_projection(engine, table):
+    """Il worker legge e non scrive: le colonne data derivate esistono per le query,
+    e il passaggio dello scanner è una decisione successiva (§8.44). Concedergli la
+    scrittura adesso sarebbe un privilegio senza codice che lo usa."""
     with engine.begin() as c:
         for privilege, expected in (("SELECT", True), ("INSERT", False),
-                                    ("UPDATE", False), ("DELETE", False)):
+                                    ("UPDATE", False), ("DELETE", False),
+                                    ("TRUNCATE", False)):
             got = c.execute(text("SELECT has_table_privilege(:r, :t, :p)"),
-                            {"r": role, "t": table, "p": privilege}).scalar_one()
-            assert got is expected, f"{role} {privilege} {table} = {got}"
+                            {"r": "tsm_worker", "t": table,
+                             "p": privilege}).scalar_one()
+            assert got is expected, f"tsm_worker {privilege} {table} = {got}"
 
 
 # ==================================================================
 # 6. GET e PUT non sono cambiati
 # ==================================================================
 
-def test_a_real_save_does_not_touch_the_projection(db, engine):
-    """⚠ L'affermazione centrale, provata provando a violarla.
+def test_a_real_save_now_maintains_the_projection(db, engine):
+    """⚠ L'affermazione centrale della fase 2C, ed è l'OPPOSTO di quella della 2B.
 
-    Le fasi 2A e 2B aggiungono uno schema, una mappa e un comando esplicito che
-    popola. Se un SALVATAGGIO popolasse le tabelle, il comportamento di `PUT`
-    sarebbe cambiato — e senza la transazione unica, senza i riferimenti alle foto e
-    senza il confronto dei digest. La sincronizzazione al salvataggio è la fase 2C, e
-    fino a quel commit questo test deve restare verde.
+    Il test che stava qui si chiamava `..._does_not_touch_the_projection` e
+    pretendeva tabelle vuote dopo un salvataggio, perché in 2A/2B un `PUT` che le
+    avesse popolate avrebbe voluto dire che il comportamento era cambiato senza la
+    transazione unica, senza i riferimenti alle foto e senza il confronto dei digest.
+
+    Adesso quelle tre cose ci sono, quindi l'aspettativa si capovolge: la storia si
+    scrive E la proiezione la segue, nella stessa transazione. Si è conservato lo
+    scenario — un salvataggio con `swap=True`, cioè uno scambio di codici ambito, che
+    è il caso in cui una sincronizzazione incrementale si romperebbe sull'unicità.
     """
     with engine.begin() as c:
         c.execute(text("TRUNCATE inventory_head, inventory_versions "
@@ -576,11 +622,20 @@ def test_a_real_save_does_not_touch_the_projection(db, engine):
     with engine.begin() as c:
         # La storia è stata scritta...
         assert c.execute(text("SELECT count(*) FROM inventory_versions")).scalar_one() == 2
-        # ...e la proiezione è ancora vuota.
+        # ...e la proiezione NON è vuota.
         for table in TABLE.values():
-            assert c.execute(text(f"SELECT count(*) FROM {table}")).scalar_one() == 0, table
-        # E nessuno stato di radice: la proiezione non rispecchia nessuna versione.
-        assert c.execute(text("SELECT count(*) FROM inventory_projection_state")).scalar_one() == 0
+            n = c.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+            if table != "inventory_manual_entries":       # il documento non ne ha
+                assert n > 0, table
+        # E lo stato dichiara la versione 2, non la 1.
+        state = c.execute(text("SELECT head_version, mapper_version "
+                               "  FROM inventory_projection_state")).one()
+        assert state[0] == 2
+        assert state[1] == MAPPER_VERSION
+
+    # E il giro torna: le tabelle riassemblano esattamente la testa.
+    with engine.begin() as c:
+        assert projection.verify(c).ok
 
 
 def test_the_mapper_round_trips_the_document_stored_in_the_database(db, engine):

@@ -46,6 +46,7 @@ from app.inventory import (
     InventoryRepository,
     canonical_sha256,
 )
+from app.inventory import projection
 from app.inventory.document import STRING_NOT_ROUNDTRIPPABLE, strip_legacy_fields
 from app.inventory.json_strings import is_representable_text
 from app.inventory.representable import key_segment, walk_scalars
@@ -289,9 +290,20 @@ def test_a_save_with_broken_text_leaves_no_state(db, engine, etichetta, rotto):
     with engine.begin() as c:
         assert canonical_sha256(InventoryRepository(c).get_current().doc) == \
             canonical_sha256(document())
-    # E niente è finito nella proiezione (che questo commit non tocca).
+
+    # ⚠ E la proiezione è quella del BOOTSTRAP, intatta.
+    #
+    # L'asserzione è cambiata con la fase 2C: prima si pretendevano zero rack, perché
+    # nessun salvataggio scriveva la proiezione. Adesso il bootstrap la scrive, quindi
+    # «il rifiuto non lascia niente» significa che le righe sono ancora quelle della
+    # versione 1 — e in particolare che il nome rotto non c'è. È un'asserzione più
+    # forte: un rifiuto tardivo, dopo la sincronizzazione, lascerebbe le righe del
+    # candidato invece di nessuna riga.
     with engine.begin() as c:
-        assert c.execute(text("SELECT count(*) FROM inventory_racks")).scalar_one() == 0
+        nomi = {r[0] for r in c.execute(text("SELECT name FROM inventory_racks")).all()}
+    assert nomi and rotto not in nomi
+    with engine.begin() as c:
+        assert projection.verify(c).ok
 
 
 @pytest.mark.parametrize("etichetta,rotto", ROTTI, ids=[e for e, _v in ROTTI])

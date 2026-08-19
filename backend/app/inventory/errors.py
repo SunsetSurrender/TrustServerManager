@@ -33,6 +33,31 @@ class AlreadyBootstrappedError(InventoryError):
     code = "already_bootstrapped"
 
 
+class ProjectionNotCurrentError(InventoryError):
+    """La proiezione relazionale non rispecchia la testa: si RIFIUTA di scrivere.
+
+    Dalla fase 2C ogni salvataggio mantiene due rappresentazioni nella stessa
+    transazione (§8.44). La sincronizzazione produce lo stato nuovo partendo dal
+    candidato, non applicando una differenza — ma il precondizionamento serve
+    comunque, e per una ragione che non è la sincronizzazione stessa:
+
+    finché la proiezione non rispecchia la testa, l'applicazione **non sta facendo
+    quello che dichiara**. Se un salvataggio la riscrivesse comunque, il sistema
+    passerebbe da «disallineato e visibile» a «allineato», cancellando ogni traccia
+    del fatto che per un certo tempo non lo era — e con essa l'unica occasione di
+    chiedersi perché. Un disallineamento ha una causa: una migrazione a metà, una
+    scrittura fuori dall'API, un `--rebuild` mai eseguito. Sistemarlo di nascosto,
+    al primo salvataggio di un utente qualunque, è il modo di non saperlo mai.
+
+    Quindi si fallisce CHIUSO, e il rimedio è esplicito: `project.py --rebuild`,
+    eseguito dal proprietario dello schema, che è anche il passo documentato della
+    sequenza di aggiornamento. L'API non si cura da sola.
+
+    Non è colpa del client: si traduce in 503, non in un 4xx.
+    """
+    code = "projection_not_current"
+
+
 class VersionConflictError(InventoryError):
     """`baseVersion` non è più la testa E il contenuto è diverso (§8.11, §8.18).
 

@@ -4,11 +4,12 @@ NESSUN endpoint HTTP, nessuna autenticazione: chi è l'attore lo dichiara il
 chiamante (`Actor`). Questo modulo sa di SQL e di transazioni, non di richieste.
 
 Ordine della transazione di salvataggio — l'ordine è la sostanza, non una
-preferenza (BACKEND-PLAN.md §8.11):
+preferenza (BACKEND-PLAN.md §8.11, §8.44):
 
   1. validazione dello schema del documento e del limite di dimensione
   2. canonicalizzazione del candidato
   3. lock e caricamento della testa corrente
+  3-bis. la PROIEZIONE deve già rispecchiare questa testa, o si rifiuta (§8.44)
   4. no-op canonico: hash del candidato == hash della testa → si risponde
      changed=False, QUALUNQUE sia il baseVersion (idempotenza, §8.18)
   5. confronto con baseVersion → conflitto solo se il contenuto è diverso
@@ -16,20 +17,35 @@ preferenza (BACKEND-PLAN.md §8.11):
   7. generazione degli eventi
   8. autorizzazione dell'insieme COMPLETO
   8-bis. esistenza delle foto referenziate dal candidato (§8.5)
-  9. inserimento della versione, dell'audit e dei riferimenti alle foto
- 10. aggiornamento della testa
- 11. commit
+  9. modello relazionale del candidato, e sua coerenza
+ 10. inserimento dell'istantanea immutabile
+ 11. sincronizzazione della proiezione + RILETTURA da SQL + quattro controlli
+ 12. riferimenti STORICI alle foto per la versione nuova
+ 13. audit
+ 14. aggiornamento della testa
+ 15. commit
 
 I passi 1-2 non toccano il database: rifiutare un documento malformato non deve
 prendere un lock. Dal passo 3 in avanti si è dentro una sola transazione, e se
-qualsiasi cosa fallisce non sopravvive né la versione, né l'audit, né la testa.
+qualsiasi cosa fallisce non sopravvive né la versione, né la proiezione, né l'audit,
+né la testa.
+
+Dalla fase 2C ogni salvataggio mantiene DUE rappresentazioni:
+
+  - l'istantanea JSONB immutabile con la sua storia, che resta l'unica fonte di
+    verità e l'unica che `GET` legge;
+  - la proiezione relazionale dello stato CORRENTE, che nessuno legge ancora.
+
+Non esiste uno stato committato in cui una è avanzata e l'altra no. Il meccanismo è
+il ROLLBACK, non l'ordine degli statement: l'ordine sopra serve a dare messaggi
+d'errore sensati e a rispettare le dipendenze di chiave esterna, ma la garanzia sta
+nel fatto che qualunque passo può sollevare e portarsi via tutto.
 
 La versione corrente è SEMPRE `inventory_head.version`, mai `MAX(version)`: la
 testa è l'unica fonte di verità e l'unico punto di serializzazione.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -40,13 +56,14 @@ from sqlalchemy.engine import Connection
 from app.authz import authorize_events
 from app.identity import (
     CURRENT_SCHEMA_VERSION,
-    canonical_sort,
     canonicalise,
     diff_as_dicts,
     diff_documents,
     scopes_touched,
     validate_against_base,
 )
+from app.inventory import projection, relational, relational_validate
+from app.inventory.digest import canonical_sha256
 from app.inventory.document import (
     MAX_DOCUMENT_BYTES,
     strip_legacy_fields,
@@ -101,33 +118,13 @@ class InventorySnapshot:
     doc: dict
 
 
-def canonical_sha256(doc: Any) -> str:
-    """SHA-256 deterministico della forma canonica, **identità inclusa**.
-
-    Canonicalizzare (default materializzati, §8.14) e ordinare le chiavi: due
-    documenti che l'applicazione considera equivalenti danno lo stesso digest. È
-    così che si riconosce un salvataggio a vuoto senza confrontare interi alberi.
-
-    Gli `_uid` fanno parte del digest, e la ragione è precisa. Da quando il
-    confronto di hash precede quello del `baseVersion` (§8.18), l'hash è ciò che
-    decide se una richiesta è già stata soddisfatta. Se ignorasse l'identità, un
-    documento che sostituisce l'`_uid` di un dispositivo lasciando invariato tutto
-    il resto avrebbe lo stesso digest della testa e verrebbe accettato come
-    no-op: la sostituzione di identità che §8.4 esiste per rifiutare passerebbe
-    in silenzio, con un 200 e changed=False.
-
-    L'identità è parte del significato del documento, quindi è parte del suo
-    digest. Il caso «solo gli _uid sono diversi» resta contenuto diverso, e
-    prosegue verso la validazione della transizione che lo rifiuta.
-
-    NB: la verifica del seed usa un digest DIVERSO, che gli `_uid` li toglie
-    (`tools/verify-seed-migration.mjs`). Là lo scopo è confrontare i dati fra
-    rigenerazioni con identità casuali; qui è riconoscere una richiesta ripetuta.
-    Due scopi diversi, due digest diversi, e vale la pena non confonderli.
-    """
-    payload = json.dumps(canonical_sort(canonicalise(doc)),
-                         ensure_ascii=False, separators=(",", ":"), sort_keys=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+#: Riesportata: viveva qui, e chi la importa da questo modulo continua a trovarla.
+#: Si è spostata in `digest.py` perché la fase 2C ha reso il repository un
+#: importatore di `projection`, e `projection` aveva bisogno del digest: i due si
+#: sarebbero importati a vicenda. La causa vera però era un'altra — il digest di un
+#: documento non è una cosa del repository.
+__all__ = ["Actor", "InventoryRepository", "InventorySnapshot", "SaveResult",
+           "canonical_sha256"]
 
 
 class InventoryRepository:
@@ -217,10 +214,31 @@ class InventoryRepository:
         # invisibile alla GC — cioè byte cancellabili al primo giro.
         refs = photo_ids(canonical)
         photo_refs.require_existing(self.conn, refs)
-        version = self._insert_version(canonical, actor)
+
+        # Il bootstrap è una scrittura che cambia l'inventario, quindi mantiene
+        # ENTRAMBE le rappresentazioni come un salvataggio (§8.44). Senza, un
+        # database appena inizializzato avrebbe una testa e nessuna proiezione, e il
+        # primo `PUT` di un utente riceverebbe 503 `projection_not_current` fino a
+        # che qualcuno non eseguisse `--rebuild` a mano: un'installazione nuova
+        # nascerebbe rotta e il rimedio sarebbe un passo che nessuno ha motivo di
+        # sospettare. Il bootstrap gira già come proprietario dello schema, quindi
+        # scrivere qui non chiede nessun privilegio nuovo.
+        sha = canonical_sha256(canonical)
+        model = relational.normalise(canonical)
+        model_problems = relational_validate.errors(
+            relational_validate.validate_model(model, known_photo_ids=refs))
+        if model_problems:
+            raise DocumentRejectedError(
+                f"il documento di bootstrap non produce un modello relazionale "
+                f"coerente ({len(model_problems)} problemi)",
+                [p.as_dict() for p in model_problems])
+
+        version = self._insert_version(canonical, actor, sha=sha)
+        projection.synchronise(self.conn, model, version=version, sha256=sha,
+                               known_photo_ids=refs)
+        photo_refs.record(self.conn, version, refs)
         self._insert_audit(version, actor, action="bootstrap", scopes=["structure"],
                            events=[], client_hint=None)
-        photo_refs.record(self.conn, version, refs)
         self._insert_head(version)
         return SaveResult(version=version, created=True,
                           events=(), scopes=("structure",))
@@ -265,12 +283,32 @@ class InventoryRepository:
         current_version = int(locked[0])
 
         current_row = self.conn.execute(
-            text("SELECT doc FROM inventory_versions WHERE version = :v"),
+            text("SELECT doc, canonical_sha256 FROM inventory_versions "
+                 " WHERE version = :v"),
             {"v": current_version}).first()
         if current_row is None:      # impossibile: c'è una FK dalla testa
             raise NotBootstrappedError(
                 f"la testa punta alla versione {current_version}, che non esiste")
         current_doc = current_row[0]
+        current_recorded_sha = current_row[1]
+
+        # --- 3-bis. la proiezione deve GIÀ rispecchiare questa testa (§8.44) ---
+        #
+        # Prima di qualunque decisione, compreso il no-op. Un no-op è una risposta
+        # di SUCCESSO, e restituirla mentre la proiezione è vecchia significherebbe
+        # dire al client «tutto in ordine» da un backend che ha smesso di mantenere
+        # una delle due rappresentazioni che promette. Se la richiesta ripetuta
+        # arrivasse proprio in quel momento, il difetto resterebbe invisibile
+        # esattamente al cliente che sta riprovando.
+        #
+        # Si confronta col digest REGISTRATO nella versione, non con quello
+        # ricalcolato qui sotto: lo stato della proiezione dichiara di aver
+        # verificato quello, ed è quello il riferimento. Se registrato e ricalcolato
+        # divergessero — un'istantanea immutabile che non corrisponde più al suo
+        # digest — nessuna proiezione potrebbe risultare attuale, perché `rebuild`
+        # per prima cosa rifiuta di costruirla: si fallisce chiuso, che è giusto.
+        projection.require_current(self.conn, version=current_version,
+                                   sha256=current_recorded_sha)
 
         # Lo schema del candidato deve combaciare con quello in testa: un
         # salvataggio non fa evolvere lo schema (§8.13).
@@ -340,20 +378,63 @@ class InventoryRepository:
         refs = photo_ids(candidate)
         photo_refs.require_existing(self.conn, refs)
 
-        # --- 9. versione, audit e riferimenti, nella stessa transazione ---
+        # --- 9. modello relazionale del candidato, e sua coerenza ---
+        #
+        # PRIMA di inserire qualsiasi cosa: un candidato che non produce un modello
+        # coerente non deve arrivare a metà della transazione, dove il rollback
+        # funzionerebbe comunque ma il messaggio d'errore parlerebbe di una colonna
+        # invece del documento.
+        #
+        # `known_photo_ids=refs` e non l'intera tabella `photos`: `refs` sono
+        # esattamente le foto che il candidato referenzia, e `require_existing` qui
+        # sopra ha appena dimostrato che esistono tutte. Interrogare tutte le foto
+        # darebbe la stessa risposta leggendo molto di più.
+        model = relational.normalise(candidate)
+        model_problems = relational_validate.errors(
+            relational_validate.validate_model(model, known_photo_ids=refs))
+        if model_problems:
+            raise DocumentRejectedError(
+                f"il documento non produce un modello relazionale coerente "
+                f"({len(model_problems)} problemi)",
+                [p.as_dict() for p in model_problems])
+
+        # --- 10. istantanea immutabile ---
         scopes = scopes_touched(events)
         version = self._insert_version(candidate, actor, sha=candidate_sha)
-        self._insert_audit(version, actor, action="inventory.save", scopes=scopes,
-                           events=event_dicts, client_hint=client_hint)
-        # I riferimenti stanno o cadono con la versione che li dichiara: scritti
-        # senza di essa autorizzerebbero la GC a cancellare byte ancora usati,
-        # oppure a non liberarli mai.
+
+        # --- 11. proiezione relazionale, con la prova ---
+        #
+        # `synchronise` svuota, riscrive, RILEGGE da SQL e pretende che il modello
+        # riletto sia quello scritto, che sia coerente, e che il documento
+        # riassemblato abbia il digest dell'istantanea appena inserita. Solleva
+        # altrimenti, e la transazione della richiesta si annulla per intero: non
+        # esiste uno stato committato in cui la testa JSON è avanzata e la proiezione
+        # no, né il contrario.
+        #
+        # È lo STESSO corpo che usa `project.py --rebuild`. Vedi `synchronise`.
+        projection.synchronise(self.conn, model, version=version,
+                               sha256=candidate_sha, known_photo_ids=refs)
+
+        # --- 12. riferimenti STORICI alle foto ---
+        #
+        # Non sono la stessa cosa di `inventory_racks.photo_id`, che è la foto
+        # CORRENTE. Questi tengono in vita le foto delle versioni passate: la GC
+        # guarda loro. Confonderli farebbe cancellare la foto di una versione
+        # storica appena il rack ne monta un'altra (§8.5).
+        #
+        # Stanno o cadono con la versione che li dichiara: scritti senza di essa
+        # autorizzerebbero la GC a cancellare byte ancora usati, oppure a non
+        # liberarli mai.
         photo_refs.record(self.conn, version, refs)
 
-        # --- 10. testa ---
+        # --- 13. audit ---
+        self._insert_audit(version, actor, action="inventory.save", scopes=scopes,
+                           events=event_dicts, client_hint=client_hint)
+
+        # --- 14. testa ---
         self._update_head(version)
 
-        # --- 11. il commit è del chiamante, che possiede la transazione ---
+        # --- 15. il commit è del chiamante, che possiede la transazione ---
         return SaveResult(version=version, created=True,
                           events=tuple(event_dicts), scopes=tuple(scopes))
 

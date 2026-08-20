@@ -45,7 +45,7 @@ Riferimento: BACKEND-PLAN.md §8.47, §8.41.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Sequence
 
@@ -75,6 +75,11 @@ class Candidates:
     version: int
     sha256: str
     items: list[DueItem]
+    #: Riscontri NON bloccanti di `validate_model`: `garanzia = "in attesa"` e simili.
+    #: Si portano fino al chiamante perché siano registrabili — un avviso che non
+    #: esce da qui è un avviso che nessuno vedrà mai, e questi sono precisamente i
+    #: valori che spiegano perché una scadenza attesa non compare nel digest.
+    warnings: list = field(default_factory=list)
 
 
 # ==================================================================
@@ -196,6 +201,19 @@ _CANDIDATES_SQL = " UNION ALL ".join(
     for kind in EXPIRY_KINDS)
 
 
+def _warnings(valid) -> list[dict]:
+    """Gli avvisi di `validate_model`, in forma leggibile. NON bloccano.
+
+    `garanzia = "in attesa"` è un valore che una persona ha scritto in una casella di
+    testo, non un guasto dello schema: fermare gli avvisi di scadenza per quello
+    significherebbe che un campo compilato male in un rack spegne le notifiche di tutti
+    gli altri. Bloccano solo gli ERRORI, e quelli li solleva `require_valid_model`.
+    """
+    from app.inventory.relational_validate import warnings as _w
+
+    return [f.as_dict() for f in _w(valid.findings)]
+
+
 def _item(row: Any, *, today: date) -> DueItem:
     return DueItem(
         entity_uid=str(row.uid),
@@ -228,17 +246,33 @@ def due_items_from_projection(conn: Connection, *, today: date,
     darebbe candidati di due versioni con la revisione di una terza.
 
     La FINESTRA è quella dello scanner: `0 <= giorni <= max(warning_days)`. Si
-    interroga solo quell'intervallo (fase 2F §3) invece di leggere tutte le date e
-    scartarle in Python — che è ciò che faceva la scansione del documento, e che
-    ricrearlo qui avrebbe reso la migrazione inutile.
+    interroga solo quell'intervallo invece di leggere tutte le date e scartarle in
+    Python — che è ciò che faceva la scansione del documento.
     """
-    version, sha256, _declared = projection.require_current_head(conn)
+    # ⚠ VALIDAZIONE DEL MODELLO, e non solo attualità. `require_valid_model` fa i
+    # quattro passi: testa, dichiarazione della proiezione, lettura del modello,
+    # `validate_model`. Il quarto è quello che conta qui, ed è l'unico che vede le
+    # colonne DERIVATE.
+    #
+    # Senza, restava un modo di tacere: `garanzia_date` azzerata a mano lascia il
+    # documento identico e il digest uguale — le date derivate non tornano nel
+    # documento — quindi versione, digest e versione della mappa combaciano tutti, la
+    # guardia è soddisfatta, e la query non trova niente. Nessun avviso parte e niente
+    # lo dice. È il punto cieco della fase 2B, e per il worker è il peggiore possibile:
+    # un sistema di allerta che non allerta e si dichiara sano.
+    #
+    # Costa una lettura completa della proiezione. È un costo consapevole: il worker
+    # gira una volta al giorno, e tacere su una scadenza costa di più (§8.47.4).
+    valid = projection.require_valid_model(conn)
+    version, sha256 = valid.version, valid.recorded
 
     # Elenco vuoto = nessuna finestra configurata = niente è dovuto, e non c'è
     # nessuna query da fare. Stessa uscita anticipata di `due_items`, per lo stesso
-    # motivo: `max(())` solleverebbe.
+    # motivo: `max(())` solleverebbe. La validazione è già avvenuta: «non ho guardato»
+    # e «ho guardato e non c'era niente» devono restare distinguibili.
     if not warning_days:
-        return Candidates(version=version, sha256=sha256, items=[])
+        return Candidates(version=version, sha256=sha256, items=[],
+                          warnings=_warnings(valid))
 
     until = today + timedelta(days=max(warning_days))
     rows = conn.execute(text(_CANDIDATES_SQL),
@@ -250,7 +284,8 @@ def due_items_from_projection(conn: Connection, *, today: date,
     # (lo stesso `_uid` compare due volte, ma con `kind` diverso).
     items.sort(key=lambda i: (i.days_remaining, i.kind, i.location, i.room,
                               i.rack, i.device, i.entity_uid))
-    return Candidates(version=version, sha256=sha256, items=items)
+    return Candidates(version=version, sha256=sha256, items=items,
+                      warnings=_warnings(valid))
 
 
 # ==================================================================
@@ -279,11 +314,13 @@ def context_by_key(conn: Connection, uids: Sequence[str]) -> dict:
     nel frattempo, la voce esce dal digest e il promemoria viene chiuso col resto —
     non si manda un avviso su una scadenza che non c'è più.
 
-    Anche qui la proiezione deve essere attuale: un ritentativo che leggesse nomi da
-    una proiezione vecchia comporrebbe un digest con posizioni sbagliate sotto un
-    `Message-ID` già usato.
+    Anche qui la proiezione deve essere attuale **e coerente**: un ritentativo che
+    leggesse nomi da una proiezione vecchia comporrebbe un digest con posizioni
+    sbagliate sotto un `Message-ID` già usato, e uno che leggesse da un modello
+    incoerente potrebbe non trovare la chiave e chiudere la consegna dichiarando
+    inviati promemoria che nessuno ha ricevuto.
     """
-    projection.require_current_head(conn)
+    projection.require_valid_model(conn)
     if not uids:
         return {}
 

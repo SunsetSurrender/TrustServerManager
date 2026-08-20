@@ -1349,6 +1349,15 @@ check("il GET non legge più il documento immutabile",
 # rifattorizzamento che non ha cambiato nessuna proprietà. Si guardano entrambe.
 head_fn = function_source(ROOT / "backend" / "app" / "inventory" / "projection.py",
                          "require_current_head")
+#: ⚠ SPOSTATO ancora, nella fase 2F: attualità, `read_model` e `validate_model` sono
+#: usciti da `current_document` ed entrati in `require_valid_model`, che adesso il `GET`
+#: e il **worker** condividono (§8.47.4). I controlli qui sotto guardano la funzione
+#: dove il codice VIVE, più la delega da `current_document`: cercarlo solo nel
+#: chiamante farebbe fallire un controllo per un rifattorizzamento che non ha cambiato
+#: nessuna proprietà — è già successo due volte, ed è la ragione di questa nota.
+valid_fn = function_source(ROOT / "backend" / "app" / "inventory" / "projection.py",
+                           "require_valid_model")
+precondizione = current_fn + chr(10) + valid_fn
 check("nemmeno la funzione di lettura deserializza l'istantanea",
       bool(head_fn)
       and "SELECT canonical_sha256 FROM inventory_versions" in head_fn
@@ -1357,8 +1366,8 @@ check("nemmeno la funzione di lettura deserializza l'istantanea",
       "di `inventory_versions` legge il DIGEST, che è metadato e serve da giudice. "
       "Il documento no: se lo avesse in mano potrebbe restituirlo")
 check("il riassemblaggio passa dalla mappa già provata",
-      all(t in current_fn for t in ("read_model", "assemble", "canonical_sha256",
-                                    "validate_model", "require_current")),
+      all(t in precondizione for t in ("read_model", "assemble", "canonical_sha256",
+                                       "validate_model", "require_current")),
       "nessuna seconda implementazione della lettura: quella che c'è è provata da "
       "`test_relational_mapper.py` e dalla scrittura doppia")
 
@@ -1366,13 +1375,20 @@ check("il riassemblaggio passa dalla mappa già provata",
 # riassemblaggio costa tutto il resto. Ma soprattutto è ciò che separa i due codici
 # d'errore, e chi opera legge quello per sapere se `--rebuild` è la risposta.
 check("l'attualità si pretende PRIMA di leggere le righe",
-      ordered(current_fn, "require_current", "read_model"),
+      ordered(valid_fn, "require_current", "read_model"),
       "farlo dopo confonderebbe «la proiezione non è mantenuta» (rimedio: "
       "`--rebuild`) con «la proiezione mente» (rimedio: indagare, NON ricostruire)")
 check("la coerenza del modello si controlla PRIMA di servire",
-      ordered(current_fn, "validate_model", "return CurrentDocument"),
+      ordered(valid_fn, "read_model", "validate_model")
+      and ordered(current_fn, "require_valid_model", "return CurrentDocument"),
       "è l'unico controllo che vede le colonne DERIVATE, a cui il digest è cieco: "
       "senza, una `garanzia_date` sbagliata uscirebbe indisturbata")
+check("il GET delega la precondizione invece di riscriverla",
+      "require_valid_model" in current_fn
+      and "validate_model(" not in current_fn
+      and "require_current_head" not in current_fn,
+      "dalla 2F la stessa sequenza serve al worker: due copie divergono, e a divergere "
+      "sarà quella che nessuno guarda (§8.47.4)")
 check("il digest si confronta con DUE riferimenti indipendenti",
       "!= recorded" in current_fn and "!= declared.projected_sha256" in current_fn,
       "quello registrato nell'istantanea e quello che la proiezione dichiara di aver "
@@ -1811,19 +1827,41 @@ check("i due rami sono uniti con UNION ALL e non con un OR",
       "indici parziali e scandisce la tabella")
 
 # --- il controllo di coerenza, e il fallire chiuso ---
-check("la sorgente pretende una proiezione attuale",
-      "require_current_head" in candidates_src,
-      "le quattro condizioni della §4 in un posto solo, condiviso con il `GET` e con "
-      "le tre interrogazioni")
+check("la sorgente pretende una proiezione attuale E COERENTE",
+      "require_valid_model" in candidates_src
+      and "require_current_head" not in candidates_src,
+      "attualità sola non basta: le colonne DERIVATE non entrano nel digest, quindi "
+      "una `garanzia_date` azzerata a mano lascia versione e digest identici e fa "
+      "smettere gli avvisi in silenzio. `validate_model` è l'unica cosa che la vede, "
+      "ed è la stessa precondizione che usa il `GET` (§8.47.4)")
+check("anche il ritentativo pretende la precondizione completa",
+      code_only(CANDIDATES).count("require_valid_model") >= 2,
+      "un ritentativo che leggesse nomi da un modello incoerente potrebbe non trovare "
+      "la chiave e chiudere la consegna, marcando come inviati promemoria che nessuno "
+      "ha ricevuto")
+check("la validazione NON è un secondo interprete scritto qui",
+      "validate_model(" not in candidates_src,
+      "si usa quella che c'è, già provata dalla scrittura doppia e dal `GET`: una "
+      "seconda idea di «modello coerente» divergerebbe dalla prima")
 check("nessun ripiego sull'istantanea in nessun modulo del worker",
       all(t not in worker_sources for t in ("get_current", "InventoryRepository",
                                             "inventory_versions")),
       "il ripiego funzionerebbe, nessuno aprirebbe un ticket, e il difetto di "
       "coerenza resterebbe invisibile (§8.45)")
-check("«proiezione non attuale» non conclude il giro",
-      "projection_not_current" in worker_src,
+check("i due guasti della proiezione fermano il giro senza concluderlo",
+      "ProjectionInconsistentError" in worker_src
+      and "ProjectionNotCurrentError" in worker_src
+      and "reason=exc.code" in worker_src,
       "concludere il giro con un esito farebbe rispondere `already_ran_today` fino a "
-      "mezzanotte, cioe' perderebbe la giornata invece di riprovare al tick dopo")
+      "mezzanotte, cioe' perderebbe la giornata invece di riprovare al tick dopo. E i "
+      "due codici restano DISTINTI: `not_current` si ripara con `--rebuild`, "
+      "`inconsistent` si indaga — schiacciarli manderebbe chi opera nel posto "
+      "sbagliato")
+check("un guasto della proiezione non consuma un tentativo di consegna",
+      ordered(function_source(WORKER, "_attempt_delivery"),
+              "_rebuild_selection", "mark_attempt_started"),
+      "i cinque tentativi esistono per un relay guasto, non per una proiezione da "
+      "ricostruire: il rinvio deve avvenire PRIMA che il contatore si muova")
 check("la revisione dei candidati si ricontrolla prima di prenotare",
       "unchanged" in worker_src and "inventory_moved" in worker_src,
       "fra lo snapshot e la transazione che scrive un `PUT` puo' cambiare tutto, e un "

@@ -4777,6 +4777,11 @@ test nuovo: sono i **53 test di consegna di `test_worker_pg.py`, passati senza u
 modifica**. Riscriverli per accomodare la migrazione avrebbe distrutto l'unica prova
 disponibile; il posto dove verificarlo è il `git diff` di quel file, che è vuoto.
 
+A monte, invece, sono comparse tre condizioni che fanno **fallire chiuso**: la proiezione deve
+rispecchiare la testa, il modello relazionale deve essere **coerente** (§8.47.4), e
+l'inventario non deve essersi mosso sotto il calcolo. In nessuno dei tre casi parte un avviso,
+e in nessuno dei tre la giornata è persa.
+
 #### 8.47.1 La semantica di `due_items`, scoperta e conservata
 
 `due_items` è l'oracolo, non la mia lettura di `due_items`. Il confronto si fa chiamando la
@@ -4859,12 +4864,34 @@ dichiarazioni dello stesso isolamento divergono in silenzio — una delle due co
 funzionare sotto READ COMMITTED e il difetto comparirebbe solo quando qualcuno salva mentre
 qualcun altro legge. Un controllo statico conta le dichiarazioni e pretende che siano una.
 
-**La precondizione.** `require_current_head` — la stessa funzione del `GET` e delle tre
-interrogazioni — pretende le quattro condizioni: lo stato esiste, dichiara la versione della
-testa, dichiara il digest della testa, ed è stato scritto dalla mappa che gira adesso. Se non
-tornano: **nessun invio**, e nessun ripiego su `inventory_versions.doc`. Il ripiego
-funzionerebbe, nessuno aprirebbe un ticket, e coprirebbe esattamente il difetto di coerenza
-che la fase 2 esiste per scoprire (§8.45).
+**La precondizione.** `require_valid_model` — la stessa funzione che usa il `GET` — fa
+QUATTRO passi, nell'ordine in cui costano meno:
+
+1. la testa esiste, e `inventory_versions` ha la sua riga → `NotBootstrappedError`;
+2. la proiezione la **dichiara**: versione, digest, versione della mappa → tre query, nessun
+   riassemblaggio, `ProjectionNotCurrentError`. Prima di leggere una riga di entità, così il
+   caso «proiezione non mantenuta» costa tre query invece di una lettura completa;
+3. le **righe**, con `read_model`;
+4. la **coerenza del modello**, con `validate_model` → `ProjectionInconsistentError`.
+
+Il passo 4 è quello che la fase 2F ha aggiunto, ed è §8.47.4. Se uno dei quattro fallisce:
+**nessun invio**, e nessun ripiego su `inventory_versions.doc`. Il ripiego funzionerebbe,
+nessuno aprirebbe un ticket, e coprirebbe esattamente il difetto di coerenza che la fase 2
+esiste per scoprire (§8.45).
+
+⚠ I due codici restano **distinti**, e non è cosmetica: `projection_not_current` si ripara
+con `--rebuild` ed è quasi sempre operativo (un aggiornamento senza ricostruzione);
+`projection_inconsistent` significa che la dichiarazione è FALSA, nessun percorso
+dell'applicazione può produrlo, e la risposta giusta è **indagare** — un `UPDATE` a mano, un
+ripristino parziale, un guasto del supporto. Schiacciarli in un codice solo manderebbe chi
+legge il registro a cercare la causa nel posto sbagliato.
+
+`require_valid_model` è stata **estratta** da `current_document`, che ora la chiama: la
+precondizione esiste in un posto e non in due. È lo stesso motivo per cui `require_current_head`
+fu estratta nella 2E — una precondizione copiata è una precondizione che un giorno differisce
+in una delle copie, e sarà quella che nessuno guarda. Un controllo statico pretende che
+entrambi i chiamanti la usino e che nessuno dei due abbia una seconda copia di
+`validate_model`.
 
 ⚠ E il giro **non si conclude**. La riga di `scheduler_runs` di oggi resta senza
 `finished_at`, che è lo stato che `claim_run` sa riprendere: appena la proiezione è riparata,
@@ -4893,27 +4920,60 @@ consegna si chiude; `None` → non si sa, perché la proiezione non è attuale, 
 si **rinvia senza consumare un tentativo** (i cinque tentativi esistono per un relay guasto,
 non per una proiezione da ricostruire).
 
-#### 8.47.4 Il limite dichiarato: la corruzione delle colonne derivate
+#### 8.47.4 Il punto cieco delle colonne derivate, chiuso
 
-Il controllo di attualità confronta versione, digest e versione della mappa. **Nessuno dei
-tre cambia se si corrompe una colonna derivata**, perché le colonne derivate non entrano nel
-documento riassemblato e quindi non entrano nel digest. È lo stesso punto cieco trovato in
-fase 2B. Conseguenza: un `UPDATE` a mano su `garanzia_date` fa smettere il worker di mandare
-quegli avvisi, e la sua guardia non se ne accorge.
+Le colonne `garanzia_date` / `supporto_date` sono **derivate**: non tornano nel documento
+riassemblato. Da qui la proprietà scomoda:
 
-La decisione è di **non** aggiungere `validate_model` al worker, e non è pacifica:
+> azzerare o falsificare una data derivata lascia il documento **identico byte per byte**,
+> quindi il digest uguale, la versione ferma e la versione della mappa invariata.
 
-- **a favore**: il worker gira una volta al giorno, quindi la §12 della fase 2F dice
-  esplicitamente che la correttezza conta più dei millisecondi;
-- **contro**: `validate_model` richiede `read_model`, cioè leggere l'**intera** proiezione —
-  che è precisamente la scansione completa che la §3 chiede di non ricreare. Le due sezioni
-  della specifica si contraddicono su questo caso.
+Tutte e tre le condizioni di `require_current` restano soddisfatte. La proiezione si dichiara
+attuale, **e lo è** — nel senso che quel controllo può misurare. È il punto cieco trovato
+nella fase 2B, e per il worker era il guasto peggiore possibile: la query non trova quella
+scadenza, il giro conclude `nothing_due`, il battito dice `healthy`, e **l'avviso non parte
+mai senza che niente lo dica**. Un sistema di allerta che non allerta e si dichiara sano.
 
-Si è seguita la §3 e la §4 (le quattro condizioni, niente di più), perché la corruzione non
-resta comunque invisibile: `GET /api/inventory` valida il modello e risponde **503
-`projection_inconsistent`**, quindi l'applicazione è visibilmente rotta per chiunque la apra,
-e `project.py --verify` la nomina. Il caso è nel registro §8.48 come decisione da confermare,
-non come dettaglio risolto.
+La prima stesura della 2F non lo chiudeva, e lo registrava come limite. Le due sezioni della
+specifica si contraddicevano sul caso — la §12 («il worker gira una volta al giorno, la
+correttezza conta più dei millisecondi») contro la §3 («non caricare l'intera proiezione») — e
+la contraddizione l'ha risolta il committente: **si valida**. È la scelta giusta, e la
+misura qui sotto dice quanto costa.
+
+Quindi, dentro lo **stesso** snapshot del giro: `read_model` e poi `validate_model`, che è
+l'unico controllo che guarda le colonne derivate. Se produce ERRORI:
+
+- nessun messaggio SMTP — non si apre nemmeno la connessione;
+- nessuna consegna creata;
+- nessun promemoria registrato, quindi **nessuna soglia superata**;
+- nessun tentativo di consegna consumato;
+- il giro di oggi **non concluso**, quindi ripreso dal tick successivo **nello stesso giorno
+  locale** appena la proiezione è riparata;
+- codice `projection_inconsistent`, distinto da `projection_not_current`.
+
+Gli **avvisi** non bloccano. `garanzia = "in attesa"` è un valore che una persona scrive in
+una casella di testo: fermare gli avvisi di scadenza per quello significherebbe che un campo
+compilato male su un dispositivo spegne le notifiche di **tutti** gli altri — il modo di
+trasformare una difesa in un guasto. Gli avvisi risalgono però fino al chiamante, perché sono
+precisamente i valori che spiegano perché una scadenza attesa non compare nel digest.
+
+⚠ Tre forme di corruzione, tutte rifiutate, e la seconda è la peggiore:
+
+| corruzione | effetto senza validazione |
+|---|---|
+| `garanzia_date` azzerata, testo valido | l'avviso non parte mai |
+| `garanzia_date` **falsificata** a un'altra data valida | l'avviso parte per il **giorno sbagliato** |
+| `supporto_date` falsificata | idem, sull'altra colonna |
+
+La seconda è la ragione per cui non basta controllare che la data *ci sia*: un avviso con la
+data sbagliata è peggio di nessun avviso — manda qualcuno a rinnovare un contratto con tre
+anni di anticipo, o a non rinnovarlo affatto.
+
+Il **digest** del documento riassemblato non viene ricalcolato dal worker (lo fa il `GET`, che
+deve servirlo). Non serve al caso che questa sezione chiude — il digest è cieco alle colonne
+derivate per costruzione — e costerebbe `assemble` più la serializzazione canonica dell'intero
+documento. Se un domani si volesse anche quella copertura, il posto è
+`require_valid_model` e il costo è misurabile in un pomeriggio.
 
 #### 8.47.5 Forma della query, e gli indici
 
@@ -4956,36 +5016,49 @@ farebbe sparire dei promemoria **in silenzio**, il guasto peggiore per un sistem
 
 #### 8.47.6 Prestazioni misurate
 
-Confronto fra i **percorsi completi**, ciascuno con la sua connessione e il suo lavoro:
-vecchio = leggi `inventory_versions.doc` + `due_items(doc)`; nuovo = snapshot +
-interrogazione. Mediana di 15 esecuzioni, seed di produzione con le date iniettate,
-inventario ingrandito **documento compreso** perché altrimenti il confronto non sarebbe alla
-stessa scala.
+Confronto fra i **percorsi completi**: vecchio = leggi `inventory_versions.doc` +
+`due_items(doc)`; nuovo = snapshot + `require_valid_model` + interrogazione. Mediana di 15
+esecuzioni, seed di produzione con le date iniettate, inventario ingrandito **documento
+compreso** perché altrimenti il confronto non sarebbe alla stessa scala.
 
 | scala | dispositivi | documento | candidati | VECCHIO | NUOVO |
 |---|---|---|---|---|---|
-| produzione | 86 | 15 KiB | 21 | **2,3 ms** | 3,6 ms |
-| ×10 | 860 | 131 KiB | 63 | 16,6 ms | **3,7 ms** |
-| ×30 | 2 580 | 385 KiB | 63 | 46,1 ms | **3,5 ms** |
+| produzione | 86 | 15 KiB | 21 | 2,2 ms | **14,0 ms** |
+| ×10 | 860 | 131 KiB | 63 | 14,6 ms | **101,7 ms** |
+| ×30 | 2 580 | 385 KiB | 63 | 43,1 ms | **423,2 ms** |
 
-Il punto non è il numero, è la **forma**: il percorso vecchio cresce col documento intero
-(deserializzare 385 KiB di JSONB e scorrerlo in Python), quello nuovo resta piatto perché
-costa quanto il *risultato*. Alla scala di oggi il percorso vecchio è più veloce di 1,3 ms, e
-va detto: il guadagno della 2F non è la velocità di adesso, è che il costo smette di
-dipendere dalla dimensione dell'inventario. Il pareggio è poco sopra la scala di produzione.
+⚠ **Va detto senza attenuazioni: il percorso nuovo è più lento del vecchio a ogni scala, e
+il divario cresce.** La versione senza validazione era piatta (≈3,5 ms a ogni scala) e più
+veloce del vecchio da ×10 in su; la validazione cancella quel vantaggio. Non è un
+compromesso mascherato: è il prezzo scelto per non tacere su una scadenza, e per un processo
+che gira **una volta al giorno** 423 ms al trentuplo della scala di produzione non è un
+numero che qualcuno noterà.
 
-Dove il costo cresce è col numero di candidati, non di righe: con una finestra di dieci anni
-a ×30 si restituiscono 1 279 voci e la query passa a **50 ms**. È la forma attesa, e per un
-processo che gira una volta al giorno non è un problema.
+Dove va il tempo:
 
-`EXPLAIN (ANALYZE, BUFFERS)` a ×30, finestra 90/30/7: pianificazione 3,0 ms, esecuzione
-3,9 ms; `Index Scan` su entrambe le colonne data, 40 e 21 righe lette, tutto da cache
-(`shared hit`, zero `read`). Il tempo di pianificazione è una frazione significativa del
-totale — sono due join a quattro tavole sotto un `UNION ALL` — e per una query al giorno non
-c'è nessuna ragione di preparare l'istruzione.
+| scala | righe | testa+stato | `read_model` | `validate_model` | query SQL | totale |
+|---|---|---|---|---|---|---|
+| produzione | 86 | 1,0 ms | 5,6 ms | 3,5 ms | 2,9 ms | 13,0 ms |
+| ×10 | 860 | 0,8 ms | 34,1 ms | 56,8 ms | 5,1 ms | 96,7 ms |
+| ×30 | 2 580 | 0,7 ms | 98,9 ms | **305,9 ms** | 13,7 ms | 419,3 ms |
 
-Per riferimento, lo scanner puro in memoria è ~1 ms: la differenza fra quello e i 2,3 ms del
-percorso vecchio è la lettura del documento, che è la parte che cresce.
+Tre cose che si leggono da questa tabella:
+
+1. **`validate_model` domina, e cresce più che linearmente**: 30× le righe danno ~87× il
+   tempo. È il termine quadratico già misurato nella fase 2D (§8.45.1) e non è stato toccato
+   qui. È anche la prima cosa che darebbe fastidio se l'inventario crescesse molto: a 100×
+   la scala di produzione sarebbero ~3,4 s, ancora accettabili per un giro al giorno, ma è il
+   posto dove guardare;
+2. **la query SQL dei candidati resta economica** — da 2,9 a 13,7 ms — e continua a usare gli
+   indici parziali. La migrazione della sorgente ha fatto il suo lavoro: ciò che costa adesso
+   è la garanzia, non la lettura;
+3. **la precondizione strutturale è gratis** (≈1 ms, costante): tre query su metadati già
+   materializzati. È la ragione per cui l'ordine dei quattro passi conta — il caso «proiezione
+   non mantenuta» si scopre in 1 ms invece di 400.
+
+`EXPLAIN (ANALYZE, BUFFERS)` della query dei candidati a ×30, finestra 90/30/7:
+pianificazione 3,0 ms, esecuzione 3,9 ms, `Index Scan` su entrambe le colonne data, 40 e 21
+righe lette, tutto da cache (`shared hit`, zero `read`).
 
 #### 8.47.7 Privilegi: nessuna concessione nuova
 
@@ -5008,7 +5081,7 @@ sorvegliare.
 
 #### 8.47.8 Come è verificato
 
-`tests/test_worker_sql_pg.py` — **215 test** su PostgreSQL vero, nessuno saltato. Più i **53
+`tests/test_worker_sql_pg.py` — **224 test** su PostgreSQL vero, nessuno saltato. Più i **53
 di `test_worker_pg.py` non modificati**, che sono la metà che conta.
 
 La parte che porta il peso è la parità, e la sua forma è diversa da quella della 2E: là
@@ -5034,6 +5107,27 @@ Il fallimento chiuso: proiezione assente, di versione vecchia, con digest sbagli
 non supportata — per ognuna, nessun invio, nessun promemoria, nessuna consegna, giro **non
 concluso**, e il recupero automatico dopo un `--rebuild`. Più il database irraggiungibile, con
 solo l'engine di lettura rotto così che il guasto cada dove la 2F ha messo la lettura nuova.
+
+**Il gruppo che porta il peso della validazione** (§8.47.4) è costruito in tre passi, e il
+primo non è facoltativo:
+
+1. **la premessa**: si prova che la corruzione di una colonna derivata è *davvero* invisibile —
+   documento identico byte per byte, `currency().current` ancora vero. Senza questo passo i due
+   successivi dimostrerebbero che una guardia funziona, non che serviva;
+2. **il rifiuto**: testo `garanzia` valido e `garanzia_date` cancellata →
+   `projection_inconsistent`, zero connessioni SMTP aperte, zero promemoria, zero consegne,
+   giro non concluso;
+3. **il recupero nello STESSO giorno locale**: si ripara con `rebuild`, si riesegue senza
+   spostare l'orologio di un giorno — che sarebbe la scorciatoia che rende il test verde senza
+   provare niente — e si pretende che il digest contenga **esattamente** le scadenze che la
+   corruzione aveva nascosto.
+
+Più le tre forme di corruzione derivata (cancellata, falsificata su `garanzia`, falsificata su
+`supporto`), la prova che gli avvisi del modello **non** bloccano e risalgono al chiamante, e
+la prova che validazione e interrogazione stanno nello **stesso** snapshot — una corruzione
+committata da fuori mentre lo snapshot è aperto non deve essere vista, altrimenti fra i due
+passi ci sarebbe una finestra, e sarebbe proprio quella che la validazione esiste per
+chiudere.
 
 ⚠ Due test hanno dovuto essere **riscritti perché non sorvegliavano quello che dicevano**.
 `test_the_notification_worker_still_reads_the_document` esisteva in due copie (2C e 2D) come
@@ -5074,6 +5168,24 @@ Tre sono sfuggite alla prima passata, e nessuna delle tre per il motivo che semb
 
 ⚠ La lezione della terza vale più delle altre due: «mutante equivalente» è la
 classificazione che si vorrebbe sempre poter usare, e due volte su tre qui era sbagliata.
+
+**Il percorso di validazione: 13 mutazioni in più.** Aggiunto `validate_model` al worker, si è
+mutato anche quello: la precondizione che torna alla sola attualità, gli errori ignorati, gli
+avvisi resi bloccanti, la validazione spostata fuori dallo snapshot, i due codici schiacciati
+in uno, il giro concluso invece che lasciato aperto, il ritentativo che chiude la consegna, il
+tentativo consumato dal rinvio, il `GET` che si riscrive la sua copia. **Dodici intercettate su
+tredici**, e la tredicesima ha insegnato qualcosa:
+
+- **il ritentativo su modello incoerente** sfuggiva perché il test gemello guastava la
+  `mapper_version` — che è «non attuale» — e nessun test guastava il *modello*. Il caso
+  scoperto era esattamente quello che la 2F esiste per chiudere. Test nuovo;
+- **il controllo sui riferimenti alle foto** (`known_photo_ids=None`) sfugge, e la prima
+  reazione — «buco di copertura, serve un test con un riferimento pendente» — si è rivelata
+  impossibile da soddisfare: `inventory_racks.photo_id` ha una **chiave esterna** verso
+  `photos`, quindi un riferimento pendente non può esistere nella proiezione e quel ramo di
+  `validate_model` è irraggiungibile da qui. Mutante equivalente **dimostrato**, non
+  dichiarato: il test che l'accompagna fissa la chiave esterna, così se qualcuno la togliesse
+  il buco tornerebbe reale e visibile.
 
 La §17 di `tools/storage-config-test.py` copre il negativo (**21 controlli** nuovi, 310 in
 totale): il modulo della sorgente esiste e sta in `app/notifications/`, legge le colonne
@@ -5132,14 +5244,18 @@ da chi farà quel lavoro. Un controllo statico pretende che questa sezione esist
 
 | # | cosa | dove |
 |---|---|---|
-| 13 | Una corruzione delle **colonne derivate** non muove né digest né versione, quindi la guardia del worker non la vede: gli avvisi smettono e il worker non se ne accorge. La vede `GET /api/inventory` (503) e `--verify`. Decisione da confermare (§8.47.4). | worker |
+| 13 | Una corruzione delle **colonne derivate** non muove né digest né versione: era invisibile alla guardia del worker, e gli avvisi smettevano senza che niente lo dicesse. **CHIUSA**: dalla 2F il worker esegue `validate_model` dentro lo stesso snapshot e rifiuta con `projection_inconsistent` (§8.47.4). Costa una lettura completa della proiezione una volta al giorno. | worker (risolta) |
 | 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale, ed è il buco dei dati di seed che §7 registra da tempo. | dati |
 | 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend |
 
 ⚠ Da risolvere **prima** di migrare il frontend: 5, 6, 7, 8, 9. Sono le voci in cui la nuova
 implementazione SQL riproduce fedelmente un comportamento che il frontend non intendeva —
 e nel momento in cui il frontend chiamerà l'endpoint, quel comportamento diventerà l'unico.
-La 13 e la 14 vanno chiuse prima del rilascio.
+
+Chiuse: la **12** dalla 2F (gli id con lo `/`), la **13** dalla 2F (la validazione del
+modello nel worker). Resta aperta prima del rilascio la **14**: il seed di produzione non ha
+scadenze, quindi la funzione più delicata del prodotto non ha nessun dato reale su cui essere
+esercitata.
 
 
 ## 9. Ordine di lavoro proposto

@@ -888,6 +888,80 @@ def require_current_head(conn: Connection) -> tuple[int, str, Currency]:
     return version, sha_row[0], declared
 
 
+@dataclass(frozen=True)
+class ValidatedProjection:
+    """Una proiezione ATTUALE e COERENTE, con il modello già in mano.
+
+    Esiste perché dalla fase 2F i chiamanti sono due e fanno cose diverse con lo stesso
+    risultato: il `GET` continua fino al documento, il worker si fermata qui e passa a
+    interrogare le date. Restituire il modello insieme alla dichiarazione evita al
+    secondo di rileggerlo — e, più importante, evita che la precondizione esista in due
+    copie che un giorno differiranno in una delle due.
+    """
+
+    version: int
+    #: Il digest REGISTRATO nella versione in testa. Metadato, non contenuto.
+    recorded: str
+    declared: Currency
+    model: RelationalModel
+    #: TUTTI i riscontri, errori esclusi (quelli hanno già sollevato). Chi vuole gli
+    #: avvisi li filtra con `warnings()`: sono non bloccanti per progetto — un campo
+    #: `garanzia` scritto a mano non deve fermare né una lettura né un avviso.
+    findings: list
+
+
+def require_valid_model(conn: Connection) -> ValidatedProjection:
+    """Attualità **e** coerenza del modello. La precondizione completa, in un posto.
+
+    I quattro passi che ogni lettura della proiezione deve fare prima di fidarsi di una
+    riga, nell'ordine in cui costano meno:
+
+    1. **la testa esiste** e `inventory_versions` ha la sua riga
+       (`NotBootstrappedError`);
+    2. **la proiezione la dichiara**: versione, digest e versione della mappa
+       (`ProjectionNotCurrentError`, tre query e nessun riassemblaggio). Prima di
+       leggere una sola riga di entità, così il caso «proiezione non mantenuta» costa
+       tre query invece di una lettura completa;
+    3. **le righe**, con `read_model`;
+    4. **la coerenza del modello**, con `validate_model`. È l'unico controllo che vede
+       le colonne **DERIVATE**.
+
+    ⚠ Il passo 4 è quello che non si può sostituire con nulla di più economico, ed è la
+    ragione per cui questa funzione esiste. `garanzia_date` **non torna nel documento**:
+    una data derivata sbagliata — o azzerata a mano — lascia il documento riassemblato
+    identico byte per byte e il digest uguale. Nessun confronto di digest la vede, per
+    costruzione. È il punto cieco trovato nella fase 2B, e `validate_model` è l'unica
+    cosa che lo chiude.
+
+    Dalla fase 2F lo pretende anche il **worker** (§8.47.4): senza, una `garanzia_date`
+    azzerata faceva smettere gli avvisi in silenzio, e il worker non aveva modo di
+    accorgersene — la sua guardia confrontava numeri e digest, che quella corruzione
+    non muove. Costa una lettura completa della proiezione una volta al giorno, ed è il
+    prezzo dichiarato per non tacere su una scadenza.
+
+    Gli **avvisi non bloccano**: `garanzia = "in attesa"` è un valore che una persona
+    scrive, non un guasto dello schema. Bloccano solo gli ERRORI.
+
+    Nessun lock: una lettura non deve fermare una scrittura. La coerenza fra i quattro
+    passi la dà la TRANSAZIONE del chiamante, che deve essere
+    `REPEATABLE READ, READ ONLY` (`db.read_snapshot`). Sotto READ COMMITTED sarebbe
+    corretta quasi sempre e produrrebbe un `projection_inconsistent` spurio ogni volta
+    che un `PUT` committa nel mezzo — cioè accuserebbe la proiezione di essere corrotta
+    proprio mentre funziona.
+    """
+    version, recorded, declared = require_current_head(conn)
+    model = read_model(conn)
+    found = validate_model(model, known_photo_ids=_referenced_photo_ids(conn))
+    broken = errors(found)
+    if broken:
+        raise ProjectionInconsistentError(
+            f"la proiezione della versione {version} non è coerente "
+            f"({len(broken)} errori)",
+            [f.as_dict() for f in broken])
+    return ValidatedProjection(version=version, recorded=recorded,
+                               declared=declared, model=model, findings=found)
+
+
 def current_document(conn: Connection) -> CurrentDocument:
     """Il documento corrente, riassemblato dalle TABELLE. È ciò che `GET` restituisce.
 
@@ -937,20 +1011,10 @@ def current_document(conn: Connection) -> CurrentDocument:
     guasto raro, non riproducibile, e con un messaggio che accusa la proiezione di
     essere corrotta quando invece funzionava.
     """
-    # --- 1/2. la testa, e la proiezione che deve dichiararla ---
-    version, recorded, declared = require_current_head(conn)
-
-    # --- 3. le righe ---
-    model = read_model(conn)
-
-    # --- 4. coerenza, colonne DERIVATE comprese ---
-    found = validate_model(model, known_photo_ids=_referenced_photo_ids(conn))
-    broken = errors(found)
-    if broken:
-        raise ProjectionInconsistentError(
-            f"la proiezione della versione {version} non è coerente "
-            f"({len(broken)} errori): il documento non viene servito",
-            [f.as_dict() for f in broken])
+    # --- 1..4: attualità, righe, coerenza del modello ---
+    valid = require_valid_model(conn)
+    version, recorded, declared = valid.version, valid.recorded, valid.declared
+    model, found = valid.model, valid.findings
 
     # --- 5. il giro completo, contro due riferimenti indipendenti ---
     doc = assemble(model)

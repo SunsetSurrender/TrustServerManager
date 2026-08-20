@@ -44,8 +44,10 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from app.db import read_snapshot
-from app.inventory import Actor, InventoryRepository
-from app.inventory.errors import NotBootstrappedError, ProjectionNotCurrentError
+from app.inventory import Actor, InventoryRepository, canonical_sha256
+from app.inventory.errors import (NotBootstrappedError,
+                                 ProjectionInconsistentError,
+                                 ProjectionNotCurrentError)
 from app.notifications import candidates
 from app.notifications import worker as wk
 from app.notifications.expiry import due_items
@@ -416,33 +418,368 @@ def test_a_missing_code_is_still_the_string_none(db, engine):
 # 3. la sorgente è davvero SQL
 # ==================================================================
 
-def test_corrupting_the_derived_columns_changes_what_the_worker_finds(db, engine):
+def test_the_worker_reads_the_derived_columns_and_not_the_document(db, engine):
     """La prova che la sorgente è cambiata davvero, fatta sul COMPORTAMENTO.
 
     Si azzerano le colonne data lasciando il documento intatto. Prima della fase 2F il
     worker non se ne accorgeva — leggeva il testo — e un test statico su `expiry.py`
-    faceva da allarme. Adesso deve accorgersene: nessuna candidata.
+    faceva da allarme (che non suonò).
 
-    ⚠ E qui c'è un limite dichiarato. Il controllo di attualità confronta versione,
-    digest e versione della mappa: nessuno dei tre cambia se si corrompe una colonna
-    DERIVATA, perché quelle colonne non entrano nel documento riassemblato e quindi
-    non entrano nel digest. È lo stesso punto cieco trovato in fase 2B. Chi lo vede è
-    `GET /api/inventory` (che valida il modello, e risponde 503) e `project.py
-    --verify`; il worker no, di proposito: validare il modello vuol dire leggere
-    l'intera proiezione, cioè ricreare la scansione completa che la §3 della fase 2F
-    chiede di NON ricreare. La conseguenza operativa è nel registro (§8.48).
+    Adesso se ne accorge, e non restituendo un elenco vuoto: **rifiutando**. Il
+    modello è incoerente — c'è un testo di data valido senza la data derivata — e
+    `validate_model` lo vede. Che l'errore sia la risposta giusta, e non «niente è
+    dovuto», è il punto di tutto il gruppo di test qui sotto.
+
+    L'oracolo, che legge il testo, continua a trovare le scadenze: è la dimostrazione
+    che le due implementazioni guardano posti diversi.
     """
     bootstrap(engine, CORPORA["windows"])
     assert from_projection().items, "la fixture non produce nessuna candidata"
 
     sql(engine, "UPDATE inventory_devices SET garanzia_date = NULL, "
                 "                             supporto_date = NULL")
-    assert from_projection().items == [], \
-        "il worker non legge le colonne derivate: la fase 2F non è avvenuta"
+    with pytest.raises(ProjectionInconsistentError):
+        from_projection()
 
-    # L'oracolo, che legge il testo, continua a trovarle: è la dimostrazione che le
-    # due implementazioni guardano posti diversi.
     assert due_items(stored_document(engine), today=TODAY, warning_days=WINDOWS)
+
+
+# ==================================================================
+# 3bis. il punto cieco delle colonne derivate, chiuso (§8.47.4)
+# ==================================================================
+
+def test_a_corrupted_derived_date_is_invisible_to_every_digest(db, engine):
+    """PREMESSA del gruppo: la corruzione che nessun confronto di digest può vedere.
+
+    Va provata prima di provare che qualcuno la ferma, altrimenti i test qui sotto
+    dimostrerebbero che una guardia funziona senza dimostrare che serviva.
+
+    `garanzia_date` è una colonna DERIVATA: non torna nel documento riassemblato
+    (§8.44, `relational.GENERATED`/`DERIVED`). Quindi azzerarla lascia il documento
+    identico **byte per byte**, il digest uguale, la versione ferma e la versione della
+    mappa invariata. Tutte e tre le condizioni di `require_current` restano
+    soddisfatte: la proiezione si dichiara attuale, e lo è — nel senso che quel
+    controllo può misurare.
+
+    È il punto cieco trovato nella fase 2B. Per un `GET` significa servire un documento
+    giusto; per il worker significava **tacere su una scadenza**, che è il guasto
+    peggiore che un sistema di allerta possa avere: non allerta e si dichiara sano.
+    """
+    from app.inventory import projection
+    from app.inventory.projection import read_model
+    from app.inventory.relational import assemble
+
+    bootstrap(engine, CORPORA["windows"])
+    with read_snapshot() as snap:
+        prima = canonical_sha256(assemble(read_model(snap)))
+
+    sql(engine, "UPDATE inventory_devices SET garanzia_date = NULL "
+                " WHERE code = 'd7'")
+
+    with read_snapshot() as snap:
+        dopo = canonical_sha256(assemble(read_model(snap)))
+        stato = projection.currency(snap)
+
+    assert dopo == prima, \
+        "se il digest cambiasse, la colonna non sarebbe derivata e non ci sarebbe " \
+        "nessun punto cieco da chiudere"
+    assert stato.current, \
+        "la proiezione deve continuare a DICHIARARSI attuale: è esattamente ciò " \
+        "che rende la corruzione invisibile a versione e digest"
+
+
+def test_a_valid_raw_date_without_its_derived_date_stops_the_run(db, engine, smtp):
+    """IL TEST che la fase 2F esiste per chiudere. §«Load-bearing corruption test».
+
+    Lo stato costruito è quello che nessun percorso dell'applicazione può produrre e
+    che un `UPDATE` a mano produce in un secondo:
+
+        garanzia = '2026-08-17'   (testo VALIDO, interpretabile)
+        garanzia_date = NULL      (l'interpretazione, cancellata)
+
+    Prima di questo commit il worker avrebbe girato, non avrebbe trovato quella
+    scadenza, avrebbe concluso il giro con `nothing_due` e si sarebbe dichiarato sano.
+    L'avviso non sarebbe mai partito e nessuno l'avrebbe saputo.
+
+    Atteso, punto per punto:
+
+      - nessun SMTP;
+      - nessuna consegna creata;
+      - nessun promemoria registrato, quindi nessuna soglia superata;
+      - nessun tentativo consumato;
+      - il giro di oggi **non concluso**, quindi riprendibile;
+      - il codice è `projection_inconsistent` e non `projection_not_current`: la
+        proiezione *dichiarava* il vero, sono le righe a non corrispondere.
+    """
+    bootstrap(engine, CORPORA["windows"])
+    dovute_prima = {i.entity_uid for i in from_projection().items}
+    assert dovute_prima
+
+    sql(engine, "UPDATE inventory_devices SET garanzia_date = NULL "
+                " WHERE code = 'd7' AND garanzia <> ''")
+    with engine.begin() as c:
+        grezzo = c.execute(text("SELECT garanzia, garanzia_date FROM "
+                                "inventory_devices WHERE code = 'd7'")).one()
+    assert grezzo[0] and grezzo[1] is None, \
+        "la fixture deve avere testo valido e data derivata assente"
+
+    risultato = wk.run_once(engine, now_utc=_at(TODAY))
+
+    assert risultato.reason == "projection_inconsistent", risultato.reason
+    assert risultato.sent == 0
+    assert smtp.sent == []
+    assert smtp.connections == 0, "non si deve nemmeno aprire una connessione SMTP"
+    assert _reminders(engine) == [], "nessun promemoria, quindi nessuna soglia superata"
+    assert _deliveries(engine) == []
+    assert risultato.run_date is None, "il battito non deve dichiarare un giro fatto"
+
+    riga = _run_row(engine, TODAY)
+    assert riga is not None and riga["finished_at"] is None, \
+        "il giro deve restare RIPRENDIBILE: concluderlo perderebbe la giornata"
+    assert riga["outcome"] is None
+
+
+def test_the_same_local_day_delivers_after_the_projection_is_repaired(db, engine,
+                                                                      smtp):
+    """La seconda metà del test che porta il peso: si ripara e si consegna **oggi**.
+
+    «Riprendibile» non è un'affermazione sullo stato di una riga, è un'affermazione sul
+    fatto che l'avviso arriva. Quindi: si guasta, il giro rifiuta, si ripara con
+    `--rebuild`, e si rieseguono i giri **nella stessa data locale** — senza spostare
+    l'orologio di un giorno, che è la scorciatoia che avrebbe reso il test verde senza
+    provare niente.
+
+    Il promemoria deve arrivare intero: stesso insieme di scadenze che sarebbe partito
+    se la corruzione non fosse mai avvenuta.
+    """
+    from app.inventory import projection
+
+    bootstrap(engine, CORPORA["windows"])
+    attese = {(i.entity_uid, i.kind, i.expiry) for i in from_projection().items}
+
+    # --- guasto: testo valido, data derivata cancellata ---
+    sql(engine, "UPDATE inventory_devices SET garanzia_date = NULL "
+                " WHERE garanzia <> ''")
+    assert wk.run_once(engine, now_utc=_at(TODAY)).reason == "projection_inconsistent"
+    assert smtp.sent == []
+
+    # --- riparazione, come la documenta deploy/README §3.8 ---
+    with engine.begin() as c:
+        projection.rebuild(c)
+
+    # --- STESSA data locale, ora più tardi: il giro riprende e consegna ---
+    risultato = wk.run_once(engine, now_utc=_at(TODAY, hour_utc=12))
+    assert risultato.reason == "sent", risultato.reason
+    assert risultato.run_date == TODAY
+    assert len(smtp.sent) == 1
+
+    inviate = {(str(r[0]), r[1], r[2]) for r in _reminders(engine)
+               if r[4] == "sent"}
+    assert inviate == attese, \
+        "il digest recuperato deve contenere esattamente le scadenze che la " \
+        f"corruzione aveva nascosto: mancanti {attese - inviate}"
+    assert _run_row(engine, TODAY)["outcome"] == "sent"
+
+
+@pytest.mark.parametrize("guasto,dove", [
+    # La data derivata cancellata mentre il testo resta valido: il caso del §
+    # «Load-bearing corruption test».
+    ("UPDATE inventory_devices SET garanzia_date = NULL WHERE garanzia <> ''",
+     "data derivata cancellata"),
+    # La data derivata cambiata in un'altra data valida: il documento resta identico,
+    # e il worker manderebbe un avviso per il giorno SBAGLIATO.
+    ("UPDATE inventory_devices SET garanzia_date = DATE '2099-01-01' "
+     " WHERE garanzia <> ''", "data derivata falsificata"),
+    # Il supporto, per simmetria: due colonne derivate, due controlli.
+    ("UPDATE inventory_devices SET supporto_date = DATE '2099-01-01' "
+     " WHERE supporto <> ''", "supporto falsificato"),
+])
+def test_every_shape_of_derived_corruption_is_refused(db, engine, smtp, guasto, dove):
+    """Le tre forme di corruzione delle colonne derivate, tutte rifiutate.
+
+    La seconda è la più insidiosa e la ragione per cui non basta controllare che la
+    data ci sia: una data derivata **plausibile ma falsa** produrrebbe un avviso per il
+    giorno sbagliato, e un avviso con la data sbagliata è peggio di nessun avviso —
+    manda qualcuno a rinnovare il contratto con tre anni di anticipo, o a non
+    rinnovarlo affatto.
+    """
+    bootstrap(engine, CORPORA["kinds"])
+    sql(engine, guasto)
+
+    with pytest.raises(ProjectionInconsistentError):
+        from_projection()
+
+    risultato = wk.run_once(engine, now_utc=_at(TODAY))
+    assert risultato.reason == "projection_inconsistent", f"{dove}: {risultato.reason}"
+    assert smtp.sent == []
+    assert _reminders(engine) == []
+    assert _run_row(engine, TODAY)["finished_at"] is None
+
+
+def test_a_dangling_photo_reference_cannot_exist_in_the_first_place(db, engine):
+    """Il controllo sui riferimenti alle foto è INESERCITABILE, e la ragione è una FK.
+
+    ⚠ Questo test nasce da una mutazione che è sfuggita, e la sua storia vale più del
+    test. Passare `known_photo_ids=None` a `validate_model` — cioè «non controllare i
+    riferimenti alle foto» — lascia **tutta la suite verde**, compresi i test della 2D
+    sul `GET`. La prima reazione è stata «c'è un buco di copertura, serve un test con
+    un riferimento pendente». Il test non si è potuto scrivere: il database lo
+    RIFIUTA.
+
+        inventory_racks.photo_id → photos.id     (chiave esterna, migrazione 0010)
+
+    Quindi ogni `photo_id` non nullo esiste in `photos` per costruzione, e
+    `_referenced_photo_ids` — che legge esattamente le foto referenziate dai rack — non
+    può restituire un insieme che non contenga quel valore. Il ramo di
+    `validate_model` che confronta i due è **irraggiungibile attraverso la proiezione**:
+    la mutazione è un mutante EQUIVALENTE, e il vincolo è ciò che lo rende tale.
+
+    Il controllo resta utile dove è raggiungibile — `validate_model` gira anche sul
+    modello *in memoria* prima della scrittura (fase 2C), dove nessuna FK è ancora
+    stata applicata — e passare gli id veri invece di `None` costa una scansione di
+    solo indice. Si continua a passarli.
+
+    Questo test fissa la RAGIONE, non il sintomo: se un giorno qualcuno togliesse la
+    chiave esterna, diventerebbe rosso e il buco di copertura tornerebbe reale.
+    """
+    bootstrap(engine, CORPORA["windows"])
+
+    with engine.begin() as c:
+        vincoli = c.execute(text("""
+            SELECT tc.constraint_type
+              FROM information_schema.table_constraints tc
+              JOIN information_schema.key_column_usage k
+                ON k.constraint_name = tc.constraint_name
+             WHERE tc.table_name = 'inventory_racks'
+               AND k.column_name = 'photo_id'
+               AND tc.constraint_type = 'FOREIGN KEY'
+        """)).all()
+    assert vincoli,         "senza la chiave esterna un riferimento pendente diventa possibile, e il "         "controllo di `validate_model` sulle foto torna a essere esercitabile"
+
+    # E il database la applica davvero, non solo la dichiara.
+    with pytest.raises(Exception) as exc:
+        sql(engine, "UPDATE inventory_racks SET photo_id = gen_random_uuid()")
+    assert "foreign key" in str(exc.value).lower()
+
+
+def test_a_retry_is_postponed_when_the_model_is_inconsistent(db, engine, smtp):
+    """Il ritentativo si rinvia anche per un modello INCOERENTE, non solo non attuale.
+
+    ⚠ Trovato da una mutazione: restringere il `except` del ritentativo a
+    `ProjectionNotCurrentError` lasciava tutto verde, perché il test gemello guasta la
+    `mapper_version` — che è «non attuale» — e nessun test guastava il modello. Il caso
+    scoperto restava proprio quello che la fase 2F esiste per chiudere.
+
+    Senza il rinvio, l'eccezione salirebbe fino al ciclo del worker: il giro
+    fallirebbe con un errore invece di rinviare, e — peggio — passando da
+    `_attempt_delivery` avrebbe potuto consumare un tentativo per un guasto che non è
+    del relay.
+    """
+    bootstrap(engine, CORPORA["windows"])
+    smtp.fail_with = OSError("relay giù")
+    assert wk.run_once(engine, now_utc=_at(TODAY)).reason == "delivery_failed"
+    smtp.fail_with = None
+    tentativi_prima = _deliveries(engine)[0]["attempts"]
+
+    # Modello INCOERENTE, non «non attuale»: testo valido, data derivata cancellata.
+    sql(engine, "UPDATE inventory_devices SET garanzia_date = NULL "
+                " WHERE garanzia <> ''")
+    _sblocca_ritentativi(engine)
+    risultato = wk.run_once(engine, now_utc=_at(TODAY, hour_utc=12))
+
+    assert risultato.reason == "projection_inconsistent", risultato.reason
+    assert smtp.sent == []
+    consegna = _deliveries(engine)[0]
+    assert consegna["state"] == "pending", "la consegna non deve essere chiusa"
+    assert consegna["attempts"] == tentativi_prima,         "un rinvio non deve costare un tentativo"
+
+    # E dopo la riparazione il ritentativo parte, con lo STESSO `Message-ID`.
+    from app.inventory import projection
+    with engine.begin() as c:
+        projection.rebuild(c)
+    _sblocca_ritentativi(engine)
+    assert wk.run_once(engine, now_utc=_at(TODAY, hour_utc=13)).reason == "sent"
+    assert smtp.sent[-1]["Message-ID"] == consegna["message_id"]
+
+
+def test_a_warning_from_the_model_does_not_block_the_run(db, engine, smtp):
+    """Gli AVVISI non bloccano, e la differenza con gli errori è il prodotto.
+
+    `garanzia = "in attesa"` è un valore che una persona scrive in una casella di testo.
+    `validate_model` lo segnala come avviso — «lo scanner delle scadenze la ignorerà» —
+    e non deve fermare niente: se lo facesse, un campo compilato male su un dispositivo
+    spegnerebbe gli avvisi di **tutti** gli altri, che è il modo di trasformare una
+    difesa in un guasto.
+
+    Il corpus `broken-dates` ne contiene quattordici forme. Il giro deve andare a buon
+    fine, e gli avvisi devono ARRIVARE al chiamante: un avviso che non esce dalla
+    funzione è un avviso che nessuno vedrà, e sono precisamente i valori che spiegano
+    perché una scadenza attesa non compare nel digest.
+    """
+    bootstrap(engine, CORPORA["broken-dates"])
+    trovati = from_projection()
+    assert trovati.warnings, "gli avvisi del modello non arrivano al chiamante"
+    assert any("invalid_date" in str(a.get("code")) for a in trovati.warnings)
+
+    risultato = wk.run_once(engine, now_utc=_at(TODAY))
+    assert risultato.reason == "sent", risultato.reason
+    assert len(smtp.sent) == 1
+
+
+def test_the_validation_happens_inside_the_same_snapshot(db, engine):
+    """Validazione e interrogazione nello STESSO snapshot, non in due letture.
+
+    Se la validazione girasse in una transazione sua e la query in un'altra, fra le due
+    ci sarebbe una finestra: si validerebbe una proiezione e si interrogherebbe
+    un'altra, e il caso peggiore è quello in cui la corruzione avviene proprio in
+    quella finestra — cioè il caso che la validazione esiste per intercettare.
+
+    Si prova col comportamento: dentro uno snapshot aperto, una corruzione committata
+    da fuori NON deve essere vista, quindi la seconda chiamata deve dare lo stesso
+    risultato della prima. Se le due letture usassero transazioni diverse, la seconda
+    solleverebbe e il test sarebbe rosso.
+    """
+    bootstrap(engine, CORPORA["windows"])
+    with read_snapshot() as snap:
+        primo = candidates.due_items_from_projection(
+            snap, today=TODAY, warning_days=WINDOWS)
+        sql(engine, "UPDATE inventory_devices SET garanzia_date = NULL")
+        secondo = candidates.due_items_from_projection(
+            snap, today=TODAY, warning_days=WINDOWS)
+    assert identity(primo.items) == identity(secondo.items)
+
+    # E fuori dallo snapshot la corruzione si vede: se non si vedesse, il test sopra
+    # sarebbe verde perché l'`UPDATE` non è avvenuto.
+    with pytest.raises(ProjectionInconsistentError):
+        from_projection()
+
+
+def test_the_precondition_is_declared_in_one_place(db, engine):
+    """`require_valid_model` è la precondizione, e i chiamanti sono quelli.
+
+    Il `GET` e il worker devono rifiutare sulle STESSE condizioni. Se ognuno avesse la
+    sua copia della sequenza, un giorno una delle due imparerebbe un controllo in più —
+    e sarebbe quella che nessuno guarda. Il controllo statico in `storage-config-test`
+    §17 pretende che il worker la chiami; questo pretende che la chiami anche il `GET`,
+    così la funzione non può diventare «quella del worker».
+    """
+    from app.inventory import projection
+
+    # ⚠ Il CORPO della funzione, non i primi N caratteri del file da lì in poi. La
+    # prima stesura guardava `corpo[:2000]`, e quella finestra cadeva interamente
+    # DENTRO la docstring di `current_document`, che è lunga: il controllo non ha mai
+    # visto una riga di codice, e quindi non poteva fallire per il motivo giusto né
+    # passare per quello giusto. `ast` scarta le docstring.
+    corpo = _function_body(projection, "current_document")
+    assert "require_valid_model" in corpo, "il GET non usa la precondizione condivisa"
+    assert "validate_model(" not in corpo, \
+        "il GET ha una seconda copia della validazione"
+
+    # E il worker la usa anche lui: se uno dei due la perdesse, le due precondizioni
+    # ricomincerebbero a divergere — e sarebbe quella che nessuno guarda.
+    sorgente_worker = _function_body(candidates, "due_items_from_projection")
+    assert "require_valid_model" in sorgente_worker
+    assert "validate_model(" not in sorgente_worker
 
 
 def test_the_worker_never_reads_the_immutable_snapshot(db, engine):
@@ -1038,7 +1375,7 @@ def test_a_retry_is_postponed_when_the_projection_is_not_current(db, engine, smt
     _sblocca_ritentativi(engine)
     risultato = wk.run_once(engine, now_utc=_at(TODAY, hour_utc=12))
 
-    assert risultato.reason == "projection_not_current"
+    assert risultato.reason == "projection_not_current", risultato.reason
     assert smtp.sent == []
     consegna = _deliveries(engine)[0]
     assert consegna["state"] == "pending", "la consegna non deve essere chiusa"
@@ -1511,6 +1848,27 @@ def test_disabled_notifications_never_touch_the_projection(db, engine, smtp,
 # ==================================================================
 # aiuti
 # ==================================================================
+
+def _function_body(modulo, nome: str) -> str:
+    """Il corpo di UNA funzione, senza la sua docstring.
+
+    Serve ai controlli «questa funzione chiama quest'altra»: cercare in una finestra di
+    caratteri è la trappola in cui sono cascato — la finestra cadeva dentro una
+    docstring lunga e il controllo non guardava nessuna riga di codice.
+    """
+    import ast
+
+    albero = ast.parse(Path(modulo.__file__).read_text(encoding="utf-8"))
+    for nodo in ast.walk(albero):
+        if isinstance(nodo, ast.FunctionDef) and nodo.name == nome:
+            corpo = nodo.body
+            if (corpo and isinstance(corpo[0], ast.Expr)
+                    and isinstance(corpo[0].value, ast.Constant)
+                    and isinstance(corpo[0].value.value, str)):
+                corpo = corpo[1:]
+            return chr(10).join(ast.unparse(n) for n in corpo)
+    raise AssertionError(f"{nome} non trovata in {modulo.__name__}")
+
 
 def _executable_source(modulo) -> str:
     """Il sorgente di un modulo SENZA le stringhe di documentazione.

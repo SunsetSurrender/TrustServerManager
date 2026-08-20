@@ -58,14 +58,25 @@ promemoria, idempotenza, ritentativi, `Message-ID`, cooldown, destinatari,
 e provarla, ed è per questo che i test di consegna non sono stati riscritti — se il
 sistema di consegna fosse cambiato, sarebbero rossi.
 
-Due condizioni nuove, entrambe che fanno FALLIRE CHIUSO:
+Tre condizioni nuove, tutte che fanno FALLIRE CHIUSO:
 
-  - la proiezione deve rispecchiare la testa. Se non lo fa, non parte nessun avviso e
-    il giro di oggi resta da riprendere. Nessun ripiego su `inventory_versions.doc`:
-    il ripiego funzionerebbe e coprirebbe il difetto di coerenza che la fase 2 esiste
-    per scoprire (§8.45);
+  - la proiezione deve **rispecchiare la testa**: versione, digest e versione della
+    mappa. Altrimenti `projection_not_current`;
+  - il modello relazionale deve essere **coerente** (`validate_model`, dentro lo stesso
+    snapshot). Altrimenti `projection_inconsistent`. ⚠ È la condizione che non si può
+    sostituire con niente di più economico, e la ragione è che le colonne DERIVATE non
+    tornano nel documento: una `garanzia_date` azzerata a mano lascia il digest
+    identico, quindi versione e digest combaciano, la guardia è soddisfatta, e la query
+    non trova niente. Nessun avviso parte e niente lo dice — un sistema di allerta che
+    non allerta e si dichiara sano. È il punto cieco della fase 2B (§8.47.4);
   - l'inventario deve essere ancora quello da cui vengono i candidati. Si legge in uno
     snapshot, si ricontrolla nella transazione che scrive, e se è cambiato si rinvia.
+
+In tutti e tre i casi: nessun invio, nessuna consegna, nessun promemoria, nessuna
+soglia superata, nessun tentativo consumato, e il giro **non si conclude** — resta
+ripreso dal tick successivo, nello stesso giorno locale, appena la proiezione è
+riparata. Nessun ripiego su `inventory_versions.doc`: il ripiego funzionerebbe e
+coprirebbe esattamente il difetto che la fase 2 esiste per scoprire (§8.45).
 
 ⚠ Il worker NON chiama `GET /api/inventory/expiries`. Quell'endpoint riproduce la
 **vista Scadenze**, che sui dismessi e sugli scaduti non è d'accordo con lo scanner
@@ -92,7 +103,9 @@ from app.audit.sanitize import sanitize
 from app.auth.audit import RESULT_FAILURE, RESULT_SUCCESS, record_auth_event
 from app.config import get_settings as get_config
 from app.db import read_snapshot
-from app.inventory.errors import NotBootstrappedError, ProjectionNotCurrentError
+from app.inventory.errors import (NotBootstrappedError,
+                                 ProjectionInconsistentError,
+                                 ProjectionNotCurrentError)
 from app.notifications import candidates
 from app.notifications import reminders as rem
 from app.notifications.digest import build_digest
@@ -299,23 +312,39 @@ def run_once(engine: Engine, *, now_utc: datetime,
                            outcome="inventory_not_bootstrapped")
         return TickResult(ran=True, reason="inventory_not_bootstrapped",
                           run_date=today)
-    except ProjectionNotCurrentError as exc:
-        # ⚠ «Proiezione non attuale» NON è «niente è dovuto», e la differenza è tutta
-        # qui: sono due stati operativi diversi e confonderli significherebbe
-        # dichiarare un giro riuscito senza aver guardato l'inventario. Quindi:
-        # nessun invio, nessun promemoria creato, nessuna soglia superata, e — questa
-        # è la riga che conta — **il giro NON si conclude**. La riga di
-        # `scheduler_runs` di oggi resta senza `finished_at`, che è esattamente lo
-        # stato che `claim_run` sa riprendere: appena la proiezione è riparata
-        # (`project.py --rebuild`), il tick successivo rifà il giro di oggi.
+    except (ProjectionNotCurrentError, ProjectionInconsistentError) as exc:
+        # ⚠ Nessuno dei due è «niente è dovuto», e la differenza è tutta qui: sono
+        # stati operativi diversi, e confonderli significherebbe dichiarare un giro
+        # riuscito senza aver guardato l'inventario. Quindi: nessun invio, nessuna
+        # consegna creata, nessun promemoria registrato, nessuna soglia superata,
+        # nessun tentativo consumato, e — questa è la riga che conta — **il giro NON
+        # si conclude**. La riga di `scheduler_runs` di oggi resta senza
+        # `finished_at`, che è esattamente lo stato che `claim_run` sa riprendere:
+        # appena la proiezione è riparata (`project.py --rebuild`), il tick successivo
+        # rifà il giro **dello stesso giorno locale**.
         #
-        # Concluderlo con un esito «non attuale» sarebbe stato più ordinato da
-        # leggere e avrebbe perso la giornata: `claim_run` avrebbe risposto
-        # «already_ran_today» fino a mezzanotte.
-        log.error("proiezione non attuale (%s): nessun avviso inviato, "
-                  "il giro di %s verrà ripreso al prossimo tick",
-                  getattr(exc, "details", None) or exc.code, today)
-        return TickResult(reason="projection_not_current")
+        # Concluderlo con un esito sarebbe stato più ordinato da leggere e avrebbe
+        # perso la giornata: `claim_run` avrebbe risposto «already_ran_today» fino a
+        # mezzanotte.
+        #
+        # I due codici restano DISTINTI perché il rimedio si legge dal codice:
+        #
+        #   projection_not_current   la proiezione dichiara una versione vecchia, o
+        #                            nessuna, o una mappa che non gira più. Condizione
+        #                            dichiarata, causa quasi sempre operativa — un
+        #                            `--rebuild` non eseguito dopo un aggiornamento;
+        #   projection_inconsistent  la dichiarazione è FALSA: le righe non sono
+        #                            coerenti con ciò che lo stato afferma. Nessun
+        #                            percorso dell'applicazione può produrlo, quindi
+        #                            la causa è fuori — un `UPDATE` a mano, un
+        #                            ripristino parziale, un guasto del supporto.
+        #
+        # Schiacciarli in un codice solo manderebbe chi legge il registro a cercare la
+        # causa nel posto sbagliato.
+        log.error("%s (%s): nessun avviso inviato, il giro di %s verrà ripreso "
+                  "al prossimo tick", exc.code,
+                  getattr(exc, "details", None) or "-", today)
+        return TickResult(reason=exc.code)
 
     # --- 3b. prenotazione dei promemoria e invio ---
     with engine.connect() as conn:
@@ -371,16 +400,21 @@ def _attempt_delivery(conn: Connection, engine: Engine, delivery, *, notif: dict
         # Ritentativo: le voci si ricompongono dai promemoria agganciati alla
         # consegna, non si rivaluta l'inventario. Rivalutarlo produrrebbe un
         # digest diverso sotto lo stesso `Message-ID`.
-        rebuilt = _rebuild_selection(conn, delivery.id, notif, today)
-        if rebuilt is None:
-            # Proiezione non attuale: il ritentativo si RINVIA. Si torna prima di
-            # `mark_attempt_started`, quindi il tentativo non è consumato e il
-            # `Message-ID` resta quello di sempre — un ritentativo rinviato non deve
-            # costare uno dei cinque tentativi per un guasto che non è del relay.
-            log.error("proiezione non attuale: ritentativo della consegna %d "
-                      "rinviato", delivery.id)
-            return TickResult(reason="projection_not_current")
-        selected = rebuilt
+        try:
+            selected = _rebuild_selection(conn, delivery.id, notif, today)
+        except (NotBootstrappedError, ProjectionNotCurrentError,
+                ProjectionInconsistentError) as exc:
+            # Il ritentativo si RINVIA, col codice che dice quale riparazione serve. Si
+            # torna prima di `mark_attempt_started`, quindi il tentativo NON è
+            # consumato e il `Message-ID` resta quello di sempre — i cinque tentativi
+            # esistono per un relay guasto, non per una proiezione da ricostruire.
+            #
+            # ⚠ E la consegna NON si chiude. Chiuderla marcherebbe come inviati dei
+            # promemoria che nessuno ha ricevuto: è la ragione per cui «non lo so» deve
+            # restare distinto da «non c'è più niente da mandare» (elenco vuoto).
+            log.error("%s: ritentativo della consegna %d rinviato senza consumare "
+                      "un tentativo", exc.code, delivery.id)
+            return TickResult(reason=exc.code)
         if not selected:
             rem.mark_sent(conn, delivery.id, now_utc)
             return TickResult(ran=True, reason="retry_empty")
@@ -425,7 +459,7 @@ def _attempt_delivery(conn: Connection, engine: Engine, delivery, *, notif: dict
 
 
 def _rebuild_selection(conn: Connection, delivery_id: int, notif: dict,
-                       today: date) -> list[dict] | None:
+                       today: date) -> list[dict]:
     """Ricostruisce le voci di un digest da ritentare dai promemoria agganciati.
 
     L'inventario si rilegge solo per recuperare i nomi: identità, tipo, data e
@@ -439,14 +473,15 @@ def _rebuild_selection(conn: Connection, delivery_id: int, notif: dict,
     promemoria si ricompone solo se quel dispositivo ha ANCORA quella data per quel
     tipo. Se qualcuno ha corretto la garanzia, la voce esce — come prima.
 
-    Tre risultati distinti, e la distinzione è necessaria:
+    Due esiti e una eccezione, e la distinzione fra il secondo e la terza è quella che
+    conta:
 
       - una lista PIENA: si può comporre il digest;
-      - una lista VUOTA: i promemoria non hanno più un riscontro nell'inventario, la
-        consegna si chiude;
-      - `None`: non si sa, perché la proiezione non rispecchia la testa. Non è «vuoto»
-        — chiudere la consegna qui vorrebbe dire marcare come inviati promemoria che
-        nessuno ha ricevuto (§13 della fase 2F).
+      - una lista VUOTA: i promemoria non hanno più un riscontro nell'inventario — il
+        dispositivo è stato cancellato, o la data corretta — e la consegna si chiude;
+      - **solleva** se la proiezione non è utilizzabile. Non è «vuoto»: chiudere la
+        consegna in quel caso marcherebbe come inviati dei promemoria che nessuno ha
+        ricevuto. Chi chiama traduce l'eccezione in un rinvio, conservandone il codice.
     """
     from app.notifications.expiry import DueItem
 
@@ -458,12 +493,15 @@ def _rebuild_selection(conn: Connection, delivery_id: int, notif: dict,
     # connessioni insieme, e nel worker non c'è il rischio di stallo che nell'API ha
     # imposto due pool (un processo, un giro alla volta). Il ragionamento è in testa a
     # `app/db.py`.
-    try:
-        with read_snapshot() as snap:
-            context = candidates.context_by_key(
-                snap, [str(r["entity_uid"]) for r in rows])
-    except (NotBootstrappedError, ProjectionNotCurrentError):
-        return None
+    # ⚠ Le eccezioni della proiezione NON si catturano qui: si lasciano salire a
+    # `_attempt_delivery`, che le traduce in un rinvio. Catturarle qui avrebbe
+    # significato restituire un `None` muto, e con esso perdere QUALE delle tre
+    # condizioni ha fallito — cioè il codice che dice all'operatore quale comando
+    # esegue la riparazione. La prima stesura faceva così e il rinvio veniva
+    # registrato come `projection_unusable`, un nome che non è il rimedio di niente.
+    with read_snapshot() as snap:
+        context = candidates.context_by_key(
+            snap, [str(r["entity_uid"]) for r in rows])
 
     out: list[dict] = []
     for r in rows:

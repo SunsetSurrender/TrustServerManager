@@ -409,8 +409,47 @@ e transitori:
 
 | `detail` | significa | cosa fare |
 |---|---|---|
-| `projection_not_current` | la proiezione non rispecchia la testa | `project.py --rebuild` (§3.8) |
+| `projection_not_current` | la proiezione non rispecchia la testa: dichiara una versione vecchia, o nessuna, o una mappa che non gira più | `project.py --rebuild` (§3.8) |
+| `projection_inconsistent` | la proiezione **dichiara il vero ma le righe non corrispondono**: le colonne non sono coerenti con la versione che lo stato afferma | ⚠ **indagare prima di ricostruire** — vedi sotto |
 | `inventory_moved` | qualcuno ha salvato l'inventario mentre il worker calcolava | niente: ricalcola al tick dopo |
+
+⚠ **I due codici della proiezione non si trattano allo stesso modo.**
+
+`projection_not_current` è quasi sempre operativo: un aggiornamento in cui il passo
+`--rebuild` non è stato eseguito. Si ricostruisce e si va avanti.
+
+`projection_inconsistent` è diverso, e la differenza vale un minuto di attenzione: nessun
+percorso dell'applicazione può produrlo — la fase 2C dimostra il giro completo dentro la
+transazione di ogni scrittura — quindi la causa è **fuori** dall'applicazione. Un `UPDATE`
+fatto a mano, un ripristino parziale, un guasto del supporto. Ricostruire funziona e
+**cancella la traccia**: la domanda «perché era incoerente» non si potrà più fare. Quindi,
+nell'ordine:
+
+```bash
+# 1. cosa dice la verifica, in dettaglio (sola lettura, non ripara niente)
+docker compose run --rm migrate python scripts/project.py --verify
+
+# 2. una copia dello stato attuale, prima di toccarlo
+docker compose exec -T db pg_dump -U tsm -t 'inventory_*' tsm > /srv/tsm-data/incoerenza-$(date +%F).sql
+
+# 3. solo allora
+docker compose run --rm migrate python scripts/project.py --rebuild
+```
+
+Il worker non manda niente in nessuno dei due casi, e in nessuno dei due perde la giornata.
+
+⚠ **Perché il worker valida il modello** (§8.47.4). Le colonne `garanzia_date` e
+`supporto_date` sono *derivate*: non tornano nel documento, quindi non entrano nel digest.
+Azzerarne una a mano lascia versione e digest identici — la proiezione si dichiara attuale e
+lo è, per quanto quel controllo può misurare — e il worker non troverebbe quella scadenza:
+nessun avviso, giro concluso «niente da fare», battito verde. Un sistema di allerta che non
+allerta e si dichiara sano. La validazione del modello è l'unica cosa che lo vede, e per
+questo gira a ogni giro anche se costa una lettura completa della proiezione (≈14 ms alla
+scala di produzione, ≈420 ms a trenta volte quella scala — una volta al giorno).
+
+Un valore non interpretabile come data — `garanzia: "da verificare"` — è un **avviso**, non un
+errore: non blocca niente. Se bloccasse, un campo compilato male su un dispositivo spegnerebbe
+gli avvisi di tutti gli altri.
 
 Il secondo esiste perché un avviso calcolato su una revisione superata annuncerebbe una
 scadenza che qualcuno ha appena corretto. È raro — richiede un salvataggio nei
@@ -796,7 +835,7 @@ df --output=pcent /srv/tsm-data | tail -1
 #    processo gira e vede il database, e il battito dice il vero. Ma nessun avviso
 #    parte. Il segnale è nel campo `detail`, e serve un controllo suo — altrimenti
 #    le scadenze smettono di essere comunicate senza che niente lo dica.
-docker compose exec -T worker python scripts/worker_health.py --json   | grep -q projection_not_current   && alert "TSM: proiezione non attuale, nessun avviso di scadenza parte -> project.py --rebuild"
+docker compose exec -T worker python scripts/worker_health.py --json   | grep -qE 'projection_(not_current|inconsistent)'   && alert "TSM: proiezione non utilizzabile, nessun avviso di scadenza parte (vedi §3.6)"
 
 # 6. c'è un giro rimasto aperto da più di un'ora?  (§8.47)
 #    Un giro aperto è NORMALE per qualche minuto (viene ripreso al tick dopo). Se

@@ -366,6 +366,63 @@ print(run_once(get_engine(), now_utc=datetime.now(timezone.utc)))"
 Un giro già eseguito oggi risponde `already_ran_today` e non manda niente: la
 protezione è nel database, non nella memoria del processo.
 
+#### Il worker legge la proiezione relazionale (§8.47)
+
+Dalla fase 2F le scadenze non vengono più dal documento JSON: vengono dalle colonne
+`garanzia_date` / `supporto_date` delle tabelle normalizzate. **La conseguenza
+operativa è una sola, e va conosciuta prima di vederla:**
+
+> se la proiezione non rispecchia la testa, **il worker non manda niente**, e lo dice.
+
+Non è un guasto del worker ed è la stessa condizione che fa rispondere 503 all'API. Il
+rimedio è lo stesso, ed è in §3.8: `project.py --rebuild`.
+
+Come si riconosce:
+
+```bash
+docker compose exec -T worker python scripts/worker_health.py --json
+# {"healthy": true, "state": "running", "detail": "projection_not_current (due=0, sent=0)", ...}
+
+docker compose logs worker | grep proiezione
+# ERROR ... proiezione non attuale (...): nessun avviso inviato,
+#           il giro di 2026-08-20 verrà ripreso al prossimo tick
+```
+
+⚠ **Il worker resta `healthy`.** Il battito dice «il processo gira e vede il database»,
+che è vero; il problema è nell'inventario, non nel worker. Il segnale da guardare è il
+campo `detail`, e per questo va nel monitoraggio (vedi §5, «Controlli di monitoraggio»).
+
+⚠ **La giornata NON è persa.** Il giro di oggi resta *aperto* nel registro
+`scheduler_runs`, quindi appena la proiezione è riparata il tick successivo — entro
+cinque minuti — rifà il giro di oggi e manda gli avvisi. Non serve nessun comando, e
+non serve aspettare domani.
+
+```sql
+-- il giro di oggi è aperto o concluso?
+SELECT run_date, started_at, finished_at, outcome FROM scheduler_runs
+ ORDER BY run_date DESC LIMIT 5;
+-- finished_at NULL = verrà ripreso
+```
+
+Altri due esiti nuovi che si possono leggere nel `detail` del battito, entrambi normali
+e transitori:
+
+| `detail` | significa | cosa fare |
+|---|---|---|
+| `projection_not_current` | la proiezione non rispecchia la testa | `project.py --rebuild` (§3.8) |
+| `inventory_moved` | qualcuno ha salvato l'inventario mentre il worker calcolava | niente: ricalcola al tick dopo |
+
+Il secondo esiste perché un avviso calcolato su una revisione superata annuncerebbe una
+scadenza che qualcuno ha appena corretto. È raro — richiede un salvataggio nei
+millisecondi giusti — e si risolve da sé.
+
+⚠ **Il worker non passa dall'API.** Legge il database direttamente, con il proprio
+ruolo `tsm_worker` e in sola lettura sull'inventario. Non chiama
+`GET /api/inventory/expiries`: quell'endpoint serve l'interfaccia e ha una semantica
+sua — elenca gli scaduti e salta i dismessi, il worker fa l'opposto (§8.48). Se un
+giorno i numeri della vista Scadenze e quelli di un avviso non tornano, **non è un
+difetto**: è quella differenza, ed è registrata.
+
 ### 3.7 Manutenzione: garbage collection delle foto
 
 Lo stesso processo `worker` esegue anche la raccolta delle foto orfane (§8.5), ma
@@ -733,6 +790,19 @@ curl -fsk https://tsm-prd-01/api/ready >/dev/null || alert "TSM: not ready"
 
 # 4. occupazione (vedi soglie sotto)
 df --output=pcent /srv/tsm-data | tail -1
+
+# 5. il worker sta MANDANDO, non solo girando?  (§8.47)
+#    ⚠ Il controllo 0 resta verde se la proiezione non rispecchia la testa: il
+#    processo gira e vede il database, e il battito dice il vero. Ma nessun avviso
+#    parte. Il segnale è nel campo `detail`, e serve un controllo suo — altrimenti
+#    le scadenze smettono di essere comunicate senza che niente lo dica.
+docker compose exec -T worker python scripts/worker_health.py --json   | grep -q projection_not_current   && alert "TSM: proiezione non attuale, nessun avviso di scadenza parte -> project.py --rebuild"
+
+# 6. c'è un giro rimasto aperto da più di un'ora?  (§8.47)
+#    Un giro aperto è NORMALE per qualche minuto (viene ripreso al tick dopo). Se
+#    resta aperto, la causa non si sta risolvendo da sé.
+docker compose exec -T db psql -U tsm -tAc   "SELECT count(*) FROM scheduler_runs
+    WHERE finished_at IS NULL AND started_at < now() - interval '1 hour'"   | grep -qx 0 || alert "TSM: giro delle notifiche aperto da oltre un'ora"
 ```
 
 ---

@@ -563,14 +563,27 @@ check("i vani restano JSONB e non una tabella",
 #:     restituire l'istantanea immutabile — che è il controllo che un test di
 #:     comportamento non sa fare, perché un ripiego sul JSON produrrebbe la risposta
 #:     giusta proprio nei casi in cui è sbagliato averla.
+#:   - `app/notifications/candidates.py` e `worker.py`, dalla fase 2F: lo scanner
+#:     delle scadenze prende i candidati dalla proiezione (§8.47). Sono DUE moduli e
+#:     non uno perché il worker orchestra (snapshot, guardia sulla revisione, esiti)
+#:     e `candidates` interroga: tenere l'interrogazione in un modulo suo è ciò che
+#:     rende possibile il controllo statico «la sorgente non filtra i dismessi».
+#:
+#: ⚠ ALLARGATO nella fase 2F. Fino alla 2E l'elenco diceva «lo scheduler delle
+#: notifiche no», ed era giusto: il worker leggeva il documento. Adesso è un lettore
+#: legittimo, e l'elenco lo registra invece di essere aggirato — la differenza fra un
+#: controllo che accompagna le decisioni e uno che qualcuno finisce per cancellare.
 READINESS = ROOT / "backend" / "app" / "api" / "health.py"
 INVENTORY_ROUTE = ROOT / "backend" / "app" / "api" / "inventory.py"
+WORKER_SOURCE = ROOT / "backend" / "app" / "notifications" / "candidates.py"
+WORKER_LOOP = ROOT / "backend" / "app" / "notifications" / "worker.py"
+CONSUMERS_ALLOWED = (READINESS, INVENTORY_ROUTE, WORKER_SOURCE, WORKER_LOOP)
 CONSUMERS_FORBIDDEN = [
     p for p in (
         sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
         + sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py"))
         + [ROOT / "backend" / "app" / "main.py"]
-    ) if p not in (READINESS, INVENTORY_ROUTE)
+    ) if p not in CONSUMERS_ALLOWED
 ]
 
 consumatori = []
@@ -581,9 +594,14 @@ for path in CONSUMERS_FORBIDDEN:
     for table in NORMALISED_TABLES:
         if table in source:
             consumatori.append(f"{path.name}: nomina {table}")
-check("solo la rotta dell'inventario e la readiness raggiungono la proiezione",
+check("solo i quattro lettori dichiarati raggiungono la proiezione",
       not consumatori,
-      f"lo scheduler delle notifiche, l'avvio e le altre rotte no: {consumatori}")
+      f"la readiness, il `GET`, e dalla 2F i due moduli del worker. L'avvio e le "
+      f"altre rotte no: {consumatori}")
+check("i quattro lettori dichiarati la raggiungono davvero",
+      all("projection" in code_only(p) for p in CONSUMERS_ALLOWED),
+      "un elenco di eccezioni che contiene un file che non le userebbe mai è un "
+      "elenco che si allarga senza che nessuno se ne accorga")
 
 # --- la readiness: può chiedere lo STATO, non può ricostruire ---
 readiness_src = code_only(READINESS)
@@ -1214,10 +1232,16 @@ check("la 0012 non è una migrazione di dati",
 inventory_route = code_only(INVENTORY_ROUTE)
 worker_sources = "".join(
     code_only(p) for p in sorted((ROOT / "backend" / "app" / "notifications").rglob("*.py")))
-check("lo scanner delle scadenze non è passato alle colonne derivate",
-      "garanzia_date" not in worker_sources and "supporto_date" not in worker_sources,
-      "sarebbe una decisione da prendere di proposito, con i suoi test, non un "
-      "effetto collaterale della fase 2C")
+# ⚠ ROVESCIATO nella fase 2F. Diceva: «lo scanner delle scadenze non è passato alle
+# colonne derivate», e nella 2C e nella 2D era la verifica giusta — il passaggio non
+# doveva essere un effetto collaterale. Adesso è avvenuto, di proposito e col suo
+# commit (§8.47), quindi la domanda utile si è invertita: le colonne derivate esistono
+# perché QUALCUNO le usi, e la 2C le aveva create per questo. Un controllo che
+# pretendesse ancora il contrario terrebbe in vita una decisione già presa.
+check("le colonne data derivate della 2C hanno trovato il loro lettore",
+      "garanzia_date" in worker_sources and "supporto_date" in worker_sources,
+      "erano state introdotte nella 2C senza nessun lettore, e un dato che nessuno "
+      "legge è un dato che si scopre sbagliato tardi. Dalla 2F le legge il worker")
 check("nessun endpoint di query è stato aggiunto",
       not [p.name for p in sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
            if "query" in p.name or "search" in p.name],
@@ -1372,8 +1396,15 @@ check("il pacchetto inventory continua a NON riesportare `projection`",
 # cercare `isolation_level="REPEATABLE READ"` falliva perché la ricostruzione scrive
 # gli apici singoli. È la trappola documentata in `code_only`, e ci sono cascato di
 # nuovo — quindi vale la pena che resti scritto accanto al controllo.
-snapshot_fn = function_source(ROOT / "backend" / "app" / "api" / "deps.py",
-                             "snapshot_connection")
+#: ⚠ SPOSTATO nella fase 2F: l'isolamento non si dichiara più nella dipendenza
+#: FastAPI ma in `db.read_snapshot`, perché i lettori della proiezione sono diventati
+#: due processi (l'API e il worker) e due dichiarazioni divergono in silenzio. La
+#: dipendenza resta, e resta controllata: è il pezzo che l'API ha in più, cioè il ciclo
+#: di vita legato alla richiesta.
+snapshot_fn = function_source(ROOT / "backend" / "app" / "db.py",
+                              "read_snapshot")
+snapshot_dep = function_source(ROOT / "backend" / "app" / "api" / "deps.py",
+                               "snapshot_connection")
 check("la lettura ha una connessione dedicata in REPEATABLE READ, READ ONLY",
       "isolation_level=" in snapshot_fn and "REPEATABLE READ" in snapshot_fn
       and "postgresql_readonly=True" in snapshot_fn,
@@ -1455,10 +1486,13 @@ check("la verifica controlla anche l'ORACOLO, non solo l'imputato",
       "digest passerebbe una verifica che non guarda il giudice")
 
 # --- ciò che la fase 2D NON fa ---
-check("lo scanner delle scadenze continua a leggere il documento",
-      "garanzia_date" not in worker_sources and "supporto_date" not in worker_sources,
-      "il passaggio del worker alle colonne derivate è una decisione da prendere di "
-      "proposito, con i suoi test, non un effetto collaterale della 2D")
+# ⚠ ROVESCIATO nella fase 2F, come il gemello della §14. Adesso il worker NON deve
+# più leggere il documento, e questo è il controllo che lo pretende.
+check("lo scanner del worker non legge più l'istantanea immutabile",
+      "get_current" not in worker_sources
+      and "InventoryRepository" not in worker_sources,
+      "dalla 2F la sorgente è la proiezione (§8.47); un ripiego sul documento "
+      "coprirebbe il difetto di coerenza che la fase 2 esiste per scoprire")
 check("non è stato aggiunto nessun endpoint di ricerca o di capacità",
       not [p.name for p in sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
            if any(t in p.name for t in ("query", "search", "capacity", "expiry"))],
@@ -1695,12 +1729,16 @@ check("il generatore contiene davvero quegli algoritmi",
       f"{[f[:60] for f in mancanti_gen]}")
 
 # --- ciò che la fase 2E NON fa ---
-check("il worker delle notifiche non è passato a SQL",
-      all(t not in worker_sources for t in ("garanzia_date", "supporto_date",
-                                            "inventory_devices", "queries."))
-      and "walk(" in worker_sources or "devices_with_expiries" in worker_sources,
-      "resta il suo scanner del documento (§19): il passaggio è un commit isolato, con "
-      "queste stesse fixture di parità")
+# ⚠ ROVESCIATO nella fase 2F: era «il worker delle notifiche non è passato a SQL»,
+# cioè la delimitazione della 2E. Il commit isolato che quel commento annunciava è la
+# 2F, ed è avvenuto. Ciò che resta da sorvegliare è che il worker non sia passato
+# all'ENDPOINT — che è una cosa diversa e sbagliata (§8.48).
+check("il worker non usa le interrogazioni interattive come sorgente",
+      all(t not in worker_sources
+          for t in ("app.inventory.queries", "queries.expiries", "httpx",
+                    "urllib")),
+      "l'endpoint riproduce la vista Scadenze, che sui dismessi e sugli scaduti non è "
+      "d'accordo con lo scanner: usarlo cambierebbe la semantica degli avvisi (§8.48)")
 check("il frontend non è stato ricablato alle rotte nuove",
       all(t not in handoff + frontend_app
           for t in ("/api/inventory/search", "/api/inventory/capacity",
@@ -1717,6 +1755,139 @@ check("nessuna migrazione nuova per la fase 2E",
       "le misure non giustificano nessun indice nuovo: le chiavi esterne e le date "
       "sono già indicizzate, e la ricerca è una sottostringa che nessun btree serve "
       "(§8.46.1)")
+
+# ==================================================================
+# 17. fase 2F: il worker legge la proiezione, e SOLO la sorgente e' cambiata (§8.47)
+# ==================================================================
+#
+# I test di parità in `test_worker_sql_pg.py` provano che la sorgente nuova risponde
+# come `due_items(doc)`, e i 53 test di `test_worker_pg.py` — non modificati — provano
+# che la consegna non è cambiata. Qui si copre ciò che nessuno dei due vede: che il
+# ripiego sul documento non sia rientrato da una porta laterale, che l'isolamento sia
+# dichiarato in un posto solo, che non siano comparsi privilegi nuovi per il worker, e
+# che l'endpoint interattivo e lo scanner siano rimasti due cose distinte.
+
+CANDIDATES = ROOT / "backend" / "app" / "notifications" / "candidates.py"
+WORKER = ROOT / "backend" / "app" / "notifications" / "worker.py"
+EXPIRY = ROOT / "backend" / "app" / "notifications" / "expiry.py"
+candidates_src = code_only(CANDIDATES)
+worker_src = code_only(WORKER)
+expiry_src = code_only(EXPIRY)
+
+check("esiste un modulo dedicato alla sorgente dei candidati",
+      CANDIDATES.is_file() and "def due_items_from_projection(" in candidates_src,
+      "sta in `app/notifications/` e non in `app/inventory/queries.py`: quel modulo ha "
+      "la semantica della vista Scadenze, e condividerne un pezzo e' l'inizio di "
+      "condividerne il resto (§8.48)")
+check("la sorgente legge le colonne DERIVATE e non il testo grezzo",
+      "garanzia_date" in candidates_src and "supporto_date" in candidates_src,
+      "le ha scritte `parse_expiry`, cioe' lo stesso parser che il worker riconosce: "
+      "interpretare qui il testo significherebbe due idee di «data valida»")
+check("nessun secondo interprete di date nella sorgente",
+      all(t not in candidates_src
+          for t in ("to_date(", "strptime", "fromisoformat", "re.compile")),
+      "una seconda idea di data diverge dalla prima, e diverge sui casi limite — che "
+      "sono esattamente quelli che un inventario compilato a mano produce")
+check("lo scanner puro e' rimasto puro",
+      all(t not in expiry_src for t in ("garanzia_date", "supporto_date",
+                                        "inventory_devices", "sqlalchemy",
+                                        "Connection")),
+      "`due_items` e' l'ORACOLO della parita': se leggesse le stesse colonne "
+      "dell'implementazione nuova, il confronto sarebbe con se' stessa")
+
+# --- nessun filtro della vista Scadenze nella sorgente del worker ---
+check("la sorgente non filtra i dispositivi dismessi",
+      "dismesso" not in candidates_src,
+      "`due_items` scorre `walk(doc)` e non guarda `stato`: una macchina dismessa con "
+      "la garanzia in scadenza ha sempre prodotto un promemoria. Aggiungere qui il "
+      "filtro della vista sarebbe una modifica di PRODOTTO travestita da migrazione")
+check("la sorgente interroga una finestra, non tutta la tabella",
+      "until" in candidates_src and "timedelta" in candidates_src,
+      "leggere tutte le date e scartarle in Python avrebbe ricreato la scansione del "
+      "documento, cioe' reso inutile la migrazione (§3 della fase 2F)")
+check("i due rami sono uniti con UNION ALL e non con un OR",
+      "UNION ALL" in candidates_src,
+      "con un `OR` fra le due colonne data PostgreSQL non puo' usare nessuno dei due "
+      "indici parziali e scandisce la tabella")
+
+# --- il controllo di coerenza, e il fallire chiuso ---
+check("la sorgente pretende una proiezione attuale",
+      "require_current_head" in candidates_src,
+      "le quattro condizioni della §4 in un posto solo, condiviso con il `GET` e con "
+      "le tre interrogazioni")
+check("nessun ripiego sull'istantanea in nessun modulo del worker",
+      all(t not in worker_sources for t in ("get_current", "InventoryRepository",
+                                            "inventory_versions")),
+      "il ripiego funzionerebbe, nessuno aprirebbe un ticket, e il difetto di "
+      "coerenza resterebbe invisibile (§8.45)")
+check("«proiezione non attuale» non conclude il giro",
+      "projection_not_current" in worker_src,
+      "concludere il giro con un esito farebbe rispondere `already_ran_today` fino a "
+      "mezzanotte, cioe' perderebbe la giornata invece di riprovare al tick dopo")
+check("la revisione dei candidati si ricontrolla prima di prenotare",
+      "unchanged" in worker_src and "inventory_moved" in worker_src,
+      "fra lo snapshot e la transazione che scrive un `PUT` puo' cambiare tutto, e un "
+      "avviso su una revisione che non esiste piu' annuncia una scadenza corretta")
+check("il controllo della revisione non blocca la testa",
+      "FOR UPDATE" not in candidates_src,
+      "un lock sulla riga di testa resterebbe preso per tutta la consegna SMTP, cioe' "
+      "per un timeout di rete, fermando i salvataggi di tutti")
+
+# --- una sola dichiarazione dell'isolamento ---
+_iso = [f"{q.name}:{r.strip()}"
+        for q in sorted((ROOT / "backend" / "app").rglob("*.py"))
+        for r in q.read_text(encoding="utf-8-sig").splitlines()
+        if "isolation_level=" in r and not r.strip().startswith("#")]
+check("`REPEATABLE READ` si dichiara in UN posto solo",
+      len(_iso) == 1 and _iso[0].startswith("db.py:"),
+      "dalla 2F i lettori della proiezione sono due processi — l'API e il worker — e "
+      f"due dichiarazioni dello stesso isolamento divergono in silenzio: {_iso}")
+check("il worker usa lo snapshot condiviso e non un giro suo",
+      "read_snapshot" in worker_src and "read_snapshot" in code_only(
+          ROOT / "backend" / "app" / "api" / "deps.py"),
+      "la stessa funzione per l'API e per il worker: e' cio' che tiene una sola verita' "
+      "sull'isolamento")
+
+# --- privilegi: nessuna concessione nuova ---
+_migrazioni = sorted((ROOT / "backend" / "migrations" / "versions").glob("*.py"))
+check("nessuna migrazione nuova per la fase 2F",
+      not any(m.name.startswith("0013") for m in _migrazioni),
+      "il ruolo del worker aveva gia' tutte le `SELECT` che gli servono (0009 per la "
+      "testa e le versioni, 0010 per le tabelle, 0011 per lo stato, 0012 ribadite): "
+      "la 2F verifica quel fatto con una matrice di privilegi, non lo cambia")
+check("le REVOKE che tengono il worker in sola lettura sono ancora scritte",
+      all(t in (ROOT / "backend" / "migrations" / "versions" /
+                "0012_dual_write.py").read_text(encoding="utf-8")
+          for t in ("REVOKE INSERT, UPDATE, DELETE, TRUNCATE", "WORKER_ROLE")),
+      "il worker manda avvisi: non ha nessun motivo per riscrivere la proiezione che "
+      "sta leggendo, e quelle righe sono cio' che un diff mostra accanto a chi provasse")
+
+# --- l'endpoint e lo scanner restano due cose ---
+check("l'endpoint delle scadenze non e' stato piegato alla semantica del worker",
+      "dismesso" in queries_src and "expired" in queries_src,
+      "la vista Scadenze salta i dismessi ed elenca gli scaduti; il worker fa il "
+      "contrario. Riconciliarli e' una decisione di prodotto, non di questo commit")
+check("il registro del debito semantico esiste ed e' separato",
+      "8.48" in (ROOT / "BACKEND-PLAN.md").read_text(encoding="utf-8"),
+      "le incoerenze scoperte nella 2E vanno risolte di proposito prima di migrare il "
+      "frontend, non scoperte una seconda volta da chi lo migra (§15 della fase 2F)")
+
+# --- cio' che la fase 2F NON fa ---
+check("il frontend non e' stato ricablato dalla 2F",
+      all(t not in handoff + frontend_app
+          for t in ("/api/inventory/search", "/api/inventory/capacity",
+                    "/api/inventory/expiries")),
+      "la migrazione del frontend e' un commit suo, e va fatta dopo aver risolto le "
+      "incoerenze del registro")
+check("la readiness non guarda lo stato del worker",
+      all(t not in code_only(ROOT / "backend" / "app" / "api" / "health.py")
+          for t in ("scheduler_runs", "worker_heartbeat", "reminder_deliveries")),
+      "la salute del worker e' un problema di monitoraggio suo, con il suo battito e "
+      "il suo healthcheck (§14 della fase 2F)")
+check("nessuna semantica delle scadenze e' stata riconciliata",
+      "in dismissione" not in candidates_src and "level" not in candidates_src,
+      "la sorgente del worker non conosce i livelli della vista: se li conoscesse, "
+      "qualcuno avrebbe cominciato a fonderle")
 
 
 if __name__ == "__main__":

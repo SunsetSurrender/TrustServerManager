@@ -27,7 +27,7 @@ from app.auth.service import (
     NotAuthenticated,
     resolve_session,
 )
-from app.db import get_engine, get_read_engine
+from app.db import get_engine, read_snapshot
 from app.inventory import Actor
 
 SESSION_COOKIE = "tsm_session"
@@ -103,15 +103,15 @@ def snapshot_connection() -> Iterator[Connection]:
     trenta secondi e poi scade. Il ragionamento completo, con i numeri, è in testa a
     `app/db.py`, e c'è un test che lo DIMOSTRA facendo fallire un `GET` con un pool
     solo.
+
+    ⚠ Dalla fase 2F l'isolamento NON si dichiara qui: lo dichiara `db.read_snapshot`,
+    perché i lettori della proiezione sono diventati due processi — l'API e il worker
+    delle notifiche (§8.47) — e due dichiarazioni dello stesso isolamento divergono in
+    silenzio. Questa resta la *dipendenza FastAPI*, cioè il pezzo che l'API ha in più:
+    il ciclo di vita legato alla richiesta. Il resto è comune.
     """
-    engine = get_read_engine()
-    conn = engine.connect().execution_options(
-        isolation_level="REPEATABLE READ", postgresql_readonly=True)
-    try:
-        with conn.begin():
-            yield conn
-    finally:
-        conn.close()
+    with read_snapshot() as conn:
+        yield conn
 
 
 def get_snapshot_reader() -> Callable[[], ContextManager[Connection]]:

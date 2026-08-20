@@ -756,19 +756,34 @@ def test_a_sql_date_query_agrees_with_the_expiry_scanner(db, engine):
     }
 
 
-def test_the_notification_worker_still_reads_the_document(db, engine):
-    """Il passaggio dello scanner a SQL NON è in questo commit (§8.44).
+def test_the_pure_scanner_stays_pure(db, engine):
+    """`expiry.py` non conosce il database, e questo NON è cambiato con la fase 2F.
 
-    Un controllo statico sul modulo: se un giorno lo scanner leggesse
-    `garanzia_date`, sarebbe una decisione da prendere di proposito — con i suoi test
-    — non un effetto collaterale della fase 2C.
+    ⚠ Questo test si chiamava `test_the_notification_worker_still_reads_the_document`
+    e voleva essere un allarme: «se un giorno lo scanner leggesse `garanzia_date`,
+    sarebbe una decisione presa di proposito». Nella fase 2F il worker è passato alle
+    colonne derivate e l'allarme **non è suonato**, perché la migrazione non ha
+    cambiato `expiry.py`: le ha girato attorno, mettendo la nuova sorgente in
+    `candidates.py`. Un controllo statico su un modulo non sorveglia il
+    comportamento di un altro.
+
+    Quello che il test può ancora provare, e che vale la pena provare, è che
+    `expiry.py` è rimasto PURO: nessun database, nessuna colonna, nessun SQL. È la
+    proprietà che lo rende utilizzabile come oracolo della parità in
+    `test_worker_sql_pg.py` — un oracolo che leggesse le stesse tabelle
+    dell'implementazione nuova non dimostrerebbe niente.
+
+    Che il worker legga davvero la proiezione lo prova `test_worker_sql_pg.py`
+    corrompendo le colonne e pretendendo che il digest cambi: un fatto sul
+    comportamento, provato dal comportamento.
     """
     from pathlib import Path as _Path
 
     import app.notifications.expiry as expiry_module
     sorgente = _Path(expiry_module.__file__).read_text(encoding="utf-8")
-    assert "garanzia_date" not in sorgente
-    assert "inventory_devices" not in sorgente
+    for vietato in ("garanzia_date", "supporto_date", "inventory_devices",
+                    "SELECT", "Connection", "sqlalchemy"):
+        assert vietato not in sorgente,             f"expiry.py non deve conoscere il database: trovato {vietato!r}"
 
 
 # ==================================================================

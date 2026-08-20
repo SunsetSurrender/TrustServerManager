@@ -58,8 +58,11 @@ compare sotto carico. Chi tocca il numero di lavoratori deve ricalcolare, insiem
 Le misure della fase 2D (§8.45.1) non danno nessuna ragione per aumentarli: alla scala
 di produzione un `GET` costa 39 ms mediani, e il carico è una manciata di operatori.
 """
+from contextlib import contextmanager
+from typing import Iterator
+
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 from app.config import get_settings
 
@@ -101,6 +104,44 @@ def get_read_engine() -> Engine:
             connect_args={"connect_timeout": s.db_connect_timeout},
         )
     return _read_engine
+
+
+@contextmanager
+def read_snapshot() -> Iterator[Connection]:
+    """Uno SNAPSHOT stabile della proiezione: `REPEATABLE READ, READ ONLY`.
+
+    UNA sola dichiarazione dell'isolamento, e sta qui perché dalla fase 2F i lettori
+    sono DUE processi diversi: l'API (`GET /api/inventory` e le tre interrogazioni,
+    attraverso la dipendenza `api/deps.snapshot_connection`) e il **worker** delle
+    notifiche, che non ha richieste né dipendenze FastAPI. Dichiarare l'isolamento in
+    due posti li farebbe divergere, e divergerebbero in silenzio: una delle due
+    letture continuerebbe a funzionare sotto READ COMMITTED, e il difetto — un
+    documento o un insieme di candidati composto da due versioni — comparirebbe solo
+    quando qualcuno salva mentre qualcun altro legge.
+
+    Perché serve, in una riga: leggere la proiezione significa fare da cinque a otto
+    `SELECT` (testa, stato, siti, sale, rack, dispositivi, …), e sotto READ COMMITTED
+    ognuno vede un istante diverso del database. Il ragionamento completo, con le tre
+    ragioni per cui la connessione della richiesta non può essere usata per questo, sta
+    su `api/deps.snapshot_connection`.
+
+    ⚠ `get_read_engine()`, non `get_engine()`: nell'API un `GET` tiene due connessioni
+    insieme e prenderle dallo stesso pool è un'acquisizione a due fasi che si blocca
+    sotto carico. L'aritmetica è in testa a questo modulo. Nel worker il rischio non
+    esiste (un processo, un giro alla volta), ma il pool separato non costa niente e
+    usare la stessa funzione dei lettori dell'API è ciò che tiene una sola verità.
+
+    ⚠ La transazione comincia col primo statement, non con `BEGIN`: in REPEATABLE READ
+    lo snapshot si acquisisce alla prima lettura. Conta solo che tutte le letture
+    stiano DENTRO la stessa transazione.
+    """
+    conn = get_read_engine().connect().execution_options(
+        isolation_level="REPEATABLE READ", postgresql_readonly=True)
+    try:
+        with conn.begin():
+            yield conn
+    finally:
+        conn.close()
 
 
 def check_database() -> None:

@@ -47,7 +47,33 @@ orario proprio, e nessuna dipendenza da `notifications.enabled`. Spegnere gli
 avvisi non deve fermare la liberazione dello spazio, e un errore della GC non deve
 impedire un avviso di scadenza.
 
-Riferimento: BACKEND-PLAN.md §8.41, §8.5.
+Da dove arrivano le scadenze (fase 2F)
+--------------------------------------
+La SORGENTE dei candidati è la **proiezione relazionale**, interrogata sulle colonne
+data derivate; prima era il documento canonico letto e scorso in Python (§8.47).
+
+È cambiata **solo** quella. Soglia più urgente, soglie superate, identità del
+promemoria, idempotenza, ritentativi, `Message-ID`, cooldown, destinatari,
+`scheduler_runs`, audit: tutto dov'era. La fase 2F esiste per poter dire questa frase
+e provarla, ed è per questo che i test di consegna non sono stati riscritti — se il
+sistema di consegna fosse cambiato, sarebbero rossi.
+
+Due condizioni nuove, entrambe che fanno FALLIRE CHIUSO:
+
+  - la proiezione deve rispecchiare la testa. Se non lo fa, non parte nessun avviso e
+    il giro di oggi resta da riprendere. Nessun ripiego su `inventory_versions.doc`:
+    il ripiego funzionerebbe e coprirebbe il difetto di coerenza che la fase 2 esiste
+    per scoprire (§8.45);
+  - l'inventario deve essere ancora quello da cui vengono i candidati. Si legge in uno
+    snapshot, si ricontrolla nella transazione che scrive, e se è cambiato si rinvia.
+
+⚠ Il worker NON chiama `GET /api/inventory/expiries`. Quell'endpoint riproduce la
+**vista Scadenze**, che sui dismessi e sugli scaduti non è d'accordo con lo scanner
+(§8.48); e comunque un processo del backend che parla con sé stesso via HTTP si
+porterebbe dietro autenticazione, rete e stati di errore per leggere dal database su
+cui è già collegato.
+
+Riferimento: BACKEND-PLAN.md §8.41, §8.47, §8.5.
 """
 from __future__ import annotations
 
@@ -65,10 +91,11 @@ from sqlalchemy.engine import Connection, Engine
 from app.audit.sanitize import sanitize
 from app.auth.audit import RESULT_FAILURE, RESULT_SUCCESS, record_auth_event
 from app.config import get_settings as get_config
-from app.inventory.repository import InventoryRepository
+from app.db import read_snapshot
+from app.inventory.errors import NotBootstrappedError, ProjectionNotCurrentError
+from app.notifications import candidates
 from app.notifications import reminders as rem
 from app.notifications.digest import build_digest
-from app.notifications.expiry import due_items, local_today
 from app.notifications.smtp import SmtpNotConfigured, SmtpSendFailed, deliver
 from app.photos import gc as photo_gc
 from app.settings import copy_notifications
@@ -251,25 +278,62 @@ def run_once(engine: Engine, *, now_utc: datetime,
             if not rem.claim_run(conn, today, tz_name):
                 return TickResult(reason="already_ran_today")
 
-    # --- 3. valutazione dell'inventario e invio ---
+    # --- 3a. i candidati, da uno SNAPSHOT della proiezione ---
+    #
+    # Fase 2F (§8.47). La sorgente è la PROIEZIONE relazionale, non più
+    # `inventory_versions.doc`: si interroga la finestra utile sulle colonne data
+    # derivate invece di leggere il documento intero e scartare in Python. Ciò che
+    # viene dopo — precedenza fra soglie, identità, idempotenza, consegna — non è
+    # cambiato di una riga: è il punto dell'esercizio.
+    #
+    # Transazione SEPARATA da quella che scrive, e di sola lettura. Serve uno snapshot
+    # stabile perché la lettura è multipla (testa, stato, quattro tabelle) e un `PUT`
+    # che committa nel mezzo darebbe candidati di due versioni diverse.
+    try:
+        with read_snapshot() as snap:
+            found = candidates.due_items_from_projection(
+                snap, today=today, warning_days=notif["warningDays"])
+    except NotBootstrappedError:
+        with engine.begin() as conn:
+            rem.finish_run(conn, today, due=0, sent=0,
+                           outcome="inventory_not_bootstrapped")
+        return TickResult(ran=True, reason="inventory_not_bootstrapped",
+                          run_date=today)
+    except ProjectionNotCurrentError as exc:
+        # ⚠ «Proiezione non attuale» NON è «niente è dovuto», e la differenza è tutta
+        # qui: sono due stati operativi diversi e confonderli significherebbe
+        # dichiarare un giro riuscito senza aver guardato l'inventario. Quindi:
+        # nessun invio, nessun promemoria creato, nessuna soglia superata, e — questa
+        # è la riga che conta — **il giro NON si conclude**. La riga di
+        # `scheduler_runs` di oggi resta senza `finished_at`, che è esattamente lo
+        # stato che `claim_run` sa riprendere: appena la proiezione è riparata
+        # (`project.py --rebuild`), il tick successivo rifà il giro di oggi.
+        #
+        # Concluderlo con un esito «non attuale» sarebbe stato più ordinato da
+        # leggere e avrebbe perso la giornata: `claim_run` avrebbe risposto
+        # «already_ran_today» fino a mezzanotte.
+        log.error("proiezione non attuale (%s): nessun avviso inviato, "
+                  "il giro di %s verrà ripreso al prossimo tick",
+                  getattr(exc, "details", None) or exc.code, today)
+        return TickResult(reason="projection_not_current")
+
+    # --- 3b. prenotazione dei promemoria e invio ---
     with engine.connect() as conn:
         with conn.begin():
-            repo = InventoryRepository(conn)
-            if repo.head_version() is None:
-                rem.finish_run(conn, today, due=0, sent=0,
-                               outcome="inventory_not_bootstrapped")
-                return TickResult(ran=True, reason="inventory_not_bootstrapped",
-                                  run_date=today)
+            # ⚠ L'inventario è ancora quello da cui vengono i candidati? Fra lo
+            # snapshot e questa transazione c'è una finestra in cui un `PUT` può aver
+            # cambiato tutto, e un avviso calcolato su una revisione che non esiste
+            # più annuncia una scadenza che qualcuno ha appena corretto. Si abbandona
+            # senza mandare e senza concludere il giro: il tick successivo ricalcola.
+            if not candidates.unchanged(conn, version=found.version,
+                                        sha256=found.sha256):
+                log.info("inventario cambiato durante il calcolo dei candidati "
+                         "(revisione %s): giro di %s rinviato al prossimo tick",
+                         found.version, today)
+                return TickResult(reason="inventory_moved")
 
-            # Fase 1: si legge il DOCUMENTO canonico e si guardano i dispositivi
-            # in Python. Nessuna tabella di dispositivi in SQL: normalizzare qui
-            # sarebbe la fase 2, e cambierebbe la sorgente dei dati insieme alla
-            # semantica delle notifiche — due cose da provare separatamente.
-            doc = repo.get_current().doc
-            items = due_items(doc, today=today,
-                              warning_days=notif["warningDays"])
             selected = rem.register_and_select(
-                conn, items, warning_days=notif["warningDays"], now=now_utc)
+                conn, found.items, warning_days=notif["warningDays"], now=now_utc)
 
             if not selected:
                 rem.finish_run(conn, today, due=0, sent=0, outcome="nothing_due")
@@ -307,7 +371,16 @@ def _attempt_delivery(conn: Connection, engine: Engine, delivery, *, notif: dict
         # Ritentativo: le voci si ricompongono dai promemoria agganciati alla
         # consegna, non si rivaluta l'inventario. Rivalutarlo produrrebbe un
         # digest diverso sotto lo stesso `Message-ID`.
-        selected = _rebuild_selection(conn, delivery.id, notif, today)
+        rebuilt = _rebuild_selection(conn, delivery.id, notif, today)
+        if rebuilt is None:
+            # Proiezione non attuale: il ritentativo si RINVIA. Si torna prima di
+            # `mark_attempt_started`, quindi il tentativo non è consumato e il
+            # `Message-ID` resta quello di sempre — un ritentativo rinviato non deve
+            # costare uno dei cinque tentativi per un guasto che non è del relay.
+            log.error("proiezione non attuale: ritentativo della consegna %d "
+                      "rinviato", delivery.id)
+            return TickResult(reason="projection_not_current")
+        selected = rebuilt
         if not selected:
             rem.mark_sent(conn, delivery.id, now_utc)
             return TickResult(ran=True, reason="retry_empty")
@@ -352,25 +425,45 @@ def _attempt_delivery(conn: Connection, engine: Engine, delivery, *, notif: dict
 
 
 def _rebuild_selection(conn: Connection, delivery_id: int, notif: dict,
-                       today: date) -> list[dict]:
+                       today: date) -> list[dict] | None:
     """Ricostruisce le voci di un digest da ritentare dai promemoria agganciati.
 
-    Il documento si rilegge solo per recuperare i nomi: identità, tipo, data e
+    L'inventario si rilegge solo per recuperare i nomi: identità, tipo, data e
     soglia vengono dai promemoria, che sono la fonte autorevole. Se un
     dispositivo è stato cancellato dall'inventario nel frattempo, la sua voce
     esce dal digest ma il promemoria resta agganciato e viene chiuso col resto:
     non si manda un avviso su qualcosa che non esiste più.
+
+    Dalla fase 2F i nomi vengono dalla PROIEZIONE (§8.47), non dal documento, e la
+    chiave del confronto è rimasta la stessa tripla `(uid, tipo, data)`: un
+    promemoria si ricompone solo se quel dispositivo ha ANCORA quella data per quel
+    tipo. Se qualcuno ha corretto la garanzia, la voce esce — come prima.
+
+    Tre risultati distinti, e la distinzione è necessaria:
+
+      - una lista PIENA: si può comporre il digest;
+      - una lista VUOTA: i promemoria non hanno più un riscontro nell'inventario, la
+        consegna si chiude;
+      - `None`: non si sa, perché la proiezione non rispecchia la testa. Non è «vuoto»
+        — chiudere la consegna qui vorrebbe dire marcare come inviati promemoria che
+        nessuno ha ricevuto (§13 della fase 2F).
     """
-    from app.notifications.expiry import DueItem, devices_with_expiries
+    from app.notifications.expiry import DueItem
 
     rows = rem.reminders_of_delivery(conn, delivery_id)
     if not rows:
         return []
 
-    doc = InventoryRepository(conn).get_current().doc
-    context = {(uid, kind, d): (name, rack, room, loc)
-               for uid, kind, d, name, rack, room, loc
-               in devices_with_expiries(doc)}
+    # Snapshot proprio, preso mentre la transazione di scrittura è aperta: sono due
+    # connessioni insieme, e nel worker non c'è il rischio di stallo che nell'API ha
+    # imposto due pool (un processo, un giro alla volta). Il ragionamento è in testa a
+    # `app/db.py`.
+    try:
+        with read_snapshot() as snap:
+            context = candidates.context_by_key(
+                snap, [str(r["entity_uid"]) for r in rows])
+    except (NotBootstrappedError, ProjectionNotCurrentError):
+        return None
 
     out: list[dict] = []
     for r in rows:

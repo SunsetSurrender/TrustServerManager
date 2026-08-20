@@ -21,10 +21,14 @@ restituisce il documento riassemblato dalle tabelle, dentro uno snapshot
 tabelle normalizzate sono lo stato operativo corrente; l'istantanea JSONB immutabile
 resta la storia e il giudice della coerenza — non un ripiego automatico.
 
-Restano fuori dalla 2D, e non per dimenticanza: lo scheduler delle notifiche legge
-ancora il documento e non le colonne data derivate, non esiste nessun endpoint di
-ricerca, e il frontend non sa che la proiezione esista — il contratto del frontend è
-il documento (§8.22), e la 2D non lo cambia.
+⚠ Dalla fase 2F (§8.47) anche il **worker delle notifiche** legge la proiezione: i
+candidati alle scadenze vengono dalle colonne data derivate, dentro lo stesso snapshot
+`REPEATABLE READ, READ ONLY`, e non più da `inventory_versions.doc`. Il worker resta in
+SOLA LETTURA su tutto lo schema dell'inventario — non scrive la proiezione, non tocca
+le versioni — e i suoi privilegi lo impongono, non le sue buone intenzioni.
+
+Resta fuori, e non per dimenticanza: il frontend non sa che la proiezione esista — il
+contratto del frontend è il documento (§8.22), e nessuna fase della 2 lo cambia.
 
 ⚠ `projection` NON è riesportata qui, e continua a non esserlo. Riesportarla la
 renderebbe raggiungibile con un `from app.inventory import projection` scritto per

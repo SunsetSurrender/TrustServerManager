@@ -4760,6 +4760,388 @@ La §16 di `tools/storage-config-test.py` copre il negativo: `strpos` e non `LIK
 rotte di sola lettura senza parametri che nominino SQL o colonne, il worker non migrato,
 il frontend non ricablato, e nessuna migrazione nuova.
 
+### 8.47 Fase 2F: il worker delle notifiche legge la proiezione
+
+Cambia **una cosa sola**: da dove lo scanner delle scadenze prende i dati.
+
+    prima    inventory_versions.doc  →  due_items(doc)                →  promemoria
+    dopo     proiezione relazionale  →  candidates.due_items_from_…   →  promemoria
+                                                                          ↑
+                                                       identico, riga per riga
+
+Tutto ciò che sta a destra della freccia — soglia più urgente, soglie superate, identità
+del promemoria, idempotenza durevole, cinque tentativi con backoff, `Message-ID` stabile,
+cooldown dopo l'esaurimento, destinatari, `scheduler_runs`, audit — non è stato toccato. È
+l'affermazione che questa fase esiste per poter fare, e il modo in cui è provata non è un
+test nuovo: sono i **53 test di consegna di `test_worker_pg.py`, passati senza una
+modifica**. Riscriverli per accomodare la migrazione avrebbe distrutto l'unica prova
+disponibile; il posto dove verificarlo è il `git diff` di quel file, che è vuoto.
+
+#### 8.47.1 La semantica di `due_items`, scoperta e conservata
+
+`due_items` è l'oracolo, non la mia lettura di `due_items`. Il confronto si fa chiamando la
+funzione vera dentro il test, su sedici corpora per cinque insiemi di finestre: **zero
+divergenze di selezione**. Quello che c'era da scoprire:
+
+**La finestra.** `0 <= giorni_rimanenti <= max(warningDays)`, non `giorni == N`. La
+disuguaglianza *è* il recupero: una macchina spenta il giorno del promemoria non lo perde.
+In SQL diventa `data BETWEEN :oggi AND :oggi + max`, che è anche la sola forma che permette
+di interrogare la finestra invece di leggere tutto.
+
+**Gli scaduti sono esclusi** (`giorni < 0`). La vista Scadenze li elenca. Divergenza
+deliberata, §8.48.
+
+**I dismessi NON sono esclusi.** `due_items` scorre `walk(doc)` e **non guarda `stato`**: una
+macchina dismessa con la garanzia in scadenza ha sempre prodotto un promemoria, e continua a
+produrlo. La vista Scadenze invece li salta. È la ragione per cui il worker **non** usa
+`GET /api/inventory/expiries`: quell'endpoint riproduce la vista, e usarlo avrebbe cambiato
+il prodotto travestendo la modifica da migrazione tecnica.
+
+**Le date le legge chi le ha scritte.** Si usano `garanzia_date` / `supporto_date`, calcolate
+da `parse_expiry` — lo stesso parser dello scanner (§8.44, `relational.DERIVED`). Non è una
+comodità: interpretare qui il testo grezzo significherebbe due idee di «data valida» nello
+stesso processo, e due idee divergono sui casi limite, che sono precisamente quelli che un
+inventario compilato a mano produce. Il testo grezzo resta il dato autorevole e non si tocca.
+
+Il parser fa `.strip()`, quindi `«  2026-08-15  »` **è** una data; e valida il calendario,
+quindi `2027-02-30` non lo è. Sette forme che il frontend interpreta e il backend no restano
+fuori da entrambi i backend, enumerate una per una in un test (§8.46, §8.48).
+
+**Il nome del dispositivo** è `obj.get("name") or obj.get("id") or "(senza nome)"`, poi
+`str()`. La falsità è quella di Python: `""`, `0`, `False`, `[]`, `{}` fanno passare al
+candidato successivo. Riprodotto in **Python** e non in SQL, e per una ragione precisa: un
+`name: 42` non è una stringa, quindi la mappa relazionale lo mette in `extra` e la colonna
+è NULL. Guardare solo la colonna avrebbe fatto sparire quel nome e mostrato l'id al suo
+posto — una divergenza invisibile in ogni inventario ben formato e visibile in quelli
+importati da un foglio di calcolo, cioè quasi tutti. La query restituisce `extra -> 'name'`
+accanto alla colonna e la catena si applica in Python, dove viveva.
+
+**Il contesto (sito / sala / rack) sono gli `id`, non i nomi**, perché `walk` compone il
+percorso con `f"{L['id']} / {R['id']} / {K['id']} / {V['id']}"` e `_context` lo rispezza.
+Conservato, `str(None)` incluso: un sito senza `id` mostrava «None» nell'avviso, e
+correggerlo qui cambierebbe il testo di un avviso reale senza che nessuno l'abbia chiesto.
+
+**Id duplicati**: due dispositivi con lo stesso `id` di business e `_uid` diversi restano
+due entità di promemoria indipendenti. Anche due *gemelli* con id e nome identici nello
+stesso rack: l'identità è l'`_uid`, e un raggruppamento per etichetta perderebbe una riga
+senza che nessuno lo noti — quella che scade.
+
+#### 8.47.2 L'unica divergenza voluta: gli id che contengono `/`
+
+Il percorso di `walk` era **una stringa sola**, e `_context` la rispezzava su ogni `/`. Un id
+che contiene uno `/` rompeva quel giro:
+
+| | id | vecchio (troncato) | nuovo (dalle JOIN) |
+|---|---|---|---|
+| rack | `10.0.0.0/24` | rack = `10.0.0.0` | rack = `10.0.0.0/24` |
+| sito | `a/b` | sito=`a`, sala=`b`, **rack=`sala-5`** | sito=`a/b`, sala=`sala-5`, rack=`R05` |
+
+Nella seconda riga il campo «rack» dell'avviso conteneva il nome della **sala**: tutte le
+parti scalate di un posto. La JOIN ha il valore intero e lo restituisce intero, come la §7
+della fase 2F chiede. Riprodurre il troncamento avrebbe voluto dire scrivere codice nuovo il
+cui unico scopo è corrompere un valore che il database ha già giusto.
+
+Non cambia **mai** quali scadenze sono dovute — solo come si legge la posizione nel corpo del
+messaggio — e i due valori sono fissati fianco a fianco in
+`test_a_slash_in_a_code_is_no_longer_truncated`, così la differenza sta in un file di test
+invece che in una frase di un rapporto. Registrata in §8.48.
+
+#### 8.47.3 Coerenza: una revisione sola, e il rifiuto di operare
+
+**Lo snapshot.** I candidati si leggono in `REPEATABLE READ, READ ONLY`
+(`db.read_snapshot`). La lettura è multipla — testa, stato, quattro tabelle — e sotto READ
+COMMITTED un `PUT` che committa nel mezzo darebbe candidati di due versioni con la revisione
+di una terza.
+
+⚠ L'isolamento si dichiara adesso in **un posto solo**, `app/db.py`. Fino alla 2E stava nella
+dipendenza FastAPI, che era l'unico lettore; dalla 2F i lettori sono due *processi*, e due
+dichiarazioni dello stesso isolamento divergono in silenzio — una delle due continuerebbe a
+funzionare sotto READ COMMITTED e il difetto comparirebbe solo quando qualcuno salva mentre
+qualcun altro legge. Un controllo statico conta le dichiarazioni e pretende che siano una.
+
+**La precondizione.** `require_current_head` — la stessa funzione del `GET` e delle tre
+interrogazioni — pretende le quattro condizioni: lo stato esiste, dichiara la versione della
+testa, dichiara il digest della testa, ed è stato scritto dalla mappa che gira adesso. Se non
+tornano: **nessun invio**, e nessun ripiego su `inventory_versions.doc`. Il ripiego
+funzionerebbe, nessuno aprirebbe un ticket, e coprirebbe esattamente il difetto di coerenza
+che la fase 2 esiste per scoprire (§8.45).
+
+⚠ E il giro **non si conclude**. La riga di `scheduler_runs` di oggi resta senza
+`finished_at`, che è lo stato che `claim_run` sa riprendere: appena la proiezione è riparata,
+il tick successivo rifà il giro di oggi. Concluderlo con un esito «non attuale» sarebbe stato
+più ordinato da leggere e avrebbe **perso la giornata** — `claim_run` avrebbe risposto
+«already_ran_today» fino a mezzanotte.
+
+**La guardia sulla revisione.** I candidati portano `(versione, digest)`; prima di prenotare
+promemoria e consegna, la transazione di scrittura ricontrolla che siano ancora quelli
+(`candidates.unchanged`). Se l'inventario si è mosso: si abbandona senza mandare e senza
+concludere, e il tick successivo ricalcola. Il controllo guarda *anche* l'attualità della
+proiezione, perché fra i due momenti può essere partito un `--rebuild`.
+
+⚠ **Non blocca `inventory_head`.** Un `SELECT … FOR UPDATE` qui terrebbe la riga di testa
+bloccata per tutta la consegna SMTP — cioè per un timeout di rete — e fermerebbe i
+salvataggi di tutti. Resta quindi una finestra fra il controllo e il `commit` dopo l'invio: un
+`PUT` che committa lì dentro fa partire un avviso vecchio di una revisione. È il costo
+dichiarato di non bloccare, e resta molto più stretto della finestra di prima, quando nessuno
+controllava niente. Un test salva **da dentro** la consegna e dimostra che la testa è libera.
+
+**Il ritentativo** ricompone i nomi dalla proiezione, con la stessa chiave `(uid, tipo,
+data)`: un promemoria si ricompone solo se quel dispositivo esiste ancora e ha ancora quella
+data per quel tipo. `_rebuild_selection` ha adesso **tre** risposte, e la distinzione è
+necessaria: lista piena → si compone; lista vuota → i promemoria non hanno più riscontro e la
+consegna si chiude; `None` → non si sa, perché la proiezione non è attuale, e il ritentativo
+si **rinvia senza consumare un tentativo** (i cinque tentativi esistono per un relay guasto,
+non per una proiezione da ricostruire).
+
+#### 8.47.4 Il limite dichiarato: la corruzione delle colonne derivate
+
+Il controllo di attualità confronta versione, digest e versione della mappa. **Nessuno dei
+tre cambia se si corrompe una colonna derivata**, perché le colonne derivate non entrano nel
+documento riassemblato e quindi non entrano nel digest. È lo stesso punto cieco trovato in
+fase 2B. Conseguenza: un `UPDATE` a mano su `garanzia_date` fa smettere il worker di mandare
+quegli avvisi, e la sua guardia non se ne accorge.
+
+La decisione è di **non** aggiungere `validate_model` al worker, e non è pacifica:
+
+- **a favore**: il worker gira una volta al giorno, quindi la §12 della fase 2F dice
+  esplicitamente che la correttezza conta più dei millisecondi;
+- **contro**: `validate_model` richiede `read_model`, cioè leggere l'**intera** proiezione —
+  che è precisamente la scansione completa che la §3 chiede di non ricreare. Le due sezioni
+  della specifica si contraddicono su questo caso.
+
+Si è seguita la §3 e la §4 (le quattro condizioni, niente di più), perché la corruzione non
+resta comunque invisibile: `GET /api/inventory` valida il modello e risponde **503
+`projection_inconsistent`**, quindi l'applicazione è visibilmente rotta per chiunque la apra,
+e `project.py --verify` la nomina. Il caso è nel registro §8.48 come decisione da confermare,
+non come dettaglio risolto.
+
+#### 8.47.5 Forma della query, e gli indici
+
+Due rami uniti da `UNION ALL`, uno per tipo di scadenza:
+
+```sql
+SELECT 'garanzia', d.uid, d.garanzia_date, …etichette…
+  FROM inventory_devices d
+  JOIN inventory_racks k ON k.uid = d.rack_uid
+  JOIN inventory_rooms r ON r.uid = k.room_uid
+  JOIN inventory_locations l ON l.uid = r.location_uid
+ WHERE d.garanzia_date >= :oggi AND d.garanzia_date <= :fino
+UNION ALL  -- lo stesso per `supporto`
+```
+
+⚠ **Non** `WHERE garanzia_date BETWEEN … OR supporto_date BETWEEN …`. Con l'`OR` PostgreSQL
+non può usare nessuno dei due indici parziali e scandisce la tabella; con due rami ne usa uno
+per ramo. E l'`UNION ALL` produce già la forma giusta — una riga per (dispositivo, tipo) —
+che è ciò che `devices_with_expiries` restituiva col suo ciclo su `EXPIRY_KINDS`.
+
+`JOIN` interne e non `LEFT JOIN`: le tre chiavi esterne sono `NOT NULL`, e un test lo pretende
+dallo schema invece di fidarsi del commento — se una diventasse annullabile, una `JOIN` interna
+farebbe sparire dei promemoria **in silenzio**, il guasto peggiore per un sistema di avvisi.
+
+**Nessun indice nuovo**, e nessuna migrazione. `ix_device_garanzia_date` e
+`ix_device_supporto_date` esistono dalla 0011 e sono **parziali**
+(`WHERE … IS NOT NULL`); il pianificatore li scegli già alla scala di produzione.
+
+⚠ Qui la misura mi ha corretto due volte, e vale la pena che resti scritto:
+
+1. avevo previsto una scansione sequenziale alla scala di produzione — «duecento righe stanno
+   in una pagina». Vale per un indice sull'**intera** tabella; questi sono parziali, e nel
+   seed la grande maggioranza dei dispositivi non ha date, quindi l'indice contiene una
+   manciata di voci e leggerlo costa meno che leggere tutte le righe. La `postgresql_where`
+   della 0011 non era un dettaglio di forma;
+2. il primo test «a scala grande» gonfiava la tabella **conservando le date**, quindi la
+   finestra da 7 giorni prendeva ancora un terzo delle righe e il piano restava (con ragione)
+   sequenziale. La misura diceva «l'indice non serve», che era vero per quella distribuzione
+   e falso in generale. Serve una finestra **selettiva**, non solo una tabella grande.
+
+#### 8.47.6 Prestazioni misurate
+
+Confronto fra i **percorsi completi**, ciascuno con la sua connessione e il suo lavoro:
+vecchio = leggi `inventory_versions.doc` + `due_items(doc)`; nuovo = snapshot +
+interrogazione. Mediana di 15 esecuzioni, seed di produzione con le date iniettate,
+inventario ingrandito **documento compreso** perché altrimenti il confronto non sarebbe alla
+stessa scala.
+
+| scala | dispositivi | documento | candidati | VECCHIO | NUOVO |
+|---|---|---|---|---|---|
+| produzione | 86 | 15 KiB | 21 | **2,3 ms** | 3,6 ms |
+| ×10 | 860 | 131 KiB | 63 | 16,6 ms | **3,7 ms** |
+| ×30 | 2 580 | 385 KiB | 63 | 46,1 ms | **3,5 ms** |
+
+Il punto non è il numero, è la **forma**: il percorso vecchio cresce col documento intero
+(deserializzare 385 KiB di JSONB e scorrerlo in Python), quello nuovo resta piatto perché
+costa quanto il *risultato*. Alla scala di oggi il percorso vecchio è più veloce di 1,3 ms, e
+va detto: il guadagno della 2F non è la velocità di adesso, è che il costo smette di
+dipendere dalla dimensione dell'inventario. Il pareggio è poco sopra la scala di produzione.
+
+Dove il costo cresce è col numero di candidati, non di righe: con una finestra di dieci anni
+a ×30 si restituiscono 1 279 voci e la query passa a **50 ms**. È la forma attesa, e per un
+processo che gira una volta al giorno non è un problema.
+
+`EXPLAIN (ANALYZE, BUFFERS)` a ×30, finestra 90/30/7: pianificazione 3,0 ms, esecuzione
+3,9 ms; `Index Scan` su entrambe le colonne data, 40 e 21 righe lette, tutto da cache
+(`shared hit`, zero `read`). Il tempo di pianificazione è una frazione significativa del
+totale — sono due join a quattro tavole sotto un `UNION ALL` — e per una query al giorno non
+c'è nessuna ragione di preparare l'istruzione.
+
+Per riferimento, lo scanner puro in memoria è ~1 ms: la differenza fra quello e i 2,3 ms del
+percorso vecchio è la lettura del documento, che è la parte che cresce.
+
+#### 8.47.7 Privilegi: nessuna concessione nuova
+
+`tsm_worker` aveva **già** tutto ciò che serve: `SELECT` su `inventory_head` e
+`inventory_versions` (0009), sulle cinque tabelle della proiezione (0010), su
+`inventory_projection_state` (0011), ribadite dalla 0012 insieme alle `REVOKE` che lo tengono
+in sola lettura. Quindi **nessuna migrazione 0013**.
+
+La 2F non cambia i privilegi: li **verifica**. La matrice di `test_photos_api_pg.py` è
+cresciuta di 32 righe — otto tabelle in lettura, e per ognuna `INSERT`/`UPDATE`/`DELETE`/
+`TRUNCATE` negate — e `test_worker_sql_pg.py` aggiunge la prova col fatto: `SET LOCAL ROLE
+tsm_worker`, poi cinque scritture che PostgreSQL respinge con «permission denied».
+
+⚠ `SET ROLE` e non una connessione nuova: le migrazioni creano i ruoli di runtime
+`LOGIN NOINHERIT` e **senza password** (la assegna l'operations al deploy, da un file di
+secret), quindi in prova non esiste nessuna credenziale con cui collegarsi come
+`tsm_worker`. La prima stesura ci provava e finiva in uno `skip` — un test saltato somiglia
+troppo a un test passato, e questo avrebbe taciuto proprio sul privilegio che deve
+sorvegliare.
+
+#### 8.47.8 Come è verificato
+
+`tests/test_worker_sql_pg.py` — **215 test** su PostgreSQL vero, nessuno saltato. Più i **53
+di `test_worker_pg.py` non modificati**, che sono la metà che conta.
+
+La parte che porta il peso è la parità, e la sua forma è diversa da quella della 2E: là
+l'oracolo era JavaScript nel browser e serviva un generatore in Node; qui l'oracolo è
+`expiry.due_items`, che è Python, puro, e si chiama dentro il test. Sedici corpora
+(`fixtures/expiry/parity.py`) più il seed e il seed con le date, per cinque insiemi di
+finestre. Un test in `test_get_from_sql_pg.py` pretende che `due_items` resti indipendente
+dalle colonne derivate: se dipendesse dalle stesse colonne, la parità confronterebbe
+l'implementazione con sé stessa.
+
+Coperto: i confini di 90/30/7 e i giorni immediatamente dentro e fuori; il recupero; scaduti,
+oggi, futuri fuori finestra; garanzia e supporto separatamente e insieme sullo stesso
+dispositivo, incluso il caso «garanzia scaduta, supporto in finestra» che un filtro per
+dispositivo invece che per (dispositivo, tipo) sbaglierebbe; dismessi in cinque stati; date
+rotte in quattordici forme, con e senza spazi, non-stringhe comprese; la catena
+dell'etichetta ramo per ramo, `name` numerico/zero/falso/lista/dizionario; sito, sala e rack
+senza id e con id numerico; gli id con lo `/`; id duplicati e gemelli identici; albero su due
+siti, tre sale, quattro rack; dispositivo spostato e data cambiata; inventario vuoto e rami
+vuoti; nome ostile con `\r\n`; tre fusi al cambio d'ora e al confine d'anno; finestre
+assenti e finestra massima (3 650 giorni).
+
+Il fallimento chiuso: proiezione assente, di versione vecchia, con digest sbagliato, con mappa
+non supportata — per ognuna, nessun invio, nessun promemoria, nessuna consegna, giro **non
+concluso**, e il recupero automatico dopo un `--rebuild`. Più il database irraggiungibile, con
+solo l'engine di lettura rotto così che il guasto cada dove la 2F ha messo la lettura nuova.
+
+⚠ Due test hanno dovuto essere **riscritti perché non sorvegliavano quello che dicevano**.
+`test_the_notification_worker_still_reads_the_document` esisteva in due copie (2C e 2D) come
+allarme: «se un giorno lo scanner leggesse `garanzia_date`, sarebbe una decisione presa di
+proposito». La 2F è avvenuta e **l'allarme non è suonato**, perché la migrazione non ha
+cambiato `expiry.py`: le ha girato attorno, mettendo la sorgente nuova in `candidates.py`. Un
+controllo statico su un modulo non sorveglia il comportamento di un altro. I due test
+adesso verificano ciò che possono davvero verificare — che `expiry.py` è rimasto puro, cioè
+utilizzabile come oracolo — e il fatto sul comportamento lo prova un test che corrompe le
+colonne e pretende che il digest cambi.
+
+**Prova di efficacia: 30 mutazioni, tutte intercettate.** La §9 della fase 2F chiede di
+mutare la parità «dove praticabile»; si è mutato tutto — la semantica dello scanner,
+l'ordinamento, la catena dell'etichetta, la precondizione, il guardiano della revisione,
+gli esiti del worker, l'isolamento. Passata di controllo verde prima di ogni cosa, perché
+un «INTERCETTATA» misurato su una base rossa non significa niente.
+
+Tre sono sfuggite alla prima passata, e nessuna delle tre per il motivo che sembrava:
+
+1. **`UNION ALL` → `UNION`.** Sfuggita a `pytest` perché con la chiave primaria nella
+   `SELECT` la deduplicazione non può togliere righe: è un mutante *equivalente per il
+   risultato*, non per il costo. La intercettano i controlli **statici** — che la prima
+   passata dell'impianto non eseguiva. Difetto dell'impianto, non della copertura;
+   corretto, e adesso ogni mutazione gira contro entrambe le suite.
+2. **Il contesto del ritentativo ignora la data.** La mutazione era **mal fatta da me**:
+   *aggiungeva* una chiave invece di togliere la data dalla chiave, quindi non
+   indeboliva niente e il verde era corretto. Rifatta come si deve — le date prese dai
+   promemoria invece che dal dispositivo — la intercetta
+   `test_changing_an_expiry_date_drops_the_stale_reminder_from_a_retry`.
+3. **Il guardiano confronta la versione ma non il digest.** Questa era una **lacuna
+   vera**, e la spiegazione comoda era «mutante equivalente»: `inventory_head.version`
+   punta a una riga immutabile, quindi versione uguale implica digest uguale. Il
+   ragionamento regge *finché l'immutabilità tiene* — e l'immutabilità la impone un
+   privilegio, non una legge di natura. Un test nuovo costruisce lo stato in cui il
+   confronto conta: digest della versione **e** digest dichiarato dalla proiezione
+   cambiati allo stesso valore falso, versione ferma. La proiezione risulta attuale,
+   la versione non si è mossa, e l'unica cosa che vede la differenza è la riga mutata.
+
+⚠ La lezione della terza vale più delle altre due: «mutante equivalente» è la
+classificazione che si vorrebbe sempre poter usare, e due volte su tre qui era sbagliata.
+
+La §17 di `tools/storage-config-test.py` copre il negativo (**21 controlli** nuovi, 310 in
+totale): il modulo della sorgente esiste e sta in `app/notifications/`, legge le colonne
+derivate, non contiene un secondo parser di date, non filtra i dismessi, interroga una
+finestra, usa `UNION ALL`, pretende la proiezione attuale, non blocca la testa; `expiry.py` è
+rimasto puro; nessun ripiego sull'istantanea in nessun modulo del worker; l'isolamento è
+dichiarato una volta sola; nessuna migrazione 0013 e le `REVOKE` ancora scritte; l'endpoint
+non è stato piegato alla semantica del worker; il frontend non è ricablato; la readiness non
+guarda lo stato del worker. **Tre controlli delle fasi precedenti sono stati rovesciati**
+esplicitamente, con il commento che dice perché: dicevano «il worker non è passato a SQL», che
+era la delimitazione giusta della 2C, della 2D e della 2E, ed è la decisione presa nella 2F.
+
+### 8.48 Registro del debito semantico
+
+Incoerenze **reali e misurate** dell'applicazione, scoperte nelle fasi 2E e 2F. Nessuna è
+stata corretta: correggerle mentre si migrava avrebbe mescolato una modifica di prodotto con
+una migrazione tecnica, e reso impossibile dire quale delle due ha cambiato un comportamento.
+
+Il registro esiste perché siano **risolte di proposito** — prima di migrare il frontend alle
+rotte nuove, e prima del rilascio in produzione — invece di essere scoperte una seconda volta
+da chi farà quel lavoro. Un controllo statico pretende che questa sezione esista.
+
+#### Ricerca
+
+| # | cosa | dove |
+|---|---|---|
+| 1 | Un IP esatto **non** è una query di rete: `parseIpQuery` gestisce solo CIDR, intervalli e jolly, quindi `10.0.0.1` è una ricerca testuale e combacia anche con `10.0.0.100`. | frontend + endpoint |
+| 2 | La ricerca per rete è **solo IPv4** (`ipToNum`): un dispositivo IPv6 è irraggiungibile per intervallo, raggiungibile per testo. | frontend + endpoint |
+| 3 | In modalità rete i **rack non partecipano affatto**, nemmeno quello il cui codice è un indirizzo. | frontend + endpoint |
+| 4 | I campi cercati sono cinque (`name, model, ip, serial, owner`): `id`, `type`, `stato` e `note` **non** si cercano, e nessuna interfaccia lo dice. | frontend + endpoint |
+
+#### Capacità
+
+| # | cosa | dove |
+|---|---|---|
+| 5 | «U usate» ha **tre** implementazioni che non concordano: la vista Capacità conta gli **slot distinti occupati**, il pannello del rack e l'export XLSX fanno `SUM(h)`. Sovrapposizioni e sporgenze danno numeri diversi. | frontend (3 posti) |
+| 6 | I dispositivi **dismessi occupano spazio** nella vista Capacità, per un blocco vuoto: `if ((d.stato \|\| 'attivo') === 'dismesso') {}`. La vista Scadenze li esclude con un `continue` vero. Lo stesso stato ha due significati nella stessa applicazione. | frontend + endpoint |
+| 7 | Il raggruppamento per fila usa la sentinella `rk.row \|\| '—'`, e il seed di produzione contiene un rack la cui fila **è** `—` (`CS-Q01`): si fonde con i rack senza fila. | frontend + endpoint |
+
+#### Scadenze
+
+| # | cosa | dove |
+|---|---|---|
+| 8 | La vista Scadenze e lo scanner del worker **non sono d'accordo**: la vista salta i dismessi ed elenca gli scaduti, il worker fa l'opposto. La 2F segue il worker (§8.47), l'endpoint segue la vista. | frontend / worker |
+| 9 | Il frontend interpreta le date con `new Date(v)`, i due backend con `parse_expiry`. Sette forme sono visibili nella vista e **invisibili** a worker ed endpoint, e sono queste: `2027-3-15`, `2027/03/15`, `March 15, 2027`, `2027-03-15T10:00:00Z`, `2027-03`, `2027`, `2027-02-30` (V8 lo fa scorrere al 2 marzo). `15/03/2027` è rifiutato da **entrambi** (V8 legge il mese 15). | frontend vs backend |
+| 10 | Un avviso per una scadenza **già passata** non esiste: si ripeterebbe ogni giorno per sempre, o no? Nessuna fase lo decide. | worker |
+
+#### Etichette e contesto
+
+| # | cosa | dove |
+|---|---|---|
+| 11 | `id` non è obbligatorio nello schema del documento, e il percorso di `walk` lo interpolava in una f-string: un sito o un rack senza `id` compare nel digest come la stringa **`"None"`**. Conservato nella 2F. | worker |
+| 12 | Gli id che contengono `/` erano troncati dal rispezzamento del percorso; dalla 2F le JOIN restituiscono il valore intero (§8.47.2). **Divergenza risolta a favore del valore corretto**, l'unica della 2F. | worker (risolta) |
+
+#### Coerenza e dati
+
+| # | cosa | dove |
+|---|---|---|
+| 13 | Una corruzione delle **colonne derivate** non muove né digest né versione, quindi la guardia del worker non la vede: gli avvisi smettono e il worker non se ne accorge. La vede `GET /api/inventory` (503) e `--verify`. Decisione da confermare (§8.47.4). | worker |
+| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale, ed è il buco dei dati di seed che §7 registra da tempo. | dati |
+| 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend |
+
+⚠ Da risolvere **prima** di migrare il frontend: 5, 6, 7, 8, 9. Sono le voci in cui la nuova
+implementazione SQL riproduce fedelmente un comportamento che il frontend non intendeva —
+e nel momento in cui il frontend chiamerà l'endpoint, quel comportamento diventerà l'unico.
+La 13 e la 14 vanno chiuse prima del rilascio.
+
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -4876,9 +5258,21 @@ il frontend non ricablato, e nessuna migrazione nuova.
     `storage-config-test.py`. Semantica del frontend riprodotta alla lettera,
     divergenze misurate e documentate, **zero indici nuovi** perché le misure non ne
     giustificano nessuno. Frontend e worker NON ricablati.
-18. **Migrazione dei consumatori**: il frontend alle rotte nuove e il worker delle
-    notifiche alle colonne derivate, con queste stesse fixture di parità. Due commit
-    distinti e delimitati. **Prossimi.**
+18. ~~**Fase 2F**: il worker delle notifiche prende i candidati dalla proiezione~~
+    ✔ **fatto** (§8.47) — `app/notifications/candidates.py`, `db.read_snapshot`,
+    guardia sulla revisione, `fixtures/expiry/parity.py`, `test_worker_sql_pg.py`,
+    §17 di `storage-config-test.py`. Semantica di `due_items` conservata alla lettera
+    (**zero divergenze** su 16 corpora × 5 insiemi di finestre), una sola divergenza
+    voluta e documentata, **nessuna migrazione e nessun privilegio nuovo**. I 53 test
+    di consegna di `test_worker_pg.py` passano **non modificati**: è la prova che solo
+    la sorgente è cambiata.
+19. **Debito semantico** (§8.48): risolvere le voci 5, 6, 7, 8 e 9 — le tre formule
+    di «U usate», i dismessi che occupano spazio, la sentinella `—`, il disaccordo fra
+    vista Scadenze e worker, e le otto forme di data. Sono decisioni di **prodotto**,
+    e vanno prese prima che il frontend cominci a chiamare le rotte nuove: da quel
+    momento il comportamento riprodotto diventa l'unico. **Prossimo.**
+20. **Migrazione del frontend** alle rotte nuove, con queste stesse fixture di parità.
+    Dopo il punto 19.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

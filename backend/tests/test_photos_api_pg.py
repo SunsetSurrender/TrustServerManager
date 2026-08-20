@@ -895,15 +895,66 @@ def _privilege(engine, role: str, table: str, priv: str) -> bool:
     ("tsm_api", "inventory_versions", "TRUNCATE", False),
     ("tsm_api", "audit", "UPDATE", False),
     ("tsm_api", "audit", "DELETE", False),
-    # Il worker non scrive la proiezione: le colonne data derivate esistono per le
-    # query, e il passaggio dello scanner è una decisione successiva.
+    # --- fase 2F: il worker LEGGE la proiezione, e legge SOLTANTO (§8.47) ---
+    #
+    # Dalla 2F lo scanner delle scadenze prende i candidati dalle colonne data
+    # derivate, quindi le sue `SELECT` non sono più privilegi in eccesso: sono
+    # esattamente ciò che gli serve, e la 0009/0010/0011/0012 gliele avevano già
+    # concesse. **Nessuna migrazione nuova**: la matrice qui sotto è la verifica che
+    # quanto serviva c'era già, tabella per tabella e verbo per verbo, invece di una
+    # frase in un commento.
+    #
+    # Le righe negative sono la metà che conta. Il worker manda avvisi: non ha nessun
+    # motivo per poter riscrivere la proiezione che sta leggendo, e se un giorno
+    # qualcuno gli concedesse `UPDATE` «per correggere una data», queste righe sono
+    # quelle che il diff mostra accanto.
     ("tsm_worker", "inventory_locations", "SELECT", True),
     ("tsm_worker", "inventory_locations", "INSERT", False),
     ("tsm_worker", "inventory_locations", "UPDATE", False),
     ("tsm_worker", "inventory_locations", "DELETE", False),
+    ("tsm_worker", "inventory_locations", "TRUNCATE", False),
+    ("tsm_worker", "inventory_rooms", "SELECT", True),
+    ("tsm_worker", "inventory_rooms", "INSERT", False),
+    ("tsm_worker", "inventory_rooms", "UPDATE", False),
+    ("tsm_worker", "inventory_rooms", "DELETE", False),
+    ("tsm_worker", "inventory_racks", "SELECT", True),
+    ("tsm_worker", "inventory_racks", "INSERT", False),
+    ("tsm_worker", "inventory_racks", "UPDATE", False),
+    ("tsm_worker", "inventory_racks", "DELETE", False),
+    ("tsm_worker", "inventory_devices", "SELECT", True),
+    ("tsm_worker", "inventory_devices", "INSERT", False),
     ("tsm_worker", "inventory_devices", "UPDATE", False),
+    ("tsm_worker", "inventory_devices", "DELETE", False),
+    ("tsm_worker", "inventory_devices", "TRUNCATE", False),
+    ("tsm_worker", "inventory_manual_entries", "SELECT", True),
+    ("tsm_worker", "inventory_manual_entries", "UPDATE", False),
     ("tsm_worker", "inventory_projection_state", "SELECT", True),
+    ("tsm_worker", "inventory_projection_state", "INSERT", False),
     ("tsm_worker", "inventory_projection_state", "UPDATE", False),
+    ("tsm_worker", "inventory_projection_state", "DELETE", False),
+    # I metadati che servono al controllo di coerenza: la testa e il digest della
+    # versione in testa. In lettura, e solo in lettura — l'istantanea immutabile
+    # deve restare immutabile anche per chi la usa come giudice.
+    ("tsm_worker", "inventory_head", "SELECT", True),
+    ("tsm_worker", "inventory_head", "INSERT", False),
+    ("tsm_worker", "inventory_head", "UPDATE", False),
+    ("tsm_worker", "inventory_versions", "SELECT", True),
+    ("tsm_worker", "inventory_versions", "INSERT", False),
+    ("tsm_worker", "inventory_versions", "UPDATE", False),
+    ("tsm_worker", "inventory_versions", "DELETE", False),
+    # Le impostazioni le legge a ogni giro (destinatari, fuso, finestre) e non le
+    # scrive mai: cambiarle è un'azione di un amministratore attraverso l'API.
+    ("tsm_worker", "settings", "SELECT", True),
+    ("tsm_worker", "settings", "INSERT", False),
+    ("tsm_worker", "settings", "UPDATE", False),
+    ("tsm_worker", "settings", "DELETE", False),
+    # Le foto: `DELETE` per la GC degli orfani (§8.5) e NIENTE `INSERT`. Ribadito
+    # qui perché la 2F non lo ha toccato, e un privilegio che nessun test nomina è
+    # un privilegio che qualcuno può togliere per sbaglio.
+    ("tsm_worker", "photos", "SELECT", True),
+    ("tsm_worker", "photos", "DELETE", True),
+    ("tsm_worker", "photos", "INSERT", False),
+    ("tsm_worker", "photos", "UPDATE", False),
 ])
 def test_the_privilege_matrix(engine, role, table, priv, expected):
     assert _privilege(engine, role, table, priv) is expected

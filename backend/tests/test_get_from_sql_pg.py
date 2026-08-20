@@ -1448,13 +1448,23 @@ def test_readiness_stays_cheap_and_does_not_reassemble(db, engine, client):
     assert non_pronta.json()["projection"] == "not-ready"
 
 
-def test_the_notification_worker_still_reads_the_document(db, engine):
-    """Lo scanner delle scadenze NON è passato alle colonne derivate (§17).
+def test_the_document_scanner_ignores_the_derived_columns(db, engine):
+    """`due_items(doc)` non dipende dalle colonne derivate — e nella 2F è l'ORACOLO.
 
-    Fuori dallo scopo della 2D, e va provato invece di dichiarato: si corrompono le
-    colonne derivate e si verifica che lo scanner trovi ancora le stesse scadenze,
-    perché legge il testo del documento. Il giorno in cui passasse alle colonne,
-    questo test diventerebbe rosso e la decisione sarebbe presa di proposito.
+    ⚠ Questo test si chiamava `test_the_notification_worker_still_reads_the_document`
+    e serviva a dimostrare che la 2D non aveva toccato il worker. Nella fase 2F il
+    worker è passato alle colonne derivate e il test è rimasto VERDE: non guardava il
+    worker, guardava `due_items`, e `due_items` non è cambiato. Il nome prometteva
+    una sorveglianza che il corpo non esercitava.
+
+    Il fatto che verifica resta però necessario, e cambia di ruolo: `due_items` legge
+    SOLO il testo del documento, quindi può fare da oracolo indipendente alla nuova
+    sorgente SQL (`test_worker_sql_pg.py`). Se dipendesse dalle stesse colonne, la
+    parità confronterebbe l'implementazione con sé stessa — che è il modo più
+    comodo di non scoprire niente.
+
+    Che il worker legga la proiezione è provato là, corrompendo le colonne e
+    pretendendo che il digest cambi.
     """
     from app.notifications.expiry import due_items
 

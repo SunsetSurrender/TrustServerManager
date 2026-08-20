@@ -5258,6 +5258,31 @@ scadenze, quindi la funzione più delicata del prodotto non ha nessun dato reale
 esercitata.
 
 
+### 8.49 Mappatura dei commit della fase 2
+
+⚠ Nota permanente. Quattro commit della fase 2 portano nel **soggetto** il nome della fase
+**precedente** ai propri contenuti: uno scarto di uno propagatosi da `2aa5dcf` in avanti. I
+commit sono **pubblicati**, quindi i soggetti restano come sono: riscrivere la storia
+pubblicata per riparare del testo costerebbe più di quanto valga, e chiunque abbia già il
+ramo si troverebbe con due storie diverse.
+
+**Gli hash sono l'autorità.** Questa tabella, non i soggetti, dice quale commit è quale fase.
+
+| commit | fase reale | soggetto |
+|---|---|---|
+| `21e6dfc` | **2C** — doppia scrittura atomica della proiezione | corretto |
+| `2aa5dcf` | **2D** — l'inventario si legge da SQL | ⚠ dice «2C» |
+| `d47b7f2` | **2E** — interrogazioni SQL sulla proiezione | ⚠ dice «2D» |
+| `bc74a04` | **2F** — implementazione iniziale del worker su SQL | ⚠ dice «2E» |
+| `9673966` | **2F** — guardia finale di coerenza della proiezione | corretto |
+
+Quindi: le sezioni §8.44 (2C), §8.45 (2D), §8.46 (2E) e §8.47 (2F) di questo documento
+descrivono i contenuti indicati nella colonna «fase reale». Il soggetto di un commit non è
+una fonte affidabile per la fase, in questo intervallo di storia.
+
+Non si fa `--force-push` e non si fa `--amend` su questi commit.
+
+
 ## 9. Ordine di lavoro proposto
 
 

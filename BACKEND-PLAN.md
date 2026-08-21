@@ -5892,6 +5892,48 @@ stato 404 nel browser — l'applicazione non è servita da un bundler, ma da un 
 file esplicito (§6), e un file nuovo va aggiunto a mano in tre posti. Trovato provando
 sullo stack, non da un test: nessuna suite Python può accorgersene.
 
+**Mutazioni: 29 applicate, 29 intercettate.** Ogni mutazione gira contro quattro
+strati, dal più economico al più costoso, e si ferma al primo che la prende — così il
+rapporto dice anche DOVE è stata presa:
+
+| strato | quante |
+|---|---|
+| contratto Python (`test_domain_contract.py`) | 17 |
+| controlli statici | 5 |
+| suite su PostgreSQL | 5 |
+| contratto JavaScript | 2 |
+
+Le mutazioni sono i difetti dell'elenco §13 reintrodotti a mano: `SUM(h)`,
+`Math.round`, `round()` di Python, la sentinella `—`, `new Date`, il filtro sui
+dismessi in entrambi i versi, l'indirizzo esatto che non è una forma, le famiglie che
+si mescolano, gli elenchi come etichette, il filtro fuori vocabolario che dà zero
+righe invece di 422.
+
+⚠ **Due mutazioni sono state RIFATTE**, e in entrambi i casi perché la mutazione non
+riproduceva il difetto:
+
+  1. `row_group` in JavaScript, mutando **un solo ramo**. Le due chiavi restavano
+     diverse comunque, quindi la mutazione sfuggiva senza che ci fosse niente da cui
+     sfuggire. Il difetto originale — `rk.row || '—'` — collassava ENTRAMBI i rami
+     sull'etichetta, e solo mutandoli entrambi il test diventa rosso. «Mutazione più
+     piccola» sembra sempre «mutazione migliore», e qui la minima non era il difetto;
+  2. lo stesso errore, nella fase 2F, su una mutazione della guardia della proiezione.
+     Due volte lo stesso inciampo è un modo di lavorare, non una distrazione: **una
+     mutazione va scritta guardando il difetto, non il codice**.
+
+⚠ **E un incidente dello strumento, che ha invalidato sei esiti.** Lo strumento
+fotografa i file all'avvio e ripristina la fotografia dopo ogni mutazione; ho corretto
+`_text_match` mentre girava, la correzione è stata ripristinata via, e da quel momento
+una fixture era rossa per OGNI mutazione — quindi ogni «intercettata dalla suite
+PostgreSQL» era inattendibile. Riesaminati uno per uno e rieseguito il giro intero da
+pulito. Due rimedi, scritti nello strumento: il ripristino passa da `git checkout`
+(resistente anche a un'uccisione a metà, che è precisamente come ho lasciato una
+mutazione nel codice una volta) e il giro pretende un albero già committato.
+
+Il difetto che era rimasto nel codice, in quell'occasione, l'ha trovato il **controllo
+di integrità** del giro successivo — «codice intatto» prima della prima mutazione. È il
+controllo che sembra cerimoniale finché non serve.
+
 **Suite esistenti, tutte verdi sullo stack:** `smoke-test.py`,
 `proxy-security-test.py`, `browser-e2e-test.py` (23 controlli, compreso «nessun errore
 JavaScript non gestito», che è ciò che dimostra che `domain.js` si carica e i percorsi
@@ -6022,13 +6064,28 @@ di rendering funzionano).
     voluta e documentata, **nessuna migrazione e nessun privilegio nuovo**. I 53 test
     di consegna di `test_worker_pg.py` passano **non modificati**: è la prova che solo
     la sorgente è cambiata.
-19. **Debito semantico** (§8.48): risolvere le voci 5, 6, 7, 8 e 9 — le tre formule
-    di «U usate», i dismessi che occupano spazio, la sentinella `—`, il disaccordo fra
-    vista Scadenze e worker, e le otto forme di data. Sono decisioni di **prodotto**,
-    e vanno prese prima che il frontend cominci a chiamare le rotte nuove: da quel
-    momento il comportamento riprodotto diventa l'unico. **Prossimo.**
-20. **Migrazione del frontend** alle rotte nuove, con queste stesse fixture di parità.
-    Dopo il punto 19.
+19. ~~**Fase 2G — debito semantico**: una semantica sola~~ ✔ **fatto** (§8.50) —
+    `app/domain.py`, `handoff/domain.js`, `fixtures/domain/*.json`, migrazione
+    `0013_domain`, `MAPPER_VERSION` 2. Chiuse le voci da 1 a 9 del registro più la 11:
+    `presenza` separata da `stato`, una definizione di «U usate», percentuale HALF-UP
+    intera, gruppi di fila strutturali, indirizzo esatto e IPv6, un interprete di date
+    solo, Scadenze ispettiva contro worker azionabile, etichette senza «None».
+    3055 test, 337 controlli statici, 544 controlli di contratto in JavaScript, 29
+    mutazioni intercettate su 29.
+
+    ⚠ Dopo l'aggiornamento serve un `project.py --rebuild` (§3.8.1 di
+    `deploy/README.md`): la versione della mappa è cambiata.
+
+20. **Migrazione del frontend** alle rotte nuove. **Prossimo.** Il frontend calcola
+    ancora in locale, ma con la SEMANTICA CONDIVISA: le fixture di dominio dimostrano
+    che i due calcoli danno la stessa risposta, ed è ciò che rende questa migrazione
+    noiosa invece che rischiosa. Comprende la vista **Dismessi** dedicata, che la 2G ha
+    lasciato fuori di proposito.
+
+21. **Il buco dei dati di seed** (§8.48 voce 14, §7): il seed di produzione non ha
+    nessuna scadenza, quindi la funzione più delicata del prodotto non è mai stata
+    esercitata su dati che qualcuno ha scritto davvero. **Blocco al rilascio**, e
+    indipendente dai due punti sopra.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

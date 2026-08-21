@@ -464,6 +464,186 @@ def test_la_ricerca_sql_sui_rack(case, ricerca):
         f"{case['name']}: q={case['q']!r}")
 
 
+# ==================================================================
+# 3-bis. i filtri della ricerca (estensione della fase 2H)
+# ==================================================================
+#
+# ⚠ Questa sezione esiste perché SEI MUTAZIONI SONO SFUGGITE.
+#
+# L'estensione — `stato` e `presenza` sulla ricerca, per la vista Dismessi — era
+# verificata solo dal test del browser. Le mutazioni l'hanno mostrato senza pietà: si
+# potevano far partecipare i rack a un elenco filtrato, togliere il default alla
+# `stato`, far restituire zero risultati a una `q` vuota con un filtro, trasformare un
+# valore fuori vocabolario in un elenco vuoto e togliere i filtri dalla chiave del
+# cursore, e nessuna suite diventava rossa.
+#
+# Il documento qui sotto è costruito per distinguere quei cinque casi, e ogni
+# dispositivo esiste per uno di essi.
+
+@pytest.fixture(scope="module")
+def filtrata(engine):
+    """Sei dispositivi che coprono i modi in cui un filtro può sbagliare.
+
+    ⚠ Il rack si chiama `FILTRO` e i dispositivi hanno `filtro` nel nome: cercando
+    «filtro» il ramo dei rack e quello dei dispositivi combaciano ENTRAMBI, che è
+    l'unico modo di accorgersi se i rack partecipano a un elenco filtrato.
+    """
+    devices = [
+        # `stato` ASSENTE: vale `attivo` per il default della falsità di JavaScript.
+        {"_uid": uid("d", 700), "id": "filtro-assente", "name": "filtro-assente", "u": 1},
+        # `stato` VUOTO: idem, e per una ragione diversa (c'è, ed è falso).
+        {"_uid": uid("d", 701), "id": "filtro-vuoto", "name": "filtro-vuoto", "u": 2,
+         "stato": "", "presenza": ""},
+        {"_uid": uid("d", 702), "id": "filtro-attivo", "name": "filtro-attivo", "u": 3,
+         "stato": "attivo", "presenza": "presente"},
+        {"_uid": uid("d", 703), "id": "filtro-dismesso", "name": "filtro-dismesso", "u": 4,
+         "stato": "dismesso", "presenza": "presente"},
+        {"_uid": uid("d", 704), "id": "filtro-via", "name": "filtro-via", "u": 5,
+         "stato": "dismesso", "presenza": "rimosso"},
+        # NON contiene «filtro» nel nome: serve a provare che il filtro si AGGIUNGE al
+        # testo invece di sostituirlo.
+        {"_uid": uid("d", 705), "id": "altro-dismesso", "name": "altro-dismesso", "u": 6,
+         "stato": "dismesso", "presenza": "presente"},
+    ]
+    doc = {"schemaVersion": 1, "locations": [{
+        "_uid": uid("a", 7), "id": "sito", "nome": "Sito",
+        "sale": [{"_uid": uid("b", 7), "id": "sala", "nome": "Sala",
+                  "w": 10, "h": 8, "vani": [],
+                  "racks": [{"_uid": uid("c", 700), "id": "FILTRO", "name": "FILTRO",
+                             "u": 20, "devices": devices}]}]}]}
+    bootstrap(engine, doc)
+    return {d["id"]: d["_uid"] for d in devices}
+
+
+def _codici(page):
+    return {r["device"]["code"] for r in page.results if r["kind"] == "device"}
+
+
+def test_un_elenco_filtrato_non_porta_rack(filtrata):
+    """⚠ Con un filtro attivo i rack NON partecipano, e la ragione è di significato.
+
+    Un rack non ha uno stato operativo né una presenza fisica. Restituirlo in un elenco
+    filtrato per «dismesso» significherebbe mostrare una riga che il filtro non ha
+    nemmeno guardato — la stessa ragione per cui i rack non partecipano alla modalità
+    indirizzo.
+
+    Il rack si chiama `FILTRO`, quindi senza filtro compare: è ciò che rende questo test
+    capace di diventare rosso.
+    """
+    with read_snapshot() as snap:
+        senza = q.search(snap, q="filtro", limit=q.SEARCH_MAX_LIMIT)
+        con = q.search(snap, q="filtro", stato="dismesso", limit=q.SEARCH_MAX_LIMIT)
+    assert any(r["kind"] == "rack" for r in senza.results), (
+        "senza filtro il rack deve comparire, altrimenti il test non distingue niente")
+    assert not any(r["kind"] == "rack" for r in con.results), (
+        "con un filtro sui dispositivi il rack non ha una riga da mostrare")
+
+
+def test_il_filtro_applica_il_default(filtrata):
+    """`stato` assente e `stato: ""` valgono ENTRAMBI `attivo` (§8.14).
+
+    Senza il default, `?stato=attivo` troverebbe solo chi ha scritto esplicitamente
+    «attivo» nel documento — cioè una parte arbitraria dell'inventario, decisa da come
+    è stato compilato il campo.
+    """
+    with read_snapshot() as snap:
+        attivi = q.search(snap, q="filtro", stato="attivo", limit=q.SEARCH_MAX_LIMIT)
+        presenti = q.search(snap, q="filtro", presenza="presente",
+                            limit=q.SEARCH_MAX_LIMIT)
+    assert _codici(attivi) == {"filtro-assente", "filtro-vuoto", "filtro-attivo"}
+    assert "filtro-vuoto" in _codici(presenti), (
+        "`presenza: \"\"` vale `presente`: senza il default resterebbe fuori")
+    assert "filtro-assente" in _codici(presenti)
+
+
+def test_una_q_vuota_con_un_filtro_e_una_domanda(filtrata):
+    """Con un filtro, `q` vuota restituisce l'elenco filtrato; senza, niente.
+
+    È la differenza fra «non hai chiesto niente» e «hai chiesto i dismessi e non hai
+    aggiunto un testo». Senza questa distinzione la vista Dismessi avrebbe dovuto
+    inventarsi un testo da cercare per ottenere un elenco.
+    """
+    with read_snapshot() as snap:
+        vuota = q.search(snap, q="", limit=q.SEARCH_MAX_LIMIT)
+        filtrata_vuota = q.search(snap, q="", stato="dismesso",
+                                  limit=q.SEARCH_MAX_LIMIT)
+        solo_presenza = q.search(snap, q="   ", presenza="rimosso",
+                                 limit=q.SEARCH_MAX_LIMIT)
+    assert vuota.results == [], "la casella vuota non cerca"
+    assert _codici(filtrata_vuota) == {"filtro-dismesso", "filtro-via",
+                                       "altro-dismesso"}
+    assert _codici(solo_presenza) == {"filtro-via"}
+
+
+def test_il_filtro_si_aggiunge_al_testo_non_lo_sostituisce(filtrata):
+    """Un dismesso che NON corrisponde al testo non è un risultato.
+
+    `altro-dismesso` è dismesso ma non contiene «filtro»: se il filtro sostituisse la
+    condizione del testo invece di aggiungersi, comparirebbe.
+    """
+    with read_snapshot() as snap:
+        page = q.search(snap, q="filtro", stato="dismesso", limit=q.SEARCH_MAX_LIMIT)
+    assert _codici(page) == {"filtro-dismesso", "filtro-via"}
+    assert "altro-dismesso" not in _codici(page)
+
+
+@pytest.mark.parametrize("filtro,valore", [
+    ("stato", "dismessi"),        # il plurale: l'errore che si fa davvero
+    ("stato", "DISMESSO"),        # il vocabolario è minuscolo
+    ("stato", "rimosso"),         # valore dell'altro vocabolario
+    ("presenza", "presenti"),
+    ("presenza", "dismesso"),
+])
+def test_un_filtro_fuori_vocabolario_e_un_errore(filtrata, filtro, valore):
+    """⚠ 422, non un elenco vuoto, e la differenza è quella che conta.
+
+    `?stato=dismessi` (plurale) restituirebbe zero risultati, e chi lo legge
+    concluderebbe che non ci sono apparati dismessi. Un errore dice invece che la
+    domanda era scritta male, ed è l'unica delle due risposte che porta a correggerla.
+    """
+    with read_snapshot() as snap:
+        with pytest.raises(q.QueryRejected) as preso:
+            q.search(snap, q="filtro", **{filtro: valore})
+    assert preso.value.code == "invalid_query"
+    # Il messaggio elenca i valori noti: un 422 che non dice quali sono lascia chi
+    # legge a indovinare.
+    assert filtro in str(preso.value)
+
+
+def test_il_cursore_porta_i_filtri(filtrata):
+    """Una pagina successiva chiesta con filtri diversi non è una pagina successiva.
+
+    ⚠ Senza i filtri nella chiave del cursore, la seconda pagina di «tutti» si potrebbe
+    chiedere come seconda pagina di «i dismessi»: il risultato sarebbe un elenco che
+    salta le prime righe di un insieme a cui non appartengono, e nessun errore.
+    """
+    with read_snapshot() as snap:
+        prima = q.search(snap, q="filtro", stato="dismesso", limit=1)
+        assert prima.next_cursor, "servono almeno due pagine per provare il cursore"
+        # Stessa domanda: il cursore vale.
+        seconda = q.search(snap, q="filtro", stato="dismesso", limit=1,
+                           cursor=prima.next_cursor)
+        assert seconda.results and seconda.results != prima.results
+        # Filtro diverso: rifiutato.
+        with pytest.raises(q.CursorRejected) as preso:
+            q.search(snap, q="filtro", stato="attivo", limit=1,
+                     cursor=prima.next_cursor)
+        assert preso.value.code == "invalid_cursor"
+        # Nessun filtro: rifiutato anche quello.
+        with pytest.raises(q.CursorRejected):
+            q.search(snap, q="filtro", limit=1, cursor=prima.next_cursor)
+
+
+def test_i_filtri_escono_nella_risposta(filtrata):
+    """Un elenco filtrato che non dice di essere filtrato si legge come completo."""
+    with read_snapshot() as snap:
+        page = q.search(snap, q="filtro", stato="dismesso", presenza="rimosso",
+                        limit=q.SEARCH_MAX_LIMIT)
+        aperta = q.search(snap, q="filtro", limit=q.SEARCH_MAX_LIMIT)
+    assert page.filters == {"stato": "dismesso", "presenza": "rimosso"}
+    assert aperta.filters == {"stato": None, "presenza": None}
+
+
 ADDR_MATCHES = load("addresses")["matches"]["cases"]
 
 

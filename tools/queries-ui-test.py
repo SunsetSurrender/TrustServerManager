@@ -578,6 +578,72 @@ def prova(errori_condivisi: list) -> None:
               _estrai(page.inner_text("body"), "U occupate"))
 
         # ==============================================================
+        # 6-bis. CONCORRENZA VERA: un salvataggio mentre la richiesta è in volo
+        # ==============================================================
+        #
+        # ⚠ Il caso di sopra è quello senza uscita: la revisione non combacia mai e si
+        # dichiara il disaccordo. Questo è il caso normale — un collega salva, la
+        # risposta arriva vecchia di una revisione, il client si riconcilia e il
+        # risultato SI MOSTRA. Serve un salvataggio vero: è la riconciliazione che deve
+        # funzionare, non l'intercettazione.
+        page.get_by_role("button", name="Pianta").click()
+        page.wait_for_timeout(800)
+
+        salvato = {"fatto": False}
+
+        def ritarda_e_salva(route):
+            # Mentre la richiesta di capacità è ferma qui, si scrive davvero. La
+            # risposta che seguirà appartiene alla revisione PRECEDENTE.
+            if not salvato["fatto"]:
+                salvato["fatto"] = True
+                esito = page.evaluate("""
+                  async () => {
+                    const cur = await (await fetch('/api/inventory',
+                                       { credentials: 'same-origin' })).json();
+                    const doc = cur.doc;
+                    doc.locations[0].nome = 'Sito 2H — rinominato';
+                    const r = await fetch('/api/inventory', {
+                      method: 'PUT', credentials: 'same-origin',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ baseVersion: cur.version, doc }),
+                    });
+                    return r.status;
+                  }
+                """)
+                check("concorrenza: il salvataggio durante la richiesta riesce",
+                      esito == 200, f"HTTP {esito}")
+            route.continue_()
+
+        page.route("**/api/inventory/capacity**", ritarda_e_salva)
+        page.get_by_role("button", name="Capacità", exact=True).click()
+        page.wait_for_timeout(6000)
+        page.unroute("**/api/inventory/capacity**")
+
+        corpo = page.inner_text("body")
+        errore = page.locator('[data-test="cap-errore"]')
+        check("concorrenza: dopo la riconciliazione la vista mostra i numeri",
+              errore.count() == 0 and "U occupate" in corpo,
+              _estrai(corpo, "U occupate") or corpo[:250])
+        # ⚠ E sono i numeri della revisione NUOVA, non della vecchia: si confronta con
+        # l'endpoint, che è l'unica verifica che distingue «ha mostrato qualcosa» da
+        # «ha mostrato la cosa giusta».
+        cap2 = page.evaluate(JS_GET_JSON, "/api/inventory/capacity")["json"]
+        sala2 = cap2["locations"][0]["rooms"][0]
+        atteso2 = f"{sala2['usedU']}/{sala2['totalU']} U occupate"
+        check("concorrenza: e sono i numeri della revisione nuova",
+              atteso2 in corpo, f"atteso «{atteso2}»")
+        rev = page.locator('[data-test="cap-revisione"]')
+        check("concorrenza: la revisione mostrata è quella corrente",
+              rev.count() == 1 and str(cap2["version"]) in rev.inner_text(),
+              f"mostrata={rev.inner_text() if rev.count() else '—'}, "
+              f"corrente={cap2['version']}")
+        # Il nome del sito rinominato deve essere arrivato anche nell'INVENTARIO
+        # caricato: è la prova che il ricaricamento è avvenuto per davvero.
+        check("concorrenza: l'inventario caricato è stato ricaricato",
+              "rinominato" in page.inner_text("body"),
+              _estrai(page.inner_text("body"), "Sito 2H"))
+
+        # ==============================================================
         # 7. GUASTO: un 503 non fa tornare il calcolo locale
         # ==============================================================
         def non_disponibile(route):
@@ -637,6 +703,74 @@ def prova(errori_condivisi: list) -> None:
         check("export: l'aiuto locale e l'endpoint danno lo stesso «U usate»",
               confronto["racks"] > 0 and not confronto["diff"],
               json.dumps(confronto)[:400])
+
+        # ==============================================================
+        # 8-bis. il corpus del contratto, nel MODULO CHE IL BROWSER HA CARICATO
+        # ==============================================================
+        #
+        # ⚠ §20 del requisito, e la ragione per cui non basta il contratto in node.
+        # Quello gira sul file su disco; le suite Python sul modulo importato. Nessuno
+        # dei due prova che il modulo SERVITO DA NGINX sia quello provato — e un modulo
+        # dimenticato nell'allowlist è già accaduto due volte in questo progetto.
+        #
+        # Le fixture arrivano come argomento: non sono servite da nginx, e non devono
+        # esserlo. L'allowlist è corta di proposito.
+        corpora = {}
+        for nome in ("capacity", "percent", "presence", "rows", "rack-height"):
+            corpora[nome] = json.loads(
+                (Path(__file__).resolve().parents[1] / "fixtures" / "domain"
+                 / f"{nome}.json").read_text(encoding="utf-8"))
+        esito_corpus = page.evaluate("""
+          async (corpora) => {
+            const D = await import('./domain.js');
+            const errori = [];
+            let controlli = 0;
+            for (const c of corpora.capacity.cases) {
+              const cap = D.rackCapacity(c.rackU, c.devices);
+              controlli++;
+              if (cap.usedU !== c.usedU || cap.freeU !== c.freeU
+                  || cap.largestFreeRun !== c.largestFreeRun) {
+                errori.push(`capacità «${c.name}»: ${JSON.stringify(cap)}`);
+              }
+              if (D.percent(cap.usedU, cap.totalU) !== c.percent) {
+                errori.push(`percentuale «${c.name}»`);
+              }
+            }
+            for (const c of corpora.percent.cases) {
+              controlli++;
+              if (D.percent(c.used, c.total) !== c.percent) {
+                errori.push(`percent ${c.used}/${c.total}`);
+              }
+            }
+            for (const c of corpora.presence.cases) {
+              controlli++;
+              if (D.occupiesSpace(c.device) !== c.occupies
+                  || D.notifies(c.device) !== c.notifies) {
+                errori.push(`presenza «${c.name}»`);
+              }
+            }
+            for (const c of corpora.rows.cases) {
+              controlli++;
+              const g = D.rowGroup({ row: c.row });
+              if (g.assigned !== c.assigned || g.label !== c.label) {
+                errori.push(`fila «${c.name}»`);
+              }
+            }
+            for (const c of corpora['rack-height'].cases) {
+              controlli++;
+              if (D.rackHeightSupported(c.u) !== c.supported) {
+                errori.push(`altezza ${JSON.stringify(c.u)}`);
+              }
+            }
+            return { controlli, errori };
+          }
+        """, corpora)
+        check("contratto: il modulo servito da nginx soddisfa il corpus",
+              not esito_corpus["errori"],
+              f"{len(esito_corpus['errori'])} divergenze: "
+              f"{esito_corpus['errori'][:4]}")
+        check("contratto: e il corpus eseguito nel browser non è vuoto",
+              esito_corpus["controlli"] >= 80, f"{esito_corpus['controlli']} controlli")
 
         # ==============================================================
         # 9. igiene

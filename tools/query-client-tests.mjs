@@ -95,6 +95,38 @@ console.log('2. una risposta vecchia non sovrascrive una nuova');
   eq('una richiesta annullata è superata, non un errore', r.status, STALE);
 }
 
+// ⚠ MUTAZIONE SFUGGITA: togliere `abort()` da `run` non rendeva rosso niente.
+//
+// I test di sopra provano che una risposta superata non viene USATA, e per quello basta
+// il contatore di generazione. Ma non aspettare una risposta è una cosa diversa dal
+// non usarla: senza l'abort, digitare tredici caratteri lascia dodici richieste in volo
+// che il server calcola per intero e il browser scarica. La differenza si vede solo
+// guardando il SEGNALE della richiesta precedente, ed è ciò che questo test fa.
+{
+  const client = new QueryClient({ getLoadedRevision: () => REV });
+  const segnali = [];
+  const p1 = client.run('search', (signal) => {
+    segnali.push(signal);
+    return attesa(60).then(() => risposta({ query: 'prima' }));
+  });
+  await attesa(10);
+  const p2 = client.run('search', (signal) => {
+    segnali.push(signal);
+    return attesa(5).then(() => risposta({ query: 'seconda' }));
+  });
+  const [r1, r2] = await Promise.all([p1, p2]);
+
+  eq('la prima è superata', r1.status, STALE);
+  eq('la seconda si consuma', r2.status, OK);
+  eq('due richieste, due segnali', segnali.length, 2);
+  ok('una richiesta nuova ANNULLA quella in volo sullo stesso slot',
+     segnali[0] && segnali[0].aborted === true,
+     'il segnale della prima non risulta annullato: senza abort il server calcola '
+     + 'per intero una risposta che nessuno leggerà, e il browser la scarica');
+  ok('e quella nuova non è annullata',
+     segnali[1] && segnali[1].aborted === false);
+}
+
 // Slot diversi non si annullano fra loro: la ricerca non deve uccidere la capacità.
 {
   const client = new QueryClient({ getLoadedRevision: () => REV });

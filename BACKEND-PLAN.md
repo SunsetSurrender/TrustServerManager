@@ -6066,11 +6066,23 @@ barra.
 | pannello del rack | `DOM.rackCapacity` | si ridisegna a ogni interazione |
 | dashboard | `DOM.rackCapacity` | idem, ed è la vista iniziale |
 | export XLSX/CSV | `DOM.rackCapacity` | è client-side per costruzione |
+| pastiglia «scaduta» nel pannello del rack | `DOM.parseExpiry` via `scadLevel` | una richiesta per dispositivo per colorare un'etichetta |
+| colore delle celle garanzia/supporto nell'inventario tabellare | idem | idem, su una tabella locale |
 
 Una funzione, tre chiamanti, e le fixture language-neutral a garantire che concordi con
 lo SQL. In più un test del browser confronta i due sullo stesso inventario, rack per
 rack: è la prova che §14 chiede, e non è una frase — se divergessero, quel test dice su
 quale rack.
+
+⚠ **Le ultime due righe sono una deviazione, e va dichiarata.** §13 chiede di togliere
+«l'interpretazione delle date della vista Scadenze», e quella è tolta: la vista non
+chiama più nessun parser. Restano due usi di `DOM.parseExpiry` che non sono quella
+vista — la pastiglia «SCADUTA» accanto a un dispositivo nel pannello del rack, e il
+colore di una cella nell'inventario tabellare. Sono presentazione di un rack e di una
+tabella locale, e passano dall'UNICO parser del prodotto: non possono divergere dalla
+risposta dell'endpoint, perché è lo stesso codice che il backend usa (le fixture lo
+fissano da entrambi i lati). Farli passare dall'endpoint significherebbe una richiesta
+per dispositivo per colorare un'etichetta.
 
 **Divisione di lavoro: l'interrogazione dice QUALI, il documento dice COME SI SCRIVE.**
 Le viste Scadenze e Dismessi leggono dalla risposta tutto ciò che è INTERPRETAZIONE
@@ -6184,21 +6196,30 @@ e nessuna di queste la richiede.
 
 | che cosa | quanto | dove |
 |---|---|---|
-| suite Python | **3081** test | `backend/tests/` |
+| suite Python | **3092** test | `backend/tests/` |
 | controlli statici | **346** | `tools/storage-config-test.py` |
 | contratto di dominio, JavaScript | **560** controlli | `tools/domain-contract-tests.mjs` |
-| contratto del client delle interrogazioni | **40** controlli | `tools/query-client-tests.mjs` |
+| contratto del client delle interrogazioni | **45** controlli | `tools/query-client-tests.mjs` |
 | identità, JavaScript | **120** test | `tools/identity-tests.mjs` |
-| **interfaccia nel browser, via nginx** | **60** controlli | `tools/queries-ui-test.py` |
+| **interfaccia nel browser, via nginx** | **67** controlli | `tools/queries-ui-test.py` |
 | catena completa nel browser | invariata | `tools/browser-e2e-test.py` |
 | proxy, smoke, impostazioni, foto, utenze, registro | invariate | `tools/*-test.py` |
 
-⚠ I sessanta controlli del browser sono **portanti**, non decorativi: provano cose che
-nessuna suite può provare, perché vivono fra l'interfaccia e il server. In particolare:
-che una risposta superata non finisca sullo schermo (query A lenta, query B veloce, deve
-restare B), che un risultato di un'altra revisione NON si mostri, che un 503 non faccia
-tornare il calcolo locale, e che l'aiuto locale e l'endpoint diano lo stesso «U usate»
-rack per rack sullo stesso inventario.
+⚠ I sessantasette controlli del browser sono **portanti**, non decorativi: provano cose
+che nessuna suite può provare, perché vivono fra l'interfaccia e il server. In
+particolare: che una risposta superata non finisca sullo schermo (query A lenta, query B
+veloce, deve restare B), che un risultato di un'altra revisione NON si mostri, che un
+`PUT` VERO durante una richiesta in volo porti alla riconciliazione e ai numeri della
+revisione nuova, che un 503 non faccia tornare il calcolo locale, e che l'aiuto locale e
+l'endpoint diano lo stesso «U usate» rack per rack sullo stesso inventario.
+
+⚠ Due di quei controlli rispondono a una domanda che nessun altro strato pone: **il
+modulo che nginx SERVE soddisfa il corpus?** Il contratto in node gira sul file su
+disco, le suite Python sul modulo importato; nessuno dei due si accorgerebbe di un
+`domain.js` servito da un'immagine web vecchia, o di un modulo dimenticato
+nell'allowlist — che in questo progetto è già accaduto due volte. Il test esegue quindi
+ottantasei casi del corpus DENTRO la pagina, sul modulo che il browser ha caricato,
+passando le fixture come argomento (non sono servite da nginx, e non devono esserlo).
 
 ⚠ **Due difetti veri, trovati dal browser e da nient'altro.** Vale la pena dire perché
 nessun altro strato li avrebbe visti.
@@ -6233,6 +6254,87 @@ diversi di sbagliare:
   - «tempo fino al disegno» misurava **la mia attesa**: `click()` più
     `wait_for_timeout(3000)`, e usciva 3050 ms per tutte e tre le viste. Un numero che
     non misura niente è peggio di un numero assente, perché sembra un dato.
+
+#### 8.51.8 Le mutazioni, e la lacuna che hanno trovato
+
+Venti mutazioni, sei strati dal più economico al più costoso:
+
+    1. controlli statici                ~3 s
+    2. contratto del client (JS)        ~2 s
+    3. contratto di dominio (JS)        ~3 s
+    4. contratto di dominio (Python)   ~15 s
+    5. suite su PostgreSQL             ~90 s
+    6. il browser, dove serve         ~250 s
+
+⚠ **Il primo giro ne ha fatte sfuggire SEI su diciassette**, e questa è la parte del
+rapporto che vale più delle altre — perché è l'unica in cui lo strumento ha detto
+qualcosa che non sapevo.
+
+| mutazione sfuggita | che cosa significava |
+|---|---|
+| i rack partecipano a un elenco filtrato | nessun test provava che un elenco filtrato non porti rack |
+| lo `stato` si confronta senza il default | nessun test cercava `?stato=attivo` su un dispositivo con `stato: ""` |
+| una `q` vuota con un filtro non dà niente | il caso della vista Dismessi senza testo era provato **solo dal browser** |
+| un valore fuori vocabolario diventa un elenco vuoto | nessun test pretendeva il 422 su `?stato=dismessi` |
+| il cursore non porta i filtri | nessun test riusava un cursore con filtri diversi |
+| l'annullamento non annulla più | il contratto provava `cancel()`, non l'annullamento su richiesta nuova |
+
+Cinque su sei sono **la stessa lacuna**: l'estensione di API della 2H — i filtri
+`stato` e `presenza` — era verificata soltanto attraverso il test del browser. Un
+comportamento provato solo là è provato dove costa più eseguire, dove il rapporto si
+legge peggio, e dove un fallimento non dice quale riga di SQL è sbagliata.
+
+La sesta è più sottile e vale la pena scriverla per intero. Il contratto del client
+provava l'annullamento **esplicito** (`cancel()`, quando la vista si chiude) e la
+proprietà «una risposta superata non si mostra» — che il contatore di generazione
+soddisfa da solo. Non provava l'annullamento su **richiesta nuova**: scartare il
+RISULTATO e non aspettare la RISPOSTA sono due cose diverse, e i test guardavano solo
+la prima. Senza l'abort, digitare tredici caratteri lascia dodici richieste in volo che
+il server calcola per intero e il browser scarica. Il test nuovo guarda il SEGNALE della
+richiesta precedente, che è l'unico posto dove la differenza si vede.
+
+Aggiunti sette test SQL (`test_domain_sql_pg.py`, sezione 3-bis) e un test JavaScript.
+**Secondo giro: 20 mutazioni su 20 intercettate**, e ognuna dallo strato che le
+compete — le cinque dei filtri dalla suite PostgreSQL, non dal browser.
+
+⚠ **Le tre mutazioni del frontend le ha prese solo il BROWSER**, ed è la risposta alla
+domanda per cui quello strato esiste: far tornare la ricerca a filtrare l'albero
+caricato, mostrare un risultato di un'altra revisione, o omettere di nuovo la `q` vuota
+dall'URL non rende rosso nessun test Python, nessun contratto e nessun controllo
+statico. Se i sessantasette controlli dell'interfaccia non ci fossero, quelle tre
+regressioni arriverebbero in produzione senza che niente lo dica.
+
+| strato | intercettate |
+|---|---|
+| contratto del client (JS) | 6 |
+| suite su PostgreSQL | 6 |
+| contratto di dominio (Python) | 4 |
+| controlli statici | 1 |
+| il browser | 3 |
+
+⚠ **Una mutazione è stata intercettata da un BLOCCO**, non da un rosso: togliere il
+limite ai tentativi di riconciliazione manda il contratto del client in un ciclo
+infinito. Un blocco è una rilevazione legittima — il test non finisce, quindi la suite
+non passa — ma costava dieci minuti di attesa col timeout di default. Il timeout dello
+strato JavaScript è ora novanta secondi: un giro sano dura due secondi, quindi novanta
+sono trenta volte il necessario, e un ciclo si dichiara in un minuto e mezzo.
+
+⚠ **Due lezioni di metodo, dallo strumento e non dal codice.**
+
+La prima: `subprocess.run(timeout=…)` uccide il CLIENT `docker`, non il CONTAINER. Un
+contenitore rimasto a girare in un ciclo infinito consuma CPU per ore e rallenta tutto
+ciò che viene dopo — l'ho trovato per caso, «Up 3 hours», mentre guardavo altro. E
+ripulirlo a mano durante un giro è pericoloso: se si uccide un contenitore che sta
+davvero eseguendo uno strato, quella mutazione viene registrata come intercettata da
+quello strato, e l'esito è falso senza sembrarlo. Nel giro in cui è successo ho potuto
+escluderlo con l'evidenza — la mutazione in corso è stata registrata dalla suite
+PostgreSQL, che gira DOPO gli strati JavaScript, quindi i contenitori uccisi non erano
+suoi — ma è un ragionamento che non si dovrebbe dover fare.
+
+La seconda, la stessa della 2G e vale ripeterla: **non si modifica il codice mentre lo
+strumento gira.** Il ripristino è `git checkout`, quindi una modifica non committata
+fatta nel frattempo viene cancellata; e se rompe un test, resta rotta per tutte le
+mutazioni successive.
 
 ## 9. Ordine di lavoro proposto
 

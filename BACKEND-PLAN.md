@@ -5210,8 +5210,13 @@ scritto accanto: serve a chi legge un ticket di sei mesi fa, o un export prodott
 della 2G, e non capisce perché i numeri non tornano. Ogni voce porta l'esito.
 
 Le colonne: **cosa** era il comportamento misurato, **dove** viveva, **esito** che cosa è
-adesso. Un controllo statico pretende che le voci da 1 a 9 — quelle che il requisito della
-2G dichiara da chiudere prima del rilascio — siano tutte marcate RISOLTA.
+adesso.
+
+Un controllo statico pretende due cose, e la seconda è quella che conta: che **nessuna**
+voce resti senza esito, e che le voci ancora aperte siano un SOTTOINSIEME di quelle che il
+requisito autorizza a restare aperte (la 14, il seed senza scadenze). Sottoinsieme e non
+uguaglianza, di proposito: chiudere la 14 non deve far diventare rosso un test — aprirne
+una nuova sì.
 
 #### Ricerca
 
@@ -5236,7 +5241,7 @@ adesso. Un controllo statico pretende che le voci da 1 a 9 — quelle che il req
 |---|---|---|---|
 | 8 | La vista Scadenze e lo scanner del worker **non sono d'accordo**: la vista salta i dismessi ed elenca gli scaduti, il worker fa l'opposto. La 2F segue il worker (§8.47), l'endpoint segue la vista. | frontend / worker | **RISOLTA** (2G). Restano diverse **per scelta**, non per caso, e ognuna fa ciò che serve alla sua domanda: la vista è ISPETTIVA (mostra tutto, dismessi compresi), il worker è AZIONABILE (`0 <= giorni <= finestra`, e non i dismessi). La risposta della vista porta `notifiable` accanto a ogni riga, così la differenza si legge invece di essere sapere di pochi. §8.50.8 |
 | 9 | Il frontend interpreta le date con `new Date(v)`, i due backend con `parse_expiry`. Sette forme sono visibili nella vista e **invisibili** a worker ed endpoint, e sono queste: `2027-3-15`, `2027/03/15`, `March 15, 2027`, `2027-03-15T10:00:00Z`, `2027-03`, `2027`, `2027-02-30` (V8 lo fa scorrere al 2 marzo). `15/03/2027` è rifiutato da **entrambi** (V8 legge il mese 15). | frontend vs backend | **RISOLTA** (2G). Un interprete solo, `domain.parse_expiry`, e il frontend lo chiama. Un test lo pretende sull'IDENTITÀ della funzione, non sul comportamento. Il corpus porta le sette forme con l'attesa `null` **e la controprova** che `new Date` le accettava — senza quella, il corpus dimostrerebbe solo che il parser rifiuta qualcosa. §8.50.7 |
-| 10 | Un avviso per una scadenza **già passata** non esiste: si ripeterebbe ogni giorno per sempre, o no? Nessuna fase lo decide. | worker | **APERTA, e per scelta.** La 2G non la decide: è un prodotto diverso — un avviso che si ripete per sempre, o una volta sola e allora quale — e nessuno l'ha chiesto. Gli scaduti restano **visibili** nella vista Scadenze con il livello `expired`, che è dove si guardano. Non è un blocco al rilascio: è una funzione che non c'è. |
+| 10 | Un avviso per una scadenza **già passata** non esiste: si ripeterebbe ogni giorno per sempre, o no? Nessuna fase lo decide. | worker | **RISOLTA — NON PREVISTA.** Non è una funzione che manca: è una funzione che il prodotto dichiara di non avere, e la differenza conta perché la prima si recupera e la seconda si spiega. Contratto finale: gli scaduti restano ISPEZIONABILI nella vista Scadenze col livello `expired`; il worker agisce solo su `0 <= giorni <= finestra`; nessun avviso retrospettivo è richiesto. Gli scaduti si guardano, non si ricevono. |
 
 #### Etichette e contesto
 
@@ -5250,14 +5255,18 @@ adesso. Un controllo statico pretende che le voci da 1 a 9 — quelle che il req
 
 | # | cosa | dove | esito |
 |---|---|---|---|
-| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale. | dati | **APERTA, e resta un blocco al rilascio.** La 2F l'ha aggirata con un corpus derivato (`seed-dated`) e la 2G ci ha aggiunto le presenze, ma un corpus costruito da me non è un dato reale: la funzione più delicata del prodotto non è ancora stata esercitata su scadenze che qualcuno ha scritto davvero. Vedi §7. |
-| 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend | **APERTA, non urgente.** Non è una divergenza semantica: è un costo. Nessun numero sullo schermo cambia. |
-| 16 | ⚠ **NUOVA, scoperta dalla 2G.** `rack.u` nel documento è un intero JSON senza massimo; la colonna della proiezione è `integer`. Un rack più alto di 2³¹ finisce in `extra` e la colonna resta NULL, quindi la capacità **dallo SQL** riporta quel rack senza altezza mentre il modello puro — che legge il documento — calcola sul valore vero. | backend | **LIMITE DICHIARATO, non discrepanza aperta.** `validate_model` lo segnala (`carried_verbatim`) e `test_un_rack_piu_alto_di_int32_non_entra_nella_colonna` lo fissa. Non si passa a `bigint`: sarebbe cambiare il tipo di una colonna — quindi la versione della mappa e una ricostruzione — per un dato che l'interfaccia non può produrre e che nel browser esaurisce la memoria della scheda. Il giorno in cui qualcuno lo volesse, quel test diventa rosso e gli dice dove guardare. |
+| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale. | dati | **APERTA, blocco al rilascio.** La 2F l'ha aggirata con un corpus derivato (`seed-dated`), la 2G ci ha aggiunto le presenze, la 2H non la tocca: un corpus costruito da me non è un dato reale. ⚠ Qualificazione richiesta prima del rilascio: popolare uno scenario di scadenze DETERMINISTICO e di forma reale, e percorrere il cammino completo degli avvisi su quello — non su un caso costruito per far passare un test. Vedi §7. |
+| 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend | **CARATTERISTICA DICHIARATA**, non debito semantico. Riclassificata: nessun numero sullo schermo cambia e nessuna implementazione è in disaccordo con un'altra — è un costo di scrittura, quindi un fatto operativo (§8.46), non una discrepanza. Resta scritta qui perché questo registro è anche il posto dove si legge che cosa è stato guardato e archiviato. |
+| 16 | ⚠ **NUOVA, scoperta dalla 2G.** `rack.u` nel documento è un intero JSON senza massimo; la colonna della proiezione è `integer`. Un rack più alto di 2³¹ finisce in `extra` e la colonna resta NULL, quindi la capacità **dallo SQL** riporta quel rack senza altezza mentre il modello puro — che legge il documento — calcola sul valore vero. | backend | **RISOLTA — limite di dominio dichiarato e APPLICATO.** `rack.u` deve stare nell'intervallo intero positivo che la proiezione sostiene: `domain.RACK_U_MIN..RACK_U_MAX`, cioè `1..2147483647`. Un valore fuori viene RIFIUTATO dalla convalida normale del documento, prima di persistere, col codice stabile `rack_u_out_of_range`. Non si passa a `bigint`: sarebbe cambiare il tipo di una colonna — quindi versione della mappa e ricostruzione — per un dato che l'interfaccia non produce e che nel browser esaurisce la memoria della scheda. Il limite non DIVERGE più dal comportamento: dove due letture davano due numeri, ora il documento non entra. §8.51.1 |
 
-⚠ Bilancio dopo la 2G: **chiuse le voci da 1 a 9, più la 11**; già chiuse dalla 2F la 12 e
-la 13. Restano aperte la **10** (avvisi sugli scaduti: funzione che non esiste, non
-difetto), la **14** (il seed senza scadenze, **blocco al rilascio**) e la **15** (costo,
-non semantica).
+⚠ Bilancio dopo la **2H**: chiuse le voci **da 1 a 13, più la 16**. La 10 è chiusa come
+funzione NON PREVISTA (una decisione, non un rinvio), la 15 è stata riclassificata a
+caratteristica operativa, la 16 è chiusa perché il limite ora si applica invece di essere
+soltanto scritto.
+
+Resta aperta **una** voce: la **14**, il seed senza scadenze, e resta un **blocco al
+rilascio**. Non è una discrepanza semantica — è la funzione più delicata del prodotto non
+ancora esercitata su dati che qualcuno ha scritto davvero.
 
 Nessuna incoerenza semantica visibile all'utente resta aperta. Se ne comparisse una,
 §14 del requisito della 2G la dichiara un blocco al rilascio, e il posto dove scriverla
@@ -5940,6 +5949,291 @@ JavaScript non gestito», che è ciò che dimostra che `domain.js` si carica e i
 di rendering funzionano).
 
 
+### 8.51 Fase 2H: il frontend chiede invece di calcolare
+
+Dalla 2G il prodotto ha **una** semantica, scritta in due linguaggi e fissata da un
+contratto in dati. Il frontend però continuava a calcolare da sé: ricerca, capacità e
+scadenze giravano nel browser, e l'unica garanzia era che il loro risultato COINCIDESSE
+con quello delle rotte SQL. La 2H toglie il calcolo e lascia la domanda.
+
+⚠ Quella garanzia è la ragione per cui questa fase è stata noiosa, ed era lo scopo di
+tenerle separate: nessun numero sullo schermo è cambiato passando al server. Se le due
+cose fossero avvenute insieme, una differenza non si sarebbe potuta attribuire.
+
+#### 8.51.1 Il limite dichiarato dell'altezza di un rack (voce 16 del registro)
+
+Prima della migrazione, la pulizia del registro. La voce 16 diceva: `rack.u` è un intero
+JSON senza massimo, la colonna della proiezione è `integer`, quindi un rack da tre
+miliardi di unità viaggia in `extra` e la colonna resta NULL — e da lì nascono **due
+numeri diversi** per la stessa domanda. Era dichiarata e non chiusa.
+
+Adesso è chiusa nel modo in cui si chiudono i limiti: **non lasciando entrare il dato**.
+
+    domain.RACK_U_MIN = 1
+    domain.RACK_U_MAX = 2147483647      # l'`integer` della proiezione
+    → `rack_u_out_of_range`, dal cancello del documento, prima di persistere
+
+Tre scelte da leggere insieme, perché la regola si capisce solo dalle tre:
+
+**Dove.** In `validate_normal_document`, non in `validate_model`. Quest'ultima serve a
+due cose — fare da cancello al `PUT` e provare l'INTEGRITÀ della proiezione — e un `u`
+fuori scala non è una proiezione rotta: la proiezione conserva il valore in `extra`,
+fedelmente. Metterlo là avrebbe fatto dichiarare «incoerente» una proiezione sana, e un
+dato storico avrebbe potuto far rispondere 503 a delle letture che funzionano. Il
+cancello vieta di scriverne di nuovi; l'avviso `carried_verbatim` continua a descrivere
+quelli che esistessero già.
+
+**Che cosa.** Il «no» copre un solo caso: un INTERO fuori intervallo. Un `u` assente
+passa (il default canonico mette 45); un `u` non intero passa — `'45'`, `4.5`, `true` —
+e non per indulgenza: `_as_int` li rifiuta e la colonna resta NULL, quindi SQL e modello
+puro vedono ENTRAMBI un rack senza altezza. Nessuna divergenza, quindi niente da
+rifiutare in nome di questa regola. La regola non dice «`u` deve essere un intero», dice
+«`u` non deve poter significare due numeri diversi».
+
+**Che cosa NON si fa.** Non si passa a `bigint`. Sarebbe cambiare il tipo di una colonna
+— quindi la versione della mappa e una ricostruzione — per un dato che l'interfaccia non
+può produrre (il form stringe a 1..60) e che nel browser esaurisce la memoria della
+scheda.
+
+⚠ **Il prezzo, dichiarato.** Due corpora condivisi portavano un'altezza che ora non è
+salvabile: `empty-zero-false` aveva `u: 0` e `oversized-integers` aveva `u: 3 000 000
+000`. Sono stati portati dentro il limite, NON esclusi: quei documenti esistono per
+difendere gli zeri espliciti e gli interi che una colonna non tiene, e escluderli
+avrebbe perso quella copertura per intero. L'intero enorme è passato sullo slot di un
+DISPOSITIVO (`u: -3 000 000 000`), che è la stessa colonna `integer` sfondata dal lato
+opposto; lo zero esplicito resta su cinque campi. E l'adattamento è **verificato**:
+`test_l_altezza_adattata_era_davvero_da_adattare` pretende che l'originale sia rifiutato
+e per quel codice — se un giorno il limite si alzasse, quel test diventa rosso e dice che
+l'adattamento non serve più, invece di restare una modifica silenziosa.
+
+Conseguenza: le fixture di parità della 2E sono state rigenerate con la catena a tre
+passi. Il diff è di 376 righe aggiunte e 20 togliete, e le aggiunte sono quasi tutte
+`presenza: "presente"` — la canonicalizzazione della 2G, che quei corpora non avevano mai
+visto perché non erano stati rigenerati allora.
+
+#### 8.51.2 Le due regole, in un posto solo: `handoff/queries.js`
+
+Chiedere un calcolo a un server mentre l'utente continua a lavorare introduce due
+problemi che non esistevano quando il calcolo era locale. Nessuno dei due è difficile;
+entrambi sono invisibili finché la rete è veloce, che è il motivo per cui vanno scritti
+una volta e non cinque.
+
+**Regola 1 — una risposta vecchia non sovrascrive una nuova.** L'utente digita `ov-`,
+poi `dism-presente`. Se la prima risposta arriva dopo la seconda, l'elenco mostrato
+risponde a una domanda che nessuno sta più facendo, e niente sullo schermo lo dice. Si
+risolve con un contatore di generazione PIÙ l'annullamento: il contatore decide chi ha
+diritto di scrivere il risultato, `AbortController` evita di pagare una risposta che
+verrà scartata. Serve il contatore anche con l'abort, perché fra `abort()` e il rifiuto
+della promessa passa del tempo.
+
+**Regola 2 — un risultato di una revisione non si mescola con un'altra.** Ogni risposta
+porta `version` e `sha256` dell'inventario su cui è stata calcolata. Se non combaciano
+con quelli del documento in memoria, il risultato descrive un inventario diverso da
+quello sullo schermo. ⚠ Il confronto è su **entrambi** i valori: dopo un rollback
+esistono due revisioni con lo stesso NUMERO e contenuto diverso, ed è esattamente il caso
+in cui un client sbaglierebbe in silenzio.
+
+Quando divergono: si ricarica l'inventario per il cammino già esistente e si riprova
+**una** volta. Se ancora non combacia, si dichiara il disaccordo e non si mostra niente.
+
+⚠ **Il ciclo che questo ha prodotto, e come è stato trovato.** La prima stesura chiudeva
+il ciclo dentro `queries.run` con `maxReloads`, e sembrava sufficiente. Non lo era: il
+ricaricamento chiamava `_aggiornaInterrogazioniAperte`, che RILANCIAVA la stessa
+interrogazione, che riceveva di nuovo un disaccordo, che ricaricava. Un ciclo indiretto,
+con `maxReloads` che faceva regolarmente il suo lavoro dentro ogni singola chiamata.
+L'ha trovato il test del browser sulla revisione, che intercetta la risposta e ne
+falsifica la versione: la vista mostrava i numeri vecchi invece dell'errore, e nel log
+dell'API si vedeva la fila di richieste. La correzione è di una riga —
+`_loadInventory({ perRiconciliare: true })` non rilancia le interrogazioni — e la ragione
+sta scritta accanto: chi ha chiesto il ricaricamento riprova da sé, e rilanciare al suo
+posto significa non arrendersi mai.
+
+#### 8.51.3 L'architettura scelta, e cosa resta locale
+
+⚠ **Non zero calcolo locale, uno.** Il requisito (§6) chiede che non ci sia più di UNA
+implementazione di capacità nel frontend, non che non ce ne sia nessuna, e la differenza
+è pratica: il pannello del rack e la dashboard si ridisegnano a ogni trascinamento del
+mouse, e una richiesta per rack sarebbe un'esplosione di richieste per disegnare una
+barra.
+
+| chi | come | perché |
+|---|---|---|
+| vista Capacità | `GET /api/inventory/capacity` | è una vista, si apre e si legge |
+| vista Scadenze | `GET /api/inventory/expiries` | idem, e le date le interpreta il backend |
+| ricerca globale | `GET /api/inventory/search` | idem |
+| vista Dismessi | `GET …/search?stato=dismesso` | è la ricerca finale con un filtro |
+| anteprima avvisi | `…/expiries?warningDays=N` → `totals.notifiable` | è la domanda del worker |
+| pannello del rack | `DOM.rackCapacity` | si ridisegna a ogni interazione |
+| dashboard | `DOM.rackCapacity` | idem, ed è la vista iniziale |
+| export XLSX/CSV | `DOM.rackCapacity` | è client-side per costruzione |
+
+Una funzione, tre chiamanti, e le fixture language-neutral a garantire che concordi con
+lo SQL. In più un test del browser confronta i due sullo stesso inventario, rack per
+rack: è la prova che §14 chiede, e non è una frase — se divergessero, quel test dice su
+quale rack.
+
+**Divisione di lavoro: l'interrogazione dice QUALI, il documento dice COME SI SCRIVE.**
+Le viste Scadenze e Dismessi leggono dalla risposta tutto ciò che è INTERPRETAZIONE
+(`level`, `daysRemaining`, `notifiable`, `stato`, `presenza`, le etichette della catena
+del dominio) e dal documento già in memoria i campi puramente descrittivi (referente,
+modello, seriale, note). L'alternativa era allargare la risposta a ogni colonna che una
+vista mostra, e la risposta sarebbe cresciuta con l'interfaccia. L'`uid` è il ponte, e la
+regola 2 garantisce che le due sorgenti siano la stessa revisione.
+
+**Estensione di API (una sola, dichiarata).** `GET /api/inventory/search` accetta
+`stato` e `presenza`: stesso vocabolario, stessi default, stesso `_reject_unknown` delle
+scadenze. Nessuna interpretazione nuova. Due conseguenze decise: con un filtro attivo i
+RACK non partecipano (un rack non ha stato né presenza: mostrarlo in un elenco filtrato
+significherebbe mostrare una riga che il filtro non ha guardato), e una `q` vuota diventa
+legittima (con un filtro la domanda è stata posta). Nessuna migrazione, nessun indice,
+nessun privilegio nuovo.
+
+#### 8.51.4 La vista Dismessi: una lettura, non un archivio
+
+Nessuna tabella nuova e nessun endpoint proprio — un controllo statico lo pretende. È
+`search?stato=dismesso`, e distingue le due combinazioni che la 2G ha reso esprimibili:
+
+    dismesso + presente    fuori servizio, ANCORA installato — occupa spazio fisico
+    dismesso + rimosso     portato via — non occupa, e lo slot mostrato è «l'ultimo»
+
+Mostra nome, codice, seriale, modello, referente, ultimo sito/sala/rack, presenza,
+garanzia e supporto; filtra per presenza; cerca con la stessa semantica di sempre. Nessuna
+cella può contenere `undefined`, `null` o `None`: un valore dell'implementazione in una
+colonna di riscontro incrociato è peggio di una cella vuota, perché sembra un dato.
+
+**La presentazione dei rimossi (§10).** Il rack conserva la relazione — è il motivo per
+cui questi record non si cancellano — ma la vista FISICA mostra ciò che è installato: le
+fasce sulla pianta 3D non disegnano più un apparato rimosso, perché disegnarlo direbbe
+che quello spazio è pieno mentre la capacità dice che è libero. Il pannello del rack lo
+mostra tratteggiato con l'etichetta «RIMOSSO» e conta i rimossi a parte («1 rimosso, non
+occupa»), che è l'informazione senza la quale il conto dei dispositivi e le U occupate
+sembrano non tornare. `rack_uid` non si cancella per nascondere una riga.
+
+#### 8.51.5 Che cosa è stato tolto
+
+    ricerca locale sull'albero            → l'endpoint
+    `DOM.parseAddressQuery/addressMatches` nel frontend  → l'endpoint
+    `DOM.deviceMatches/rackMatches`       → l'endpoint
+    calcolo della vista Capacità          → l'endpoint
+    `DOM.rowGroup/compareRowGroups` nel frontend  → l'endpoint
+    discesa dell'albero delle Scadenze    → l'endpoint
+    anteprima delle notifiche calcolata   → `totals.notifiable`
+    la seconda forma della query (`toLowerCase`)  → non serve più a nessuno
+
+⚠ **Nessun ripiego locale, in nessun ramo.** Se un endpoint risponde 503 la vista lo
+DICE, con un messaggio che distingue `projection_not_current` (manutenzione dimenticata,
+si ripara con `--rebuild`) da `projection_inconsistent` (dato da guardare). Calcolare i
+numeri nel browser «per sicurezza» sarebbe indistinguibile da una vista che funziona, e
+nasconderebbe un guasto della proiezione proprio a chi lo può riparare. È anche il modo
+esatto in cui la duplicazione tornerebbe: nessuno scriverebbe «una seconda semantica»,
+tutti scriverebbero «una rete di sicurezza». Un controllo statico e un test del browser
+lo pretendono.
+
+I controlli statici rovesciati sono tre, e la loro storia è la storia della fase 2:
+
+| controllo | 2D/2E/2G | 2H |
+|---|---|---|
+| «il frontend non sa che la proiezione esista» | pretendeva l'ignoranza | pretende che non conosca la FORMA, ma sappia quando è rotta |
+| «il frontend non è ricablato alle rotte» | pretendeva che non lo fosse | pretende che chiami tutte e tre |
+| «il frontend calcola in locale» | pretendeva il calcolo condiviso | pretende UNA sola implementazione locale |
+
+#### 8.51.6 Le misure, nel browser (§16 del requisito)
+
+`tools/queries-perf.py`, sul seed di **produzione** (3 siti, 6 sale, 102 rack, 86
+dispositivi), attraverso nginx e TLS. Non è un test e non ha soglie: è una misura, e
+serve a distinguere «millisecondi» da «secondi» e «una richiesta» da «cento».
+
+| | richieste | latenza | risposta |
+|---|---|---|---|
+| avvio (contatore scadenze) | 1 | 16 ms | 258 B |
+| ricerca «srv» (3 battute) | **1** | 19 ms | 8 701 B (15 esiti) |
+| ricerca «s» (50 esiti, il limite) | 1 | 22 ms | 24 883 B |
+| **vista Capacità, 102 rack** | **1** | 23 ms | 27 708 B |
+| vista Scadenze | 1 | 18 ms | 258 B |
+| vista Dismessi | 1 | 17 ms | 193 B |
+| trascinamento sulla pianta (40 movimenti) | **0** | — | — |
+| `GET /api/inventory` (per confronto) | 1 | 22 ms | 40 449 B |
+
+Dal clic al contenuto sullo schermo: **34–35 ms** per tutte e tre le viste, di cui una
+ventina è la richiesta.
+
+Le tre righe che rispondono alle domande del requisito:
+
+  - **nessun N+1.** La vista Capacità disegna 102 rack con **una** richiesta. Era il
+    difetto classico da evitare, e si vede contando;
+  - **il ritardo di digitazione funziona.** Tre caratteri, una richiesta. Su
+    «dism-presente» (tredici caratteri) il test dell'interfaccia pretende `1 <= n <= 3`;
+  - **l'interazione sulla pianta non chiede niente.** Zero richieste in quaranta
+    movimenti del mouse: è la ragione per cui il pannello del rack e la dashboard
+    continuano a usare l'aiuto locale, e questa riga è la misura di quella scelta.
+
+⚠ Due numeri da leggere con attenzione, entrambi onesti e nessuno dei due rassicurante:
+
+  - la risposta della Capacità pesa **il 68 % del documento intero** (27,7 KB su 40,4).
+    A questa scala non è un problema — sono trenta millisecondi — ma non è una vittoria
+    di banda: è una richiesta in più che porta un sottoinsieme già noto. Il guadagno
+    della migrazione non è il traffico, è che il numero è **uno**;
+  - la vista Scadenze risponde in 258 byte perché il seed di produzione non ha
+    **nessuna** scadenza. La misura è quindi il costo di un elenco vuoto, e lo dice: è
+    la voce 14 del registro che si ripresenta come un numero.
+
+Nessuna cache lato client, di proposito: §16 la ammette solo se una misura la richiede,
+e nessuna di queste la richiede.
+
+#### 8.51.7 La verifica
+
+| che cosa | quanto | dove |
+|---|---|---|
+| suite Python | **3081** test | `backend/tests/` |
+| controlli statici | **346** | `tools/storage-config-test.py` |
+| contratto di dominio, JavaScript | **560** controlli | `tools/domain-contract-tests.mjs` |
+| contratto del client delle interrogazioni | **40** controlli | `tools/query-client-tests.mjs` |
+| identità, JavaScript | **120** test | `tools/identity-tests.mjs` |
+| **interfaccia nel browser, via nginx** | **60** controlli | `tools/queries-ui-test.py` |
+| catena completa nel browser | invariata | `tools/browser-e2e-test.py` |
+| proxy, smoke, impostazioni, foto, utenze, registro | invariate | `tools/*-test.py` |
+
+⚠ I sessanta controlli del browser sono **portanti**, non decorativi: provano cose che
+nessuna suite può provare, perché vivono fra l'interfaccia e il server. In particolare:
+che una risposta superata non finisca sullo schermo (query A lenta, query B veloce, deve
+restare B), che un risultato di un'altra revisione NON si mostri, che un 503 non faccia
+tornare il calcolo locale, e che l'aiuto locale e l'endpoint diano lo stesso «U usate»
+rack per rack sullo stesso inventario.
+
+⚠ **Due difetti veri, trovati dal browser e da nient'altro.** Vale la pena dire perché
+nessun altro strato li avrebbe visti.
+
+**Il ciclo di ricaricamenti.** Descritto in §8.51.2. Le suite Python non lo vedono
+perché il ciclo passa dal componente React; il contratto del client non lo vede perché
+lì `reloadInventory` è una funzione finta che non rilancia niente — ed era giusto che
+non lo facesse, altrimenti quel test avrebbe misurato il componente invece della
+regola. Serviva l'interfaccia vera.
+
+**Una sala con `vani: []` uccideva il render.** `room.vani || [...]`: un array vuoto è
+VERO in JavaScript, quindi la lista restava vuota, `vaniG[0]` era `undefined` e il
+render moriva con «Cannot read properties of undefined (reading 'x')» — l'intera
+applicazione, non solo la pianta. E `vani: []` non è una forma inventata: è il **default
+canonico** della sala, quindi qualunque documento che non li dichiari passa la
+validazione, viene salvato, e poi non si può più aprire. Il seed di produzione ha i vani
+in tutte e sei le sale, ed è la sola ragione per cui nessuno l'aveva mai visto. Il
+difetto precede la 2H di molte fasi; l'ha scoperto un documento di prova costruito da
+zero, che è precisamente ciò che un seed reale non fa mai.
+
+Più tre errori miei, corretti mentre accadevano e degni di nota perché sono tre modi
+diversi di sbagliare:
+
+  - `q=` **vuota veniva omessa** dall'URL (`_qs` salta i valori vuoti — giusto per un
+    filtro, sbagliato per un parametro obbligatorio), quindi la vista Dismessi senza
+    testo riceveva 422. Nessuna suite Python poteva vederlo: là `search` si chiama con
+    `q=""` in Python, e la costruzione dell'URL non esiste;
+  - la **latenza** misurata era negativa di un miliardo e ottocento milioni di
+    millisecondi: `timing.startTime` di Playwright è un'epoca assoluta e `responseEnd` è
+    un offset. Il numero era così assurdo da non poter essere creduto, ed è la sola
+    ragione per cui non è finito in un rapporto;
+  - «tempo fino al disegno» misurava **la mia attesa**: `click()` più
+    `wait_for_timeout(3000)`, e usciva 3050 ms per tutte e tre le viste. Un numero che
+    non misura niente è peggio di un numero assente, perché sembra un dato.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -6076,16 +6370,31 @@ di rendering funzionano).
     ⚠ Dopo l'aggiornamento serve un `project.py --rebuild` (§3.8.1 di
     `deploy/README.md`): la versione della mappa è cambiata.
 
-20. **Migrazione del frontend** alle rotte nuove. **Prossimo.** Il frontend calcola
-    ancora in locale, ma con la SEMANTICA CONDIVISA: le fixture di dominio dimostrano
-    che i due calcoli danno la stessa risposta, ed è ciò che rende questa migrazione
-    noiosa invece che rischiosa. Comprende la vista **Dismessi** dedicata, che la 2G ha
-    lasciato fuori di proposito.
+20. ~~**Fase 2H — migrazione del frontend** alle rotte nuove, più la vista
+    Dismessi~~ ✔ **fatto** (§8.51) — `handoff/queries.js`, `tools/queries-ui-test.py`,
+    `tools/query-client-tests.mjs`, `tools/queries-perf.py`. Ricerca, capacità e
+    scadenze non si calcolano più nel browser; resta UNA implementazione locale di
+    capacità (pannello del rack, dashboard, export), dichiarata e legata al contratto
+    dalle fixture. Chiusa anche la voce 16 del registro: `rack.u` fuori dall'intervallo
+    sostenuto è rifiutato in scrittura (`rack_u_out_of_range`).
+
+    **Nessuna migrazione, nessun indice, nessun privilegio nuovo**: la sola estensione
+    di API è `stato`/`presenza` sulla ricerca, col vocabolario che già esisteva.
+
+    ⚠ Due difetti veri trovati dai test del browser, e nessuno dei due era visibile
+    dalle suite: un CICLO indiretto di ricaricamenti fra la riconciliazione della
+    revisione e il rilancio delle interrogazioni aperte, e una sala con `vani: []` —
+    che è il default canonico — che faceva morire il render dell'intera applicazione.
 
 21. **Il buco dei dati di seed** (§8.48 voce 14, §7): il seed di produzione non ha
     nessuna scadenza, quindi la funzione più delicata del prodotto non è mai stata
-    esercitata su dati che qualcuno ha scritto davvero. **Blocco al rilascio**, e
-    indipendente dai due punti sopra.
+    esercitata su dati che qualcuno ha scritto davvero. **Blocco al rilascio**, ed è
+    l'ULTIMA voce aperta del registro. La qualificazione richiesta: uno scenario di
+    scadenze deterministico e di forma reale, e il cammino completo degli avvisi
+    percorso su quello.
+
+22. **Rilascio**: purga dei dati di prova, baseline di produzione, deploy sulla VM.
+    Non iniziato, e dipende dal punto 21.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

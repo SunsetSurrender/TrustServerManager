@@ -34,6 +34,9 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
  *                 Serve al `FormData` del caricamento delle foto: il confine del
  *                 multipart lo genera il browser, e imporre un `Content-Type`
  *                 senza `boundary` renderebbe la richiesta illeggibile al server.
+ *  - signal       `AbortSignal`. Serve alle interrogazioni: una ricerca in volo
+ *                 diventa inutile appena l'utente digita un altro carattere, e
+ *                 lasciarla correre significa pagarla e poi buttarla.
  */
 async function request(method, path, body, opts = {}) {
   let res;
@@ -42,6 +45,7 @@ async function request(method, path, body, opts = {}) {
       method,
       credentials: 'same-origin',
       cache: 'no-store',
+      signal: opts.signal,
       headers: (body === undefined || opts.raw)
         ? (opts.headers || undefined)
         : { ...JSON_HEADERS, ...(opts.headers || {}) },
@@ -50,6 +54,13 @@ async function request(method, path, body, opts = {}) {
         : (opts.raw ? body : JSON.stringify(body)),
     });
   } catch (err) {
+    // ⚠ L'annullamento PRIMA della rete, e non è un dettaglio: `fetch` respinge un
+    // abort con un `DOMException` che finirebbe in questo stesso `catch`. Tradurlo in
+    // «Server non raggiungibile» significherebbe mostrare un errore di rete ogni volta
+    // che qualcuno digita un carattere in più nella casella di ricerca.
+    if (err && (err.name === 'AbortError' || (opts.signal && opts.signal.aborted))) {
+      throw new ApiError(0, 'aborted', 'Richiesta annullata.', null);
+    }
     // Rete assente, DNS, TLS: non è una risposta del server e va distinta.
     throw new ApiError(0, 'network_error',
       'Server non raggiungibile. Controlla la connessione.', null);
@@ -202,6 +213,59 @@ export function uploadPhoto(file) {
 
 export const getInventory = () => request('GET', '/api/inventory');
 
+// ---------------------------------------------- interrogazioni relazionali (2H)
+//
+// Le tre domande che il frontend non calcola più da sé: ricerca, capacità,
+// scadenze. Ognuna risponde con `version` e `sha256` — la revisione di inventario a
+// cui la risposta appartiene — e sta al chiamante confrontarla con quella che ha
+// sullo schermo. Il posto dove si confronta è uno solo: `queries.js`.
+//
+// ⚠ Nessuna di queste funzioni ha un fallback locale. Se il server risponde 503
+// perché la proiezione non è attuale, la vista deve dirlo: calcolare la risposta nel
+// browser nasconderebbe un difetto del backend e farebbe rinascere la duplicazione
+// che la fase 2G ha chiuso.
+
+/**
+ * Query string, saltando i parametri non valorizzati.
+ *
+ * ⚠ `sempre` è l'elenco dei parametri che vanno mandati ANCHE se vuoti, ed esiste per
+ * un difetto vero: `q` è obbligatoria per la rotta, e la vista Dismessi con la casella
+ * di ricerca vuota la chiedeva senza — ricevendo 422 invece dell'elenco. Saltare i
+ * vuoti è giusto per un filtro («nessun filtro») e sbagliato per una domanda
+ * («cercami la stringa vuota fra i dismessi» è una domanda con una risposta).
+ */
+const _qs = (params, sempre = []) => {
+  const u = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null) continue;
+    if (v === '' && !sempre.includes(k)) continue;
+    u.set(k, String(v));
+  }
+  const s = u.toString();
+  return s ? `?${s}` : '';
+};
+
+/**
+ * Ricerca globale. `q` è obbligatoria per il server; con `stato` o `presenza`
+ * valorizzati una `q` vuota è legittima e restituisce l'elenco filtrato (estensione
+ * della fase 2H, per la vista Dismessi).
+ */
+export const searchInventory = ({ q, stato, presenza, limit, cursor, signal } = {}) =>
+  request('GET', '/api/inventory/search'
+    + _qs({ q: q === undefined || q === null ? '' : q, stato, presenza, limit, cursor },
+           ['q']),
+    undefined, { signal });
+
+/** Capacità di TUTTI i rack, in una richiesta. Non è paginata: vedi la rotta. */
+export const getCapacity = ({ signal } = {}) =>
+  request('GET', '/api/inventory/capacity', undefined, { signal });
+
+/** Scadenze: `warningDays` è la soglia del livello «entro N giorni» (90 nella vista). */
+export const getExpiries = ({ warningDays, stato, presenza, limit, cursor,
+                              signal } = {}) =>
+  request('GET', '/api/inventory/expiries'
+    + _qs({ warningDays, stato, presenza, limit, cursor }), undefined, { signal });
+
 /**
  * Coda di scrittura dell'inventario: UNA sola PUT in volo, UNA sola in attesa.
  *
@@ -308,6 +372,12 @@ export function describeError(err) {
   }
   switch (err.status) {
     case 0:
+      // L'annullamento non è un errore da mostrare: è una richiesta che non
+      // interessava più. Chi la riceve la scarta; se finisse in un avviso, digitare
+      // in fretta nella casella di ricerca produrrebbe una fila di messaggi.
+      if (err.code === 'aborted') {
+        return { titolo: 'Richiesta annullata', testo: '', azione: null };
+      }
       return { titolo: 'Server non raggiungibile',
                testo: 'Le modifiche non sono state salvate. Controlla la connessione.',
                azione: 'riprova' };
@@ -416,6 +486,14 @@ export function describeError(err) {
         return { titolo: 'Invio non riuscito',
                  testo: _SMTP_ERRORS[err.code](err), azione: null };
       }
+      // ⚠ I due stati della proiezione relazionale, distinti (§12 della fase 2H).
+      // Sono l'unico caso in cui una VISTA non può rispondere, e il rimedio è
+      // un'operazione di sistemista: dirlo è l'unica risposta utile, e calcolare i
+      // numeri nel browser sarebbe nascondere il guasto proprio a chi lo può riparare.
+      if (_PROJECTION_ERRORS[err.code]) {
+        return { titolo: 'Dati di ricerca non disponibili',
+                 testo: _PROJECTION_ERRORS[err.code], azione: 'riprova' };
+      }
       return { titolo: 'Servizio non disponibile',
                testo: 'Il server non è pronto. Le modifiche non sono state salvate; '
                     + 'riprova fra poco.', azione: 'riprova' };
@@ -424,6 +502,28 @@ export function describeError(err) {
                testo: err.message || 'Operazione non riuscita.', azione: null };
   }
 }
+
+/**
+ * I due stati della proiezione relazionale → cosa dire a chi guarda.
+ *
+ * `projection_not_current`: la proiezione è più vecchia della testa. Succede dopo un
+ * aggiornamento che cambia la versione della mappa, e si ripara con
+ * `project.py --rebuild`.
+ *
+ * `projection_inconsistent`: la proiezione non corrisponde al documento che dichiara
+ * di rappresentare. È più grave, e la differenza va detta: la prima è un passo di
+ * manutenzione dimenticato, la seconda è un dato da guardare.
+ */
+const _PROJECTION_ERRORS = {
+  projection_not_current:
+    'Le viste Ricerca, Capacità e Scadenze leggono una copia dei dati che il server '
+    + 'sta ancora aggiornando. L\'inventario resta consultabile e modificabile. '
+    + 'Se persiste, serve una ricostruzione lato server.',
+  projection_inconsistent:
+    'La copia dei dati usata da Ricerca, Capacità e Scadenze non corrisponde '
+    + 'all\'inventario. Le viste sono sospese di proposito: mostrare numeri sbagliati '
+    + 'sarebbe peggio. Segnala l\'anomalia ai sistemisti.',
+};
 
 /** Codici di validazione delle impostazioni → cosa deve fare la persona. */
 const _SETTINGS_ERRORS = {

@@ -259,6 +259,46 @@ emit('capacity', {
 });
 
 // ============================================================
+// 2-bis. ALTEZZA DEL RACK — il limite dichiarato, e cosa NON è dentro il limite
+// ============================================================
+//
+// Chiude la voce 16 del registro (§8.48). Il caso da leggere due volte non è
+// `2147483648` — è `'45'`: una stringa **passa**, e non per distrazione. La regola
+// non dice «u deve essere un intero», dice «u non deve poter significare due numeri
+// diversi». Con `'45'` la colonna resta NULL e `_as_int` restituisce `null`: SQL e
+// modello puro vedono entrambi un rack senza altezza, e non c'è nessuna divergenza da
+// impedire. Con `2147483648` la colonna resta NULL ma il documento porta il numero
+// vero: SQL calcola su un rack senza altezza, il modello puro su tre miliardi di U.
+//
+// Se un domani la regola diventasse «u deve essere un intero», questi tre casi
+// diventerebbero rossi e direbbero esattamente quale decisione è cambiata.
+emit('rack-height', {
+  _nota: "rackHeightSupported(u): il «no» copre SOLO l'intero fuori intervallo, che e "
+       + "l'unico caso in cui SQL e modello puro darebbero due numeri diversi. "
+       + "Assente e non-intero passano perche entrambe le implementazioni li leggono "
+       + "come «nessuna altezza». Il limite e quello dell'`integer` della proiezione.",
+  min: 1,
+  max: 2147483647,
+  cases: [
+    { u: 45, supported: true, _meta: "il valore di 98 rack su 102 nel seed" },
+    { u: 1, supported: true, _meta: "il minimo: un rack da una unita e un rack" },
+    { u: 2147483647, supported: true, _meta: "il massimo esatto, dentro" },
+    { u: 2147483648, supported: false, _meta: "il massimo + 1: primo intero che la colonna non tiene" },
+    { u: 3000000000, supported: false,
+      _meta: "il caso del corpus oversized-integers, quello che ha fatto scoprire la voce 16" },
+    { u: -2147483649, supported: false, _meta: "fuori anche dal lato negativo" },
+    { u: 0, supported: false, _meta: "un rack alto zero non e un rack: sotto il minimo" },
+    { u: -1, supported: false, _meta: "altezza negativa: sotto il minimo" },
+    { u: null, supported: true, _meta: "assente: il default canonico mette 45" },
+    { u: '45', supported: true,
+      _meta: "STRINGA: passa. La colonna resta NULL e _as_int da null, quindi SQL e "
+           + "modello puro vedono entrambi «nessuna altezza». Nessuna divergenza." },
+    { u: 4.5, supported: true, _meta: "non intero: come sopra, nessuna divergenza da impedire" },
+    { u: true, supported: true, _meta: "booleano: non e 1, e non e un'altezza" },
+  ],
+});
+
+// ============================================================
 // 3. PERCENTUALE — HALF-UP, e i casi che i tre linguaggi sbagliano diversamente
 // ============================================================
 //

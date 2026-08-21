@@ -62,6 +62,18 @@ export const NO_NAME = '(senza nome)';
 /** Come si MOSTRA una fila non impostata. È un'etichetta, non un'identità. */
 export const ROW_UNSET_LABEL = '—';
 
+/**
+ * Altezza di un rack: limite DICHIARATO del prodotto (BACKEND-PLAN.md §8.48 voce 16).
+ *
+ * Il numero è quello dell'`integer` della proiezione. Un `u` intero fuori da qui
+ * viaggia in `extra` con la colonna a NULL, quindi la capacità calcolata dallo SQL
+ * vedrebbe un rack senza altezza mentre questo modulo, che legge il documento,
+ * calcola sul valore vero. Il backend lo rifiuta in scrittura; il form lo controlla
+ * prima di inviare, per dare il messaggio giusto invece di un 422.
+ */
+export const RACK_U_MIN = 1;
+export const RACK_U_MAX = 2147483647;
+
 const get = (obj, key) => (obj === null || obj === undefined ? undefined : obj[key]);
 
 /**
@@ -119,6 +131,22 @@ function asInt(v) {
  *     unità, perché sono due quelle che esistono;
  *   - `u` o `h` non interi non occupano niente.
  */
+/**
+ * `u` di un rack sta dentro il limite dichiarato?
+ *
+ * Assente e non-intero valgono `true`, e non per indulgenza: `asInt` li rifiuta e la
+ * colonna resta NULL, quindi SQL e modello puro vedono entrambi un rack senza
+ * altezza. Nessuna divergenza, niente da rifiutare in nome di questa regola. Il «no»
+ * è uno solo: un intero fuori dall'intervallo, il caso in cui i due numeri
+ * differiscono.
+ */
+export function rackHeightSupported(value) {
+  if (value === null || value === undefined) return true;
+  const n = asInt(value);
+  if (n === null) return true;
+  return n >= RACK_U_MIN && n <= RACK_U_MAX;
+}
+
 export function slotSpan(u, h, rackU) {
   const height = asInt(rackU);
   const start = asInt(u);

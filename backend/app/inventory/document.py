@@ -42,7 +42,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from app import domain
 from app.identity import CURRENT_SCHEMA_VERSION, UUID_RE, validate_document
+from app.identity.model import walk
 from app.identity.schema import check_schema_version
 from app.inventory.representable import (
     JSON_NUMBER_NOT_ROUNDTRIPPABLE,
@@ -83,6 +85,11 @@ INVALID_PHOTO_REFERENCE = "invalid_photo_reference"
 SCHEMA_VERSION_CHANGED = "schema_version_changed"
 DOCUMENT_TOO_LARGE = "document_too_large"
 NOT_AN_OBJECT = "not_an_object"
+#: Fase 2G, chiusura della voce 16 del registro (§8.48). Codice PROPRIO e non un
+#: `number_not_roundtrippable` riusato: il numero fa perfettamente il giro in JSONB —
+#: è la COLONNA della proiezione che non lo tiene, e chi legge l'errore deve capire
+#: che il limite è del prodotto, non del formato.
+RACK_U_OUT_OF_RANGE = "rack_u_out_of_range"
 #: Riesportati: i codici vivono accanto alle regole che li producono
 #: (`json_numbers.py`, `json_strings.py`) e si nominano da qui perché sono errori
 #: dello schema congelato come gli altri. Sono due implementazioni dello STESSO
@@ -236,6 +243,34 @@ def validate_normal_document(
                     INVALID_PHOTO_REFERENCE,
                     f"'{key}' deve essere l'id UUID di una foto oppure assente, trovato "
                     f"{type(value).__name__}", path=path))
+
+    # ---- altezza dei rack: il limite dichiarato (§8.48 voce 16) ----
+    #
+    # QUI e non in `validate_model`, e la differenza non è di comodità.
+    # `validate_model` serve a due cose: fare da cancello al `PUT` (passo 9 di
+    # `save`) e provare l'INTEGRITÀ della proiezione (`project.py --verify`, la
+    # guardia del worker). Un `u` fuori intervallo non è una proiezione rotta — la
+    # proiezione conserva il valore in `extra`, fedelmente — è un DOCUMENTO che
+    # chiede una cosa che il prodotto non sostiene. Metterlo là avrebbe fatto
+    # dichiarare «incoerente» una proiezione sana, e un dato storico avrebbe potuto
+    # far rispondere 503 a delle letture che funzionano.
+    #
+    # Quindi: il cancello vieta di SCRIVERNE di nuovi, l'avviso `carried_verbatim`
+    # continua a descrivere quelli che esistessero già.
+    for e in walk(doc):
+        if e.kind != "rack":
+            continue
+        u = e.obj.get("u")
+        if not domain.rack_height_supported(u):
+            errors.append(DocumentError(
+                RACK_U_OUT_OF_RANGE,
+                f"rack \"{e.path}\": u={u!r} fuori dall'intervallo sostenuto "
+                f"[{domain.RACK_U_MIN}, {domain.RACK_U_MAX}]. La colonna della "
+                f"proiezione è un `integer`: un valore fuori da lì resterebbe nel "
+                f"documento ma non nella tabella, e la capacità calcolata dallo SQL "
+                f"non corrisponderebbe più a quella calcolata dal documento "
+                f"(§8.48 voce 16).",
+                path=e.path))
 
     # ---- identità (§8.4) ----
     errors.extend(DocumentError(e.code, e.message, path=e.path)

@@ -156,6 +156,10 @@ class SearchPage:
     revision: Revision
     query: str
     address: AddressRange | None
+    #: I filtri applicati, come li ha visti il server. Escono nella risposta per la
+    #: stessa ragione di `ExpiryPage.filters`: un elenco filtrato che non dice di
+    #: essere filtrato si legge come completo.
+    filters: dict
     results: list[dict]
     next_cursor: str | None
 
@@ -388,7 +392,8 @@ def _text_match(column: str, extra_key: str | None = None,
 # A. ricerca
 # ==================================================================
 
-def search(conn: Connection, *, q: str, limit: int | None = None,
+def search(conn: Connection, *, q: str, stato: str | None = None,
+           presenza: str | None = None, limit: int | None = None,
            cursor: str | None = None) -> SearchPage:
     """La barra di ricerca globale, con la semantica finale (§5).
 
@@ -412,29 +417,59 @@ def search(conn: Connection, *, q: str, limit: int | None = None,
     L'ORDINE è quello del documento — sito, sala, rack, e per ogni rack prima il rack
     e poi i suoi dispositivi — con l'`uid` come ultimo spareggio, così è totale anche
     quando ordinali e nomi collidono.
+
+    Filtri (⚠ estensione della fase 2H, §9 del requisito)
+    ----------------------------------------------------
+    `stato` e `presenza` restringono ai dispositivi che li soddisfano. Stesso
+    vocabolario di `domain`, stessi default della falsità di JavaScript, stesso
+    `_reject_unknown` delle scadenze: nessuna interpretazione nuova. Servono alla vista
+    Dismessi, che è un elenco filtrato di dispositivi ritenuti, non un archivio a parte.
+
+    Due conseguenze, decise e non incidentali:
+
+      - con un filtro attivo i RACK non partecipano. Un rack non ha uno stato operativo
+        né una presenza fisica: restituirlo in un elenco filtrato per «dismesso»
+        significherebbe mostrare una riga che il filtro non ha nemmeno guardato. È lo
+        stesso ragionamento per cui i rack non partecipano alla modalità indirizzo;
+      - con un filtro attivo una `q` VUOTA è legittima e restituisce tutto ciò che il
+        filtro seleziona. Senza filtri resta zero risultati, che è lo stato della
+        casella vuota nel frontend. La differenza: «non hai chiesto niente» contro «hai
+        chiesto i dismessi e non hai aggiunto un testo».
     """
+    _reject_unknown("stato", stato, domain.DEVICE_STATES)
+    _reject_unknown("presenza", presenza, domain.DEVICE_PRESENCES)
+    filtrata = stato is not None or presenza is not None
+
     limit = _clamp_limit(limit, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT)
     revision = _revision(conn)
+    filters = {"stato": stato, "presenza": presenza}
 
     needle = (q or "").strip().lower()
-    if not needle:
+    if not needle and not filtrata:
         # Il frontend con la casella vuota non cerca: `if (q) { … }`. Restituire
         # l'inventario intero sarebbe la risposta comoda e sbagliata.
+        #
+        # ⚠ `and not filtrata`: con un filtro la domanda è stata posta, e la risposta
+        # è l'elenco che il filtro seleziona. Senza questa aggiunta la vista Dismessi
+        # avrebbe dovuto inventarsi un testo da cercare per ottenere un elenco.
         return SearchPage(revision=revision, query=q or "", address=None,
-                          results=[], next_cursor=None)
+                          filters=filters, results=[], next_cursor=None)
 
     # ⚠ La query di indirizzo si interpreta sul testo GREZZO ripulito, non su
     # `needle`: `lower()` non cambia un IPv4 ma cambia un IPv6 in maiuscolo, e la
     # forma canonica la produce comunque il dominio. Passare il minuscolo funzionerebbe
     # e sarebbe una coincidenza.
-    found = domain.parse_address_query((q or "").strip())
+    found = domain.parse_address_query((q or "").strip()) if needle else None
     address = (None if found is None else
                AddressRange(family=found.family, kind=found.kind,
                             lo=found.lo.text, hi=found.hi.text))
-    after = decode_cursor(cursor, q or "", 6) if cursor else None
+    # La chiave del cursore porta i filtri, come nelle scadenze: una pagina successiva
+    # chiesta con filtri diversi non è una pagina successiva.
+    scope = f"{q or ''}|{stato or ''}|{presenza or ''}"
+    after = decode_cursor(cursor, scope, 6) if cursor else None
 
     rows = _search_rows(conn, needle=needle, address=found, after=after,
-                        limit=limit + 1)
+                        stato=stato, presenza=presenza, limit=limit + 1)
     more = len(rows) > limit
     rows = rows[:limit]
 
@@ -450,11 +485,11 @@ def search(conn: Connection, *, q: str, limit: int | None = None,
     next_cursor = None
     if more and rows:
         last = rows[-1]
-        next_cursor = encode_cursor(q or "", [last.l_ord, last.r_ord, last.k_ord,
-                                              last.kind_rank, last.d_ord,
-                                              str(last.sort_uid)])
+        next_cursor = encode_cursor(scope, [last.l_ord, last.r_ord, last.k_ord,
+                                            last.kind_rank, last.d_ord,
+                                            str(last.sort_uid)])
     return SearchPage(revision=revision, query=q or "", address=address,
-                      results=results, next_cursor=next_cursor)
+                      filters=filters, results=results, next_cursor=next_cursor)
 
 
 #: I nove campi del dispositivo, tradotti. La chiave è il nome del contratto
@@ -493,6 +528,7 @@ _RACK_SERIALI_SQL = """(
 
 
 def _search_rows(conn: Connection, *, needle: str, address, after: list | None,
+                 stato: str | None = None, presenza: str | None = None,
                  limit: int) -> list:
     """Le righe della ricerca, già ordinate. Una query sola, con `UNION ALL`.
 
@@ -528,6 +564,28 @@ def _search_rows(conn: Connection, *, needle: str, address, after: list | None,
             _text_match("k.name", "name"),
             _RACK_SERIALI_SQL,
         ]) + "\n)"
+
+    # ⚠ Estensione 2H. I filtri si AGGIUNGONO alla condizione del testo o
+    # dell'indirizzo, non la sostituiscono: un dismesso che non corrisponde al testo
+    # non è un risultato. Con `needle` vuota la condizione del testo diventa `TRUE` e
+    # resta il solo filtro — è il caso della vista Dismessi senza ricerca.
+    if not needle:
+        device_where = "TRUE"
+        rack_where = "FALSE"
+    if stato is not None or presenza is not None:
+        # Un rack non ha stato né presenza: in un elenco filtrato per un attributo del
+        # dispositivo non ha una riga da mostrare. Stessa scelta della modalità
+        # indirizzo, e per la stessa ragione.
+        rack_where = "FALSE"
+        if stato is not None:
+            params["stato"] = stato
+            device_where += (f"\n   AND {_falsy_sql('d.stato', domain.DEFAULT_STATO)}"
+                             f" = :stato")
+        if presenza is not None:
+            params["presenza"] = presenza
+            device_where += (
+                f"\n   AND {_falsy_sql('d.presenza', domain.DEFAULT_PRESENZA)}"
+                f" = :presenza")
 
     keyset = ""
     if after is not None:

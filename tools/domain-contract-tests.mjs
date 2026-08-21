@@ -73,6 +73,35 @@ for (const c of load('capacity').cases) {
 }
 
 // ============================================================
+console.log("2-bis. altezza del rack: il limite dichiarato");
+// ============================================================
+{
+  const f = load('rack-height');
+  eq('altezza: il minimo del corpus è quello del modulo', D.RACK_U_MIN, f.min);
+  eq('altezza: il massimo del corpus è quello del modulo', D.RACK_U_MAX, f.max);
+  for (const c of f.cases) {
+    eq(`altezza: u=${JSON.stringify(c.u)}`, D.rackHeightSupported(c.u), c.supported);
+  }
+  // ⚠ La controprova, senza la quale il corpus dimostrerebbe soltanto che una
+  // funzione restituisce dei booleani. Un `u` fuori intervallo deve DAVVERO dare
+  // due numeri diversi nelle due letture: qui si misura la divergenza che la regola
+  // esiste per impedire, calcolandola come la calcolerebbe lo SQL — cioè su un rack
+  // la cui colonna è restata NULL.
+  const fuori = 3000000000;
+  const devices = [{ u: 1, h: 2 }];
+  const dalDocumento = D.rackCapacity(fuori, devices);
+  const dallaColonna = D.rackCapacity(null, devices);
+  ok('altezza: fuori intervallo, le due letture DIVERGONO davvero',
+     dalDocumento.totalU !== dallaColonna.totalU && dalDocumento.usedU !== dallaColonna.usedU,
+     `documento ${JSON.stringify(dalDocumento)} vs colonna ${JSON.stringify(dallaColonna)}`);
+  // E il contrario, per il caso `'45'`: lì le due letture COINCIDONO, ed è la ragione
+  // per cui la stringa è ammessa. Se un domani coincidessero anche per il numero
+  // fuori scala, la riga sopra sarebbe rossa e questa verde.
+  ok("altezza: stringa, le due letture COINCIDONO (per questo passa)",
+     JSON.stringify(D.rackCapacity('45', devices)) === JSON.stringify(dallaColonna));
+}
+
+// ============================================================
 console.log('3. percentuale HALF-UP');
 // ============================================================
 for (const c of load('percent').cases) {

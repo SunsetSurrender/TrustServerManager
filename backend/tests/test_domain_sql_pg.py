@@ -118,6 +118,37 @@ CAP_ESCLUSI = {
     "RACK ENORME: nessuna enumerazione degli slot, il conto e sugli estremi":
         "3 000 000 000 supera int32: la mappa lo porta in `extra` (test proprio)",
 }
+
+#: ⚠ NUOVO nella 2H. I casi che il CANCELLO del documento ora rifiuta, e che quindi
+#: possono esistere in una sola forma: righe scritte quando il cancello non c'era.
+#:
+#: La 2H applica il limite della voce 16 del registro — `rack.u` in `1..2^31-1` — e
+#: `validate_normal_document` respinge un'altezza `0` o negativa col codice
+#: `rack_u_out_of_range`. Questi due casi non passano più da `bootstrap`.
+#:
+#: Escluderli sarebbe stato più semplice e sbagliato. Un'altezza `<= 0` **esiste** nei
+#: dati vecchi: il form del prototipo la stringeva a `1..60`, ma un ripristino da JSON
+#: non stringeva niente, e la vista Capacità aveva un difetto proprio su `rk.u = 0`
+#: (percentuale `NaN%`). Lo SQL deve continuare a calcolarla come il modello puro, e un
+#: caso escluso è un caso che nessuno guarda più.
+#:
+#: Si scrivono quindi come esistono davvero: `bootstrap` con un'altezza lecita, poi un
+#: UPDATE sulla colonna. È l'unico posto della suite dove si scrive nella proiezione
+#: aggirando il documento, ed è deliberato: sta simulando un dato storico, non
+#: fabbricando una comodità. La proiezione resta «attuale» perché versione e digest
+#: registrati non cambiano — la cecità alle colonne derivate della voce 13, usata qui
+#: di proposito e con la sua nota.
+CAP_LEGACY = {
+    "rack di altezza 0: non ha unita, non e occupato al 100%":
+        "il cancello della 2H rifiuta u=0: riga possibile solo come dato storico",
+    "rack di altezza negativa": "il cancello della 2H rifiuta u<0: riga possibile solo come dato storico",
+}
+
+#: Altezza lecita con cui i casi legacy entrano, prima di essere riportati al loro
+#: valore vero. Un valore qualunque dentro l'intervallo: la capacità viene ricalcolata
+#: dalla colonna dopo l'UPDATE, quindi questo numero non compare in nessuna attesa.
+CAP_LEGACY_PLACEHOLDER = 45
+
 CAP_INCLUSI = [c for c in CAPACITY if c["name"] not in CAP_ESCLUSI]
 
 
@@ -127,8 +158,10 @@ def _doc_capacita() -> tuple[dict, dict]:
     for i, case in enumerate(CAP_INCLUSI, start=1):
         rack_uid = uid("c", i)
         per_caso[case["name"]] = rack_uid
+        altezza = (CAP_LEGACY_PLACEHOLDER if case["name"] in CAP_LEGACY
+                   else case["rackU"])
         racks.append({
-            "_uid": rack_uid, "id": f"R{i:03d}", "u": case["rackU"],
+            "_uid": rack_uid, "id": f"R{i:03d}", "u": altezza,
             "devices": [{"_uid": uid("d", i * 100 + j), "id": f"d{i}-{j}", **dev}
                         for j, dev in enumerate(case["devices"], start=1)],
         })
@@ -143,6 +176,16 @@ def _doc_capacita() -> tuple[dict, dict]:
 def capacita(engine):
     doc, per_caso = _doc_capacita()
     bootstrap(engine, doc)
+
+    # I casi legacy tornano alla loro altezza vera direttamente in colonna: il
+    # documento non potrebbe più portarla. Vedi CAP_LEGACY.
+    if CAP_LEGACY:
+        with engine.begin() as c:
+            for nome in CAP_LEGACY:
+                altezza = next(x["rackU"] for x in CAPACITY if x["name"] == nome)
+                c.execute(text("UPDATE inventory_racks SET u = :u WHERE uid = :uid"),
+                          {"u": altezza, "uid": per_caso[nome]})
+
     with read_snapshot() as snap:
         report = q.capacity(snap)
     per_uid = {r["uid"]: r for L in report.locations for room in L["rooms"]
@@ -186,22 +229,64 @@ def test_le_esclusioni_sono_due_e_hanno_una_ragione():
     assert all(len(r) > 20 for r in CAP_ESCLUSI.values())
 
 
-def test_un_rack_piu_alto_di_int32_non_entra_nella_colonna(engine):
-    """⚠ LIMITE DICHIARATO della proiezione, non divergenza nascosta.
+def test_i_casi_legacy_sono_davvero_rifiutati_dal_cancello():
+    """⚠ La coerenza fra il pretesto e il fatto.
 
-    `rack.u` nel documento è un intero JSON senza massimo, e il corpus
-    `oversized-integers` ne contiene uno da 3 000 000 000. La colonna è `integer`
-    (int32), quindi la mappa porta il valore in `extra` e la colonna resta NULL
-    (§8.42): la vista Capacità dallo SQL riporta quel rack senza altezza, mentre il
-    modello puro — che riceve il valore dal documento — calcola su tre miliardi.
-
-    ⚠ Non si «corregge» passando a `bigint`: sarebbe cambiare il tipo di una colonna,
-    quindi la versione della mappa e una ricostruzione, per un dato che l'interfaccia
-    non può produrre e che nel browser esaurisce la memoria della scheda. Si DICHIARA,
-    con `validate_model` che lo segnala e questo test che lo fissa — così il giorno in
-    cui qualcuno decidesse di alzarlo, questo test diventa rosso e gli dice dove
-    guardare.
+    `CAP_LEGACY` dice «questi il cancello li rifiuta», e su quella frase poggia il
+    permesso di scriverli con un UPDATE. Se il cancello smettesse di rifiutarli — o se
+    qualcuno mettesse in `CAP_LEGACY` un caso che passa benissimo dal documento — la
+    scorciatoia resterebbe in piedi senza la sua ragione. Qui si verifica la frase:
+    ogni caso legacy deve essere DAVVERO respinto, e ogni caso incluso deve essere
+    DAVVERO accettato.
     """
+    from app.inventory.document import RACK_U_OUT_OF_RANGE
+
+    nomi = {c["name"] for c in CAPACITY}
+    assert set(CAP_LEGACY) <= nomi
+    assert not (set(CAP_LEGACY) & set(CAP_ESCLUSI)), (
+        "un caso non può essere insieme escluso e legacy: sono due destini diversi")
+
+    for nome in CAP_LEGACY:
+        altezza = next(c["rackU"] for c in CAPACITY if c["name"] == nome)
+        assert not domain.rack_height_supported(altezza), (
+            f"«{nome}» ha altezza {altezza!r}, che il cancello ACCETTA: allora deve "
+            f"entrare dal documento come tutti gli altri, non da un UPDATE")
+
+    for case in CAP_INCLUSI:
+        if case["name"] in CAP_LEGACY:
+            continue
+        assert domain.rack_height_supported(case["rackU"]), (
+            f"«{case['name']}» ha un'altezza che il cancello rifiuta: va dichiarata "
+            f"in CAP_LEGACY, altrimenti il bootstrap del modulo fallisce per intero")
+
+    assert RACK_U_OUT_OF_RANGE == "rack_u_out_of_range"
+
+
+def test_un_rack_piu_alto_di_int32_e_RIFIUTATO(engine):
+    """⚠ RISCRITTO nella 2H: era «divergenza dichiarata», ora è «limite applicato».
+
+    Il fatto tecnico non è cambiato e resta scritto qui, perché è la RAGIONE del
+    limite: `rack.u` nel documento è un intero JSON senza massimo, la colonna è
+    `integer`, quindi la mappa porta tre miliardi in `extra` e lascia la colonna NULL
+    (§8.42). Da lì nascevano due risposte — la vista Capacità dallo SQL vedeva un rack
+    senza altezza, il modello puro calcolava su tre miliardi — e la voce 16 del
+    registro le dichiarava.
+
+    Dichiararle non bastava. La 2H applica il limite: `validate_normal_document`
+    rifiuta il documento con `rack_u_out_of_range`, quindi la divergenza non ha più un
+    ingresso. Non si passa a `bigint` — sarebbe cambiare il tipo di una colonna, e
+    quindi la versione della mappa e una ricostruzione, per un dato che l'interfaccia
+    non produce e che nel browser esaurisce la memoria della scheda.
+
+    Il test prova tre cose, in quest'ordine, e l'ordine è il ragionamento:
+      1. la MAPPA continua a comportarsi come prima (il valore in `extra`, la colonna
+         NULL) — perché un dato storico può esistere in quella forma;
+      2. da quella forma nascerebbero DAVVERO due numeri diversi — altrimenti il
+         limite starebbe difendendo da niente;
+      3. il documento che la produrrebbe viene RIFIUTATO, e per il motivo giusto.
+    """
+    from app.inventory.document import RACK_U_OUT_OF_RANGE, validate_normal_document
+    from app.inventory.errors import DocumentRejectedError
     from app.inventory.relational import normalise
     from app.inventory.relational_validate import codes, validate_model
 
@@ -213,28 +298,36 @@ def test_un_rack_piu_alto_di_int32_non_entra_nella_colonna(engine):
                   "racks": [{"_uid": uid("c", 9), "id": "R-enorme", "u": enorme,
                              "devices": [{"_uid": uid("d", 9), "id": "d1",
                                           "u": 1, "h": 2}]}]}]}]}
-    bootstrap(engine, doc)
 
+    # --- 1. la mappa: il valore in `extra`, la colonna vuota ---
+    modello = normalise(doc)
+    rack = modello.racks[0]
+    assert rack.u is None, "la colonna int32 non può contenere tre miliardi"
+    assert rack.extra["u"] == enorme, "il valore deve sopravvivere in `extra`"
+    # E `validate_model` lo SEGNALA senza chiamarlo errore: una riga così è fedele al
+    # documento, quindi una proiezione che la contiene non è rotta. È la distinzione su
+    # cui poggia la scelta di mettere il divieto nel cancello del documento e non qui.
+    trovati = codes(validate_model(modello))
+    assert "carried_verbatim" in trovati
+    assert RACK_U_OUT_OF_RANGE not in trovati, (
+        "il codice del cancello non deve comparire fra i risultati di `validate_model`: "
+        "renderebbe «incoerente» una proiezione sana, e le letture risponderebbero 503 "
+        "per un dato storico")
+
+    # --- 2. le due letture divergono davvero ---
+    dal_documento = domain.rack_capacity(enorme, [{"u": 1, "h": 2}])
+    dalla_colonna = domain.rack_capacity(rack.u, [{"u": 1, "h": 2}])
+    assert dal_documento.used_u == 2 and dal_documento.total_u == enorme
+    assert dalla_colonna.used_u == 0 and dalla_colonna.total_u == 0
+
+    # --- 3. e per questo il documento non entra ---
+    problemi = validate_normal_document(doc)
+    assert [e.code for e in problemi] == [RACK_U_OUT_OF_RANGE]
+    with pytest.raises(DocumentRejectedError):
+        bootstrap(engine, doc)
+    # Nessuna riga scritta: il rifiuto è PRIMA di persistere.
     with engine.begin() as c:
-        colonna, extra = c.execute(text(
-            "SELECT u, extra -> 'u' FROM inventory_racks")).one()
-    assert colonna is None, "la colonna int32 non può contenere tre miliardi"
-    assert extra == enorme, "il valore deve sopravvivere in `extra`"
-
-    # `validate_model` lo segnala: non è un guasto silenzioso.
-    assert "carried_verbatim" in codes(validate_model(normalise(doc)))
-
-    with read_snapshot() as snap:
-        report = q.capacity(snap)
-    rack = [r for L in report.locations for room in L["rooms"]
-            for r in room["racks"]][0]
-    assert rack["u"] is None
-    assert rack["usedU"] == 0
-
-    # E il modello puro, che legge il DOCUMENTO, dà l'altra risposta: la differenza è
-    # quella dichiarata, e sta fra il documento e la sua proiezione.
-    puro = domain.rack_capacity(enorme, [{"u": 1, "h": 2}])
-    assert puro.used_u == 2 and puro.total_u == enorme
+        assert c.execute(text("SELECT count(*) FROM inventory_racks")).scalar() == 0
 
 
 # ==================================================================

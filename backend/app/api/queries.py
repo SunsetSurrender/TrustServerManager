@@ -1,6 +1,6 @@
 """Rotte di interrogazione dell'inventario: ricerca, capacità, scadenze (§8.46).
 
-    GET /api/inventory/search     ?q=&limit=&cursor=
+    GET /api/inventory/search     ?q=&stato=&presenza=&limit=&cursor=
     GET /api/inventory/capacity
     GET /api/inventory/expiries   ?warningDays=&limit=&cursor=
 
@@ -74,6 +74,10 @@ class SearchOut(RevisionOut):
     #:
     #:     {"family": 4, "kind": "exact", "lo": "10.0.0.1", "hi": "10.0.0.1"}
     address: dict | None = None
+    #: I filtri applicati, come li ha visti il server (⚠ estensione 2H). Stessa ragione
+    #: di `ExpiriesOut.filters`: un elenco filtrato che non dice di essere filtrato si
+    #: legge come completo.
+    filters: dict
     results: list[dict]
     nextCursor: str | None = None
 
@@ -107,6 +111,16 @@ def search_inventory(
                                 "2001:db8::1, 10.0.0.0/24, 2001:db8::/32, "
                                 "10.0.0.1-10.0.0.99, 10.0.*",
                     max_length=200),
+    #: ⚠ Estensione della fase 2H (§9 del requisito), per la vista Dismessi. Stesso
+    #: vocabolario e stessa validazione dei filtri delle scadenze — che è il punto:
+    #: la vista Dismessi non ha una semantica di ricerca propria, ha quella finale
+    #: della 2G con due filtri.
+    stato: str | None = Query(None, max_length=40,
+                              description="filtra per stato operativo: attivo, "
+                                          "manutenzione, dismissione, dismesso"),
+    presenza: str | None = Query(None, max_length=40,
+                                 description="filtra per presenza fisica: presente, "
+                                             "rimosso"),
     limit: int | None = Query(None, ge=1, le=q.SEARCH_MAX_LIMIT),
     cursor: str | None = Query(None, max_length=2048),
     actor: Actor = Depends(require_actor),
@@ -118,11 +132,15 @@ def search_inventory(
     sensata, e restituire l'inventario intero sarebbe la risposta comoda e sbagliata.
     Una `q` vuota o di soli spazi è invece legittima e dà zero risultati — è
     esattamente lo stato della casella vuota nel frontend, che non cerca.
+
+    ⚠ Con `stato` o `presenza` valorizzati una `q` vuota restituisce invece l'elenco
+    che il filtro seleziona: lì la domanda è stata posta. Vedi `queries.search`.
     """
     response.headers.update(NO_STORE)
     try:
         with reader() as conn:
-            page = q.search(conn, q=q_, limit=limit, cursor=cursor)
+            page = q.search(conn, q=q_, stato=stato, presenza=presenza,
+                            limit=limit, cursor=cursor)
     except Exception as exc:
         raise http_error_for(exc) from None
 
@@ -130,6 +148,7 @@ def search_inventory(
         version=page.revision.version, sha256=page.revision.sha256,
         query=page.query,
         address=(None if page.address is None else page.address.as_dict()),
+        filters=page.filters,
         results=page.results, nextCursor=page.next_cursor,
     )
 

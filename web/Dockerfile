@@ -30,6 +30,10 @@ COPY ["handoff/identity.js", "./identity.js"]
 # Fase 2G: il modello semantico condiviso col backend (BACKEND-PLAN.md §8.50).
 COPY ["handoff/domain.js", "./domain.js"]
 COPY ["handoff/api.js", "./api.js"]
+# Fase 2H: il client delle interrogazioni relazionali (BACKEND-PLAN.md §8.51).
+# ⚠ Un modulo dimenticato qui non è un difetto sottile: il browser riceve un 404
+# sull'import e l'applicazione non parte. È già successo con domain.js.
+COPY ["handoff/queries.js", "./queries.js"]
 COPY ["handoff/trust-logo.png", "./trust-logo.png"]
 COPY ["handoff/trust-logo-dark.png", "./trust-logo-dark.png"]
 COPY ["handoff/fonts/", "./fonts/"]

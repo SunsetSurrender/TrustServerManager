@@ -25,7 +25,7 @@
                 "id": "R01",
                 "name": "",
                 "row": "",
-                "u": 0,
+                "u": 45,
                 "x": 0,
                 "y": 0,
                 "w": 0.6,
@@ -46,7 +46,8 @@
                     "owner": "",
                     "garanzia": "",
                     "supporto": "",
-                    "note": ""
+                    "note": "",
+                    "presenza": "presente"
                   }
                 ]
               }
@@ -184,16 +185,16 @@
       "rooms": [
         {
           "roomUid": "bbbbbbbb-0000-4000-8000-000000000001",
-          "totalU": 0,
+          "totalU": 45,
           "usedU": 0,
           "rackCount": 1,
           "occupancyPercent": 0,
-          "bestRackCode": null,
-          "bestFreeRun": 0,
+          "bestRackCode": "R01",
+          "bestFreeRun": 45,
           "rows": [
             {
               "row": "—",
-              "totalU": 0,
+              "totalU": 45,
               "usedU": 0
             }
           ],
@@ -201,9 +202,9 @@
             {
               "uid": "cccccccc-0000-4000-8000-000000000001",
               "code": "R01",
-              "u": 0,
+              "u": 45,
               "usedU": 0,
-              "largestFreeRun": 0,
+              "largestFreeRun": 45,
               "deviceCount": 1,
               "row": ""
             }

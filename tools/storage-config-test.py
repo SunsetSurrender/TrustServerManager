@@ -1263,10 +1263,16 @@ check("nessun endpoint di query è stato aggiunto",
       not [p.name for p in sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
            if "query" in p.name or "search" in p.name],
       "fuori dallo scopo di questo commit")
-check("il frontend continua a non sapere che la proiezione esista",
+# ⚠ ROVESCIATO nella 2H, e solo a metà. Il frontend adesso CHIEDE le tre
+# interrogazioni al server — quindi sa che esiste una proiezione — ma non deve
+# conoscerne la FORMA: nessun nome di tabella, nessun nome di colonna derivata,
+# nessuna versione di mappa. Il suo contratto resta il documento più tre risposte.
+check("il frontend non conosce la FORMA della proiezione",
       all(t not in handoff for t in NORMALISED_TABLES)
       and "garanzia_date" not in handoff and "mapper_version" not in handoff,
-      "il contratto del frontend è il documento (§8.22)")
+      "il contratto del frontend è il documento più le tre risposte (§8.22): un nome "
+      "di tabella nel browser legherebbe l'interfaccia allo schema, e la proiezione è "
+      "ricostruibile per definizione")
 
 check("l'errore della precondizione ha un codice stabile e diventa 503",
       "projection_not_current" in code_only(
@@ -1530,11 +1536,17 @@ check("non è stato aggiunto nessun endpoint di ricerca o di capacità",
       not [p.name for p in sorted((ROOT / "backend" / "app" / "api").rglob("*.py"))
            if any(t in p.name for t in ("query", "search", "capacity", "expiry"))],
       "fuori dallo scopo di questo commit")
-check("il frontend continua a non sapere che la proiezione esista",
+# ⚠ ROVESCIATO nella 2H come il gemello della §14, con una differenza: `projection`
+# non è più vietata. Il frontend deve DISTINGUERE `projection_not_current` da
+# `projection_inconsistent` per dire a chi guarda quale delle due è, e per non
+# ricalcolare i numeri in silenzio (§12 del requisito).
+check("il frontend non conosce la forma della proiezione, ma sa quando è rotta",
       all(t not in handoff for t in NORMALISED_TABLES)
       and all(t not in handoff for t in ("garanzia_date", "supporto_date",
-                                         "mapper_version", "projection")),
-      "il contratto del frontend è il documento (§8.22), e la 2D non lo cambia")
+                                         "mapper_version"))
+      and "projection_not_current" in handoff,
+      "conoscere i due codici di guasto è ciò che permette di dire «serve una "
+      "ricostruzione» invece di mostrare numeri calcolati nel browser")
 check("la risposta del GET ha ancora le quattro chiavi di sempre",
       all(t in class_source(INVENTORY_ROUTE, "InventoryOut")
           for t in ("version", "schemaVersion", "sha256", "doc")),
@@ -1991,6 +2003,13 @@ SEMANTICA_DUPLICATA = [
     ("rk.row || '—'", "la sentinella che collideva col dato"),
     ("=== 'dismesso') {}", "il ramo vuoto che non escludeva i dismessi"),
     ("=== 'dismesso') continue", "il filtro che li faceva sparire dalle Scadenze"),
+    # --- fase 2H: ciò che è passato al server non deve tornare qui ---
+    ("DOM.deviceMatches", "la ricerca testuale sui dispositivi: la fa l'endpoint"),
+    ("DOM.rackMatches", "la ricerca testuale sui rack: la fa l'endpoint"),
+    ("DOM.parseAddressQuery", "il riconoscimento di una query di rete: lo fa l'endpoint"),
+    ("DOM.addressMatches", "il confronto di un indirizzo: lo fa l'endpoint"),
+    ("DOM.rowGroup", "il raggruppamento per fila della vista Capacità: lo fa l'endpoint"),
+    ("DOM.compareRowGroups", "l'ordine dei gruppi di fila: lo fa l'endpoint"),
 ]
 tornate = [(f, perche) for f, perche in SEMANTICA_DUPLICATA if f in frontend_code]
 check("il frontend non contiene più una semantica di dominio propria",
@@ -2002,6 +2021,59 @@ check("il frontend CHIAMA il modello di dominio",
       and frontend_app.count("DOM.") >= 20,
       "se non lo chiamasse, la semantica sarebbe tornata da qualche parte: il "
       "contratto sarebbe soddisfatto dal solo backend")
+
+# --- fase 2H: il frontend CHIEDE, e non ha un ripiego ---
+#
+# ⚠ Il controllo che conta è quello sul RIPIEGO. Una vista che, quando l'endpoint
+# risponde 503, ricalcola i numeri nel browser sarebbe indistinguibile da una che
+# funziona — e nasconderebbe un guasto della proiezione proprio a chi lo può riparare.
+# È anche il modo esatto in cui la duplicazione tornerebbe: nessuno scriverebbe «una
+# seconda semantica», tutti scriverebbero «una rete di sicurezza».
+queries_js = ROOT / "handoff" / "queries.js"
+queries_js_code = js_code_only(queries_js.read_text(encoding="utf-8")) \
+    if queries_js.is_file() else ""
+
+check("esiste il client delle interrogazioni, con le sue due regole",
+      queries_js.is_file()
+      and "class QueryClient" in queries_js_code
+      and "sameRevision" in queries_js_code
+      and "class LatestOnly" in queries_js_code,
+      "le due regole — una risposta vecchia non sovrascrive una nuova, un risultato di "
+      "un'altra revisione non si mostra — devono vivere in un posto solo: cinque viste "
+      "con cinque idee di «risposta vecchia» sono cinque difetti diversi")
+check("il confronto di revisione guarda ANCHE il digest",
+      "a.sha256 === b.sha256" in queries_js_code,
+      "dopo un rollback due revisioni possono avere lo stesso NUMERO e contenuto "
+      "diverso: confrontare il solo numero accetterebbe come «stesso stato» due stati "
+      "diversi, che è il difetto che il confronto esiste per impedire")
+check("il frontend chiama le tre rotte di interrogazione",
+      all(t in frontend_code for t in ("API.searchInventory(", "API.getCapacity(",
+                                       "API.getExpiries(")),
+      "se non le chiamasse, il calcolo sarebbe rimasto nel browser e la fase 2H non "
+      "avrebbe cambiato niente")
+check("il frontend passa dal client e non da `fetch` a mano",
+      "new qry.QueryClient(" in frontend_code
+      and "this._queries.run(" in frontend_code,
+      "una vista che chiama `fetch` direttamente si porta dietro la propria idea di "
+      "revisione e di risposta vecchia")
+check("le richieste di interrogazione sono annullabili",
+      "signal: opts.signal" in js_code_only(
+          (ROOT / "handoff" / "api.js").read_text(encoding="utf-8"))
+      and "AbortController" in queries_js_code,
+      "senza `AbortSignal` l'annullamento eviterebbe di USARE la risposta ma non di "
+      "aspettarla: undici richieste per «srv-web-01» restano undici")
+check("i due stati della proiezione hanno un messaggio proprio",
+      all(t in js_code_only((ROOT / "handoff" / "api.js").read_text(encoding="utf-8"))
+          for t in ("projection_not_current", "projection_inconsistent")),
+      "«Servizio non disponibile» non dice a un sistemista che serve una ricostruzione, "
+      "e non distingue una manutenzione dimenticata da un dato incoerente")
+check("la vista Dismessi non ha un endpoint proprio",
+      "/api/inventory/dismessi" not in frontend_code
+      and "/api/inventory/archive" not in frontend_code
+      and "stato: 'dismesso'" in frontend_code,
+      "i dismessi sono inventario RITENUTO, non un archivio: la sorgente è la ricerca "
+      "finale con un filtro, e una tabella separata sarebbe un secondo database con la "
+      "sua semantica")
 
 # --- e nemmeno domain.js decide da sé ---
 check("il gemello JavaScript non usa `new Date` per interpretare una data",
@@ -2036,35 +2108,39 @@ check("il worker non usa le interrogazioni interattive come sorgente",
                     "urllib")),
       "l'endpoint riproduce la vista Scadenze, che sui dismessi e sugli scaduti non è "
       "d'accordo con lo scanner: usarlo cambierebbe la semantica degli avvisi (§8.48)")
-# ⚠ Questo controllo resta, e la 2G lo rende PIÙ importante, non meno.
+# ⚠ ROVESCIATO nella 2H. Diceva: «il frontend non è stato ricablato alle rotte
+# nuove», e per la 2G era la delimitazione giusta — unificare la semantica e cambiare
+# la sorgente nello stesso commit avrebbe reso impossibile attribuire un numero
+# diverso a una delle due cose. Quel commit separato è la 2H, ed è avvenuto: la
+# garanzia della 2G (i due calcoli danno la stessa risposta) è ciò che ha reso questa
+# migrazione noiosa, che era lo scopo.
 #
-# Il frontend adesso condivide la SEMANTICA col backend, e la tentazione naturale è
-# fare il passo successivo — chiamare le rotte — nello stesso commit. Sono due cose
-# diverse: la 2G garantisce che i due calcoli DIANO LA STESSA RISPOSTA, e quella
-# garanzia è precisamente ciò che rende la migrazione successiva noiosa e sicura. Se
-# avvenissero insieme, un numero diverso sullo schermo non si saprebbe più attribuire.
-# ⚠ Su `frontend_code`, non sul testo grezzo: il commento che SPIEGA che il frontend
-# non chiama quelle rotte le nomina, e cercarle nel testo grezzo trovava la propria
-# spiegazione. Terza volta in questa fase che ci ricasco, e la terza volta la
-# soluzione è la stessa — guardare il codice, non la prosa.
-check("il frontend non è stato ricablato alle rotte nuove",
-      all(t not in js_code_only(handoff) + frontend_code
+# ⚠ Su `frontend_code`, non sul testo grezzo: il commento che spiega quali rotte si
+# chiamano le nomina, e cercarle nel testo grezzo trova la propria spiegazione. Quarta
+# volta nel progetto, e la soluzione è sempre la stessa — guardare il codice.
+check("il frontend è ricablato alle rotte, e le chiama tutte e tre",
+      all(t in js_code_only(handoff) + frontend_code
           for t in ("/api/inventory/search", "/api/inventory/capacity",
                     "/api/inventory/expiries")),
-      "la 2G unifica la semantica; il passaggio alle rotte è la fase successiva. "
-      "Farli insieme renderebbe impossibile attribuire un cambiamento a uno dei due")
-# ⚠ ROVESCIATO nella 2G: il controllo pretendeva `parseIpQuery` e
-# `new Array(rk.u + 1)` nel frontend, cioè la presenza della semantica duplicata,
-# «altrimenti il frontend sarebbe già stato migrato e la parità non avrebbe più un
-# riferimento». Il riferimento adesso è il CONTRATTO, non il codice del prototipo:
-# quelle due espressioni devono essere sparite, e il frontend deve continuare a
-# calcolare in locale CHIAMANDO il dominio.
-check("il frontend continua a calcolare in locale, ma con la semantica condivisa",
+      "se una delle tre non fosse chiamata, quella vista starebbe ancora calcolando "
+      "in locale e la duplicazione sarebbe sopravvissuta in un angolo")
+# ⚠ ROVESCIATO due volte, ed è la storia della semantica di questo prodotto.
+#
+#   2E → pretendeva `parseIpQuery` e `new Array(rk.u + 1)` NEL frontend: la parità si
+#        misurava contro il prototipo, e senza il prototipo non aveva riferimento;
+#   2G → pretendeva che fossero sparite e che il frontend calcolasse CHIAMANDO il
+#        dominio: il riferimento era diventato il contratto;
+#   2H → pretende che resti UNA sola implementazione locale di capacità, e che sia
+#        quella condivisa. Non zero: il pannello del rack e l'export si ridisegnano a
+#        ogni interazione, e una richiesta per rack sarebbe un'esplosione di richieste
+#        per disegnare una barra (§6 del requisito). Una, dichiarata, e legata al
+#        contratto dalle fixture language-neutral.
+check("resta UNA implementazione locale di capacità, ed è quella condivisa",
       "DOM.rackCapacity(" in frontend_code
-      and "DOM.parseAddressQuery(" in frontend_code
-      and "await import('./domain.js')" not in frontend_code.replace("\n", " "),
-      "calcola ancora da sé — nessuna rotta chiamata — ma le regole vengono da "
-      "handoff/domain.js, che è il gemello di app/domain.py")
+      and frontend_code.count("DOM.rackCapacity(") <= 4
+      and "DOM.occupiesSpace(" in frontend_code,
+      "il pannello del rack, la dashboard e l'export chiamano la stessa funzione. Se "
+      "il conteggio crescesse, qualcuno avrebbe ricominciato a contare per conto suo")
 check("nessuna migrazione nuova per la fase 2E",
       not (ROOT / "backend" / "migrations" / "versions" / "0013_query_indexes.py")
       .is_file(),
@@ -2244,9 +2320,13 @@ check("il registro del debito semantico esiste ed e' separato",
 
 # --- cio' che la fase 2F NON fa ---
 def _voci_registro():
-    """Le righe del registro del debito semantico (§8.48) numerate da 1 a 9.
+    """Le righe del registro del debito semantico (§8.48), col loro numero.
 
-    Sono le voci che il requisito della 2G dichiara da risolvere prima del rilascio.
+    ⚠ ALLARGATO nella 2H. Erano le righe da 1 a 9 — quelle che il requisito della 2G
+    dichiarava da chiudere — e un intervallo a una cifra bastava. Il registro adesso
+    ne ha sedici, quindi il numero si LEGGE invece di essere indovinato: con
+    l'intervallo vecchio la voce 16, appena scoperta, non veniva nemmeno guardata.
+
     Si leggono dal documento invece di elencarle qui: un elenco copiato in questo file
     diventerebbe la seconda versione del registro, e la prima a essere dimenticata.
     """
@@ -2258,18 +2338,49 @@ def _voci_registro():
     if inizio < 0:
         return []
     sezione = testo[inizio:fine if fine > 0 else len(testo)]
-    return [riga for riga in sezione.splitlines()
-            if re.match("^[|]\\s*[1-9]\\s*[|]", riga)]
+    voci = []
+    for riga in sezione.splitlines():
+        m = re.match(r"^\|\s*(\d+)\s*\|", riga)
+        if m:
+            voci.append((int(m.group(1)), riga))
+    return voci
+
+
+#: Le voci che il requisito autorizza a restare aperte dopo la 2H. Una sola: il seed
+#: senza scadenze, che non e' una discrepanza semantica ma un dato che non c'e'.
+REGISTRO_APERTE_AMMESSE = {14}
 
 
 # ⚠ ROVESCIATO nella 2G: il rimando era «dopo aver risolto le incoerenze del
-# registro», e la 2G le risolve. Ciò che resta da sorvegliare non è più il registro: è
-# che la RISOLUZIONE sia arrivata in tutte le implementazioni, non solo nel backend.
-check("il registro dichiara risolte le incoerenze che la 2G risolve",
-      all(f"RISOLTA" in riga or "RISOLTO" in riga
-          for riga in _voci_registro() if riga),
-      "una voce lasciata aperta dopo la 2G è un blocco al rilascio (§14 del "
-      "requisito): il posto dove si scopre è questo, non un cliente")
+# registro», e la 2G le risolve. Cio' che resta da sorvegliare non e' piu' il
+# registro: e' che la RISOLUZIONE sia arrivata in tutte le implementazioni.
+#
+# ⚠ RISCRITTO nella 2H. La forma nuova e' piu' severa in un punto e piu' indulgente
+# in un altro, entrambi voluti:
+#
+#   - PIU' SEVERA: nessuna voce puo' restare SENZA esito. Prima si pretendeva che le
+#     righe da 1 a 9 dicessero «RISOLTA», e una riga NUOVA senza esito — la 16,
+#     scoperta dalla 2G — passava senza che nessuno la guardasse;
+#   - PIU' INDULGENTE: le aperte devono essere un SOTTOINSIEME di quelle ammesse. Con
+#     l'uguaglianza, chiudere la 14 avrebbe reso rosso un test, cioe' avrebbe punito
+#     chi risolve. Aprirne una nuova invece e' rosso, e quello e' il verso giusto.
+_VOCI = _voci_registro()
+_ESITI = ("RISOLTA", "RISOLTO", "APERTA", "CARATTERISTICA DICHIARATA")
+_senza_esito = [n for n, riga in _VOCI if not any(t in riga for t in _ESITI)]
+_aperte = {n for n, riga in _VOCI if "APERTA" in riga}
+check("il registro del debito legge tutte le sue voci",
+      len(_VOCI) >= 16,
+      f"lette {len(_VOCI)} voci: se il numero cala, il controllo qui sotto sta "
+      f"guardando meno registro di quanto crede")
+check("nessuna voce del registro resta senza esito",
+      not _senza_esito,
+      f"voci senza esito: {_senza_esito}. Una riga aggiunta e non conclusa e' "
+      f"esattamente il modo in cui una discrepanza torna invisibile")
+check("le voci ancora aperte sono quelle che il requisito ammette",
+      _aperte <= REGISTRO_APERTE_AMMESSE,
+      f"aperte {sorted(_aperte)}, ammesse {sorted(REGISTRO_APERTE_AMMESSE)}: una "
+      f"discrepanza semantica aperta dopo la 2G e' un blocco al rilascio (§14 del "
+      f"requisito), e il posto dove si scopre e' questo, non un cliente")
 check("la readiness non guarda lo stato del worker",
       all(t not in code_only(ROOT / "backend" / "app" / "api" / "health.py")
           for t in ("scheduler_runs", "worker_heartbeat", "reminder_deliveries")),

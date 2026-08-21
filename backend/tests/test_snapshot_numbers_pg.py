@@ -425,14 +425,85 @@ def test_a_representable_number_survives_a_real_save(db, engine, value):
 
 
 #: Le fixture della fase 2A più il seed di produzione e le scadenze. Manca
-#: `jsonb-hostile-numbers`, che questo commit ha reso non salvabile: è un documento
-#: che descrive lo stato *precedente*, e resta a documentare la storia.
+#: `jsonb-hostile-numbers`, che un commit precedente ha reso non salvabile: è un
+#: documento che descrive lo stato *precedente*, e resta a documentare la storia.
 DOCUMENTS = {k: v for k, v in relbuild.documents().items()
              if k != "jsonb-hostile-numbers"}
 DOCUMENTS["seed"] = strip_legacy_fields(
     json.loads((ROOT / "fixtures" / "seed.json").read_text(encoding="utf-8")))[0]
 DOCUMENTS["expiry"] = build_expiry(date(2026, 8, 10))
+
+
+#: ⚠ FASE 2H. Due corpora portano un'altezza di rack che il cancello del documento
+#: adesso rifiuta: `empty-zero-false` ha `u: 0`, `oversized-integers` ha
+#: `u: 3000000000`. Sono i due valori della voce 16 del registro, e il rifiuto è il
+#: punto della voce.
+#:
+#: ⚠ NON si escludono i documenti. `jsonb-hostile-numbers` fu escluso perché era
+#: interamente costruito attorno ai numeri che non si possono salvare; questi due
+#: portano decine di altri valori — vuoti, zeri, falsi, interi enormi in `x`, `y`, `h`
+#: — e sono quelli la ragione per cui esistono. Si porta l'altezza dentro il limite e
+#: si dichiara, invece di perdere tutto il resto.
+#:
+#: L'onestà dell'adattamento la sostiene `test_l_altezza_adattata_era_davvero_da
+#: _adattare`: se un giorno l'originale passasse, quel test diventa rosso e dice che
+#: qui si sta correggendo qualcosa che non serve più correggere.
+ALTEZZA_ADATTATA = 45
+
+
+def _altezze_entro_il_limite(doc):
+    """Copia del documento con le altezze di rack fuori limite riportate dentro.
+
+    Tocca SOLO `rack.u`, e solo quando è un intero fuori dall'intervallo: un `u`
+    testuale o mancante resta com'è, perché resta salvabile.
+    """
+    import copy
+
+    from app import domain
+
+    fuori = []
+    out = copy.deepcopy(doc)
+    for L in out.get("locations") or []:
+        for R in L.get("sale") or []:
+            for K in R.get("racks") or []:
+                if not domain.rack_height_supported(K.get("u")):
+                    fuori.append(K.get("u"))
+                    K["u"] = ALTEZZA_ADATTATA
+    return out, fuori
+
+
+ALTEZZE_FUORI_LIMITE = {}
+for _nome in list(DOCUMENTS):
+    _adattato, _fuori = _altezze_entro_il_limite(DOCUMENTS[_nome])
+    if _fuori:
+        ALTEZZE_FUORI_LIMITE[_nome] = (DOCUMENTS[_nome], _fuori)
+        DOCUMENTS[_nome] = _adattato
+
 NAMES = sorted(DOCUMENTS)
+
+
+@pytest.mark.parametrize("name", sorted(ALTEZZE_FUORI_LIMITE),
+                         ids=sorted(ALTEZZE_FUORI_LIMITE))
+def test_l_altezza_adattata_era_davvero_da_adattare(db, engine, name):
+    """⚠ Il test che rende onesto l'adattamento qui sopra.
+
+    Pretende due cose sull'ORIGINALE: che venga rifiutato, e che venga rifiutato per
+    l'altezza del rack e per nient'altro. Se qualcuno alzasse il limite, o togliesse il
+    cancello, questo test diventa rosso e dice che l'adattamento non serve più — invece
+    di lasciare in giro una modifica silenziosa applicata a un documento che andava
+    benissimo.
+    """
+    from app.inventory.document import RACK_U_OUT_OF_RANGE, validate_normal_document
+
+    originale, fuori = ALTEZZE_FUORI_LIMITE[name]
+    assert fuori, "un corpus senza altezze fuori limite non deve stare in questo elenco"
+    problemi = validate_normal_document(originale)
+    assert [e.code for e in problemi] == [RACK_U_OUT_OF_RANGE] * len(fuori), (
+        f"{name}: atteso solo {RACK_U_OUT_OF_RANGE} per {fuori}, "
+        f"ottenuto {[e.code for e in problemi]}")
+    with pytest.raises(DocumentRejectedError):
+        with engine.begin() as c:
+            InventoryRepository(c).bootstrap(originale, ADMIN)
 
 
 @pytest.mark.parametrize("name", NAMES, ids=NAMES)

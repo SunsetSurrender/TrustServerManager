@@ -52,7 +52,7 @@
                 "id": "R01",
                 "name": "R01",
                 "row": "A",
-                "u": 3000000000,
+                "u": 45,
                 "x": 0.5,
                 "y": 1.25,
                 "w": 0.6,
@@ -71,6 +71,7 @@
                     "garanzia": "2027-03-14",
                     "supporto": "2027-03-14",
                     "stato": "attivo",
+                    "presenza": "presente",
                     "model": "",
                     "note": ""
                   },
@@ -83,6 +84,7 @@
                     "h": 2,
                     "supporto": "2026-12-31",
                     "stato": "attivo",
+                    "presenza": "presente",
                     "model": "",
                     "ip": "",
                     "serial": "",
@@ -119,6 +121,7 @@
                     "model": "",
                     "ip": "",
                     "note": "",
+                    "presenza": "presente",
                     "serial": "",
                     "owner": "",
                     "garanzia": "",
@@ -185,6 +188,7 @@
                     "h": 1,
                     "owner": "Bianchi",
                     "stato": "attivo",
+                    "presenza": "presente",
                     "model": "",
                     "ip": "",
                     "serial": "",
@@ -215,6 +219,7 @@
                     "u": 0,
                     "h": 1,
                     "stato": "attivo",
+                    "presenza": "presente",
                     "model": "",
                     "ip": "",
                     "serial": "",
@@ -268,14 +273,7 @@
   "refDate": "2026-08-10",
   "refNowMs": 1786312800000,
   "warningDays": 90,
-  "quirks": [
-    {
-      "where": "rack.u",
-      "uid": "cccccccc-0000-4000-8000-000000000001",
-      "value": 3000000000,
-      "why": "enorme: il legacy alloca u+1 elementi ed esaurisce la memoria"
-    }
-  ],
+  "quirks": [],
   "search": [
     {
       "q": "srv",
@@ -646,8 +644,107 @@
       "results": []
     }
   ],
-  "capacity": null,
-  "capacityThrows": "Error: memoria esaurita: rack R01 ha u=3000000000, e new Array(3000000001).fill(false) allocherebbe 3000000001 elementi",
+  "capacity": [
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000001",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000001",
+          "totalU": 90,
+          "usedU": 3,
+          "rackCount": 2,
+          "occupancyPercent": 3,
+          "bestRackCode": "R02",
+          "bestFreeRun": 44,
+          "rows": [
+            {
+              "row": "A",
+              "totalU": 45,
+              "usedU": 2
+            },
+            {
+              "row": "—",
+              "totalU": 45,
+              "usedU": 1
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000001",
+              "code": "R01",
+              "u": 45,
+              "usedU": 2,
+              "largestFreeRun": 41,
+              "deviceCount": 2,
+              "row": "A"
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000002",
+              "code": "R02",
+              "u": 45,
+              "usedU": 1,
+              "largestFreeRun": 44,
+              "deviceCount": 1,
+              "row": ""
+            }
+          ]
+        },
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000002",
+          "totalU": 0,
+          "usedU": 0,
+          "rackCount": 0,
+          "occupancyPercent": 0,
+          "bestRackCode": null,
+          "bestFreeRun": 0,
+          "rows": [],
+          "racks": []
+        }
+      ]
+    },
+    {
+      "locationUid": "aaaaaaaa-0000-4000-8000-000000000002",
+      "rooms": [
+        {
+          "roomUid": "bbbbbbbb-0000-4000-8000-000000000003",
+          "totalU": 90,
+          "usedU": 1,
+          "rackCount": 2,
+          "occupancyPercent": 1,
+          "bestRackCode": "R02",
+          "bestFreeRun": 45,
+          "rows": [
+            {
+              "row": "A",
+              "totalU": 90,
+              "usedU": 1
+            }
+          ],
+          "racks": [
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000003",
+              "code": "R01",
+              "u": 45,
+              "usedU": 1,
+              "largestFreeRun": 44,
+              "deviceCount": 1,
+              "row": "A"
+            },
+            {
+              "uid": "cccccccc-0000-4000-8000-000000000004",
+              "code": "R02",
+              "u": 45,
+              "usedU": 0,
+              "largestFreeRun": 45,
+              "deviceCount": 1,
+              "row": "A"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capacityThrows": null,
   "expiries": [
     {
       "kind": "supporto",

@@ -279,7 +279,14 @@ def variant_empty_zero_false() -> dict:
     rack = room["racks"][0]
     rack["x"] = 0
     rack["y"] = 0
-    rack["u"] = 0
+    # ⚠ FASE 2H: `rack.u = 0` non è più un documento salvabile.
+    #
+    # Il limite dichiarato è l'intervallo intero POSITIVO della proiezione: un rack
+    # alto zero non è un rack, e nessuna delle due implementazioni sa disegnarlo. Lo
+    # zero esplicito che questo documento esiste per difendere resta su cinque campi —
+    # `room.w`, `room.h`, `rack.x`, `rack.y`, `device.u`, `device.h` — che sono valori
+    # dell'utente e devono sopravvivere: l'altezza del rack non lo è più.
+    rack["u"] = 45
     rack["name"] = ""
     device = rack["devices"][0]
     device["u"] = 0
@@ -481,7 +488,21 @@ def variant_oversized_integers() -> dict:
     """
     doc = base()
     rack = _find_rack(doc, K1)
-    rack["u"] = 3_000_000_000
+    # ⚠ FASE 2H: l'intero enorme viaggia sullo slot del DISPOSITIVO, non sull'altezza
+    # del rack.
+    #
+    # `rack.u` fuori dall'intervallo `1..2^31-1` è dalla 2H un documento RIFIUTATO
+    # (`rack_u_out_of_range`, §8.48 voce 16): non era una difesa teorica ma l'unica
+    # divergenza SQL/modello che la 2G non poteva chiudere spostando codice, e si
+    # chiude non lasciandola entrare. Un corpus che deve ROUND-TRIPPARE non può
+    # contenere un valore che il prodotto non accetta.
+    #
+    # La copertura che questo documento esiste per dare — un `INSERT` che fallirebbe
+    # con «integer out of range» a metà del popolamento — resta INTATTA: `u` del
+    # dispositivo è la stessa colonna `integer`, e `-3_000_000_000` la sfonda dal lato
+    # opposto. Il rifiuto dell'altezza fuori scala è provato dove è il soggetto:
+    # `test_un_rack_piu_alto_di_int32_e_RIFIUTATO`.
+    rack["u"] = 45
     rack["devices"][0]["u"] = -3_000_000_000
     return doc
 

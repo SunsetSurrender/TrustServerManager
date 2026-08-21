@@ -1,0 +1,67 @@
+{
+ "_nota": "rackHeightSupported(u): il «no» copre SOLO l'intero fuori intervallo, che e l'unico caso in cui SQL e modello puro darebbero due numeri diversi. Assente e non-intero passano perche entrambe le implementazioni li leggono come «nessuna altezza». Il limite e quello dell'`integer` della proiezione.",
+ "min": 1,
+ "max": 2147483647,
+ "cases": [
+  {
+   "u": 45,
+   "supported": true,
+   "_meta": "il valore di 98 rack su 102 nel seed"
+  },
+  {
+   "u": 1,
+   "supported": true,
+   "_meta": "il minimo: un rack da una unita e un rack"
+  },
+  {
+   "u": 2147483647,
+   "supported": true,
+   "_meta": "il massimo esatto, dentro"
+  },
+  {
+   "u": 2147483648,
+   "supported": false,
+   "_meta": "il massimo + 1: primo intero che la colonna non tiene"
+  },
+  {
+   "u": 3000000000,
+   "supported": false,
+   "_meta": "il caso del corpus oversized-integers, quello che ha fatto scoprire la voce 16"
+  },
+  {
+   "u": -2147483649,
+   "supported": false,
+   "_meta": "fuori anche dal lato negativo"
+  },
+  {
+   "u": 0,
+   "supported": false,
+   "_meta": "un rack alto zero non e un rack: sotto il minimo"
+  },
+  {
+   "u": -1,
+   "supported": false,
+   "_meta": "altezza negativa: sotto il minimo"
+  },
+  {
+   "u": null,
+   "supported": true,
+   "_meta": "assente: il default canonico mette 45"
+  },
+  {
+   "u": "45",
+   "supported": true,
+   "_meta": "STRINGA: passa. La colonna resta NULL e _as_int da null, quindi SQL e modello puro vedono entrambi «nessuna altezza». Nessuna divergenza."
+  },
+  {
+   "u": 4.5,
+   "supported": true,
+   "_meta": "non intero: come sopra, nessuna divergenza da impedire"
+  },
+  {
+   "u": true,
+   "supported": true,
+   "_meta": "booleano: non e 1, e non e un'altezza"
+  }
+ ]
+}

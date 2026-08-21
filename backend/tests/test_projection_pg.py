@@ -321,14 +321,23 @@ def test_a_version_stored_before_the_numeric_fix_aborts_the_rebuild(db, engine):
 def test_an_oversized_integer_does_not_break_the_insert(db, engine):
     """`u` e `h` sono `integer`. Senza il limite nel predicato, questo documento
     fermerebbe il popolamento con «integer out of range» a metà — cioè una
-    migrazione che aborta per un dato che la fase 1 ha sempre accettato."""
+    migrazione che aborta per un dato che la fase 1 ha sempre accettato.
+
+    ⚠ Il soggetto si è SPOSTATO nella 2H, e vale la pena dire perché invece di
+    cambiare un `uid` in silenzio. L'intero enorme stava sull'altezza del rack; dalla
+    2H `rack.u` fuori dall'intervallo `1..2^31-1` è un documento RIFIUTATO (voce 16 del
+    registro), quindi non può più arrivare fino qui. La colonna da difendere però è la
+    stessa — `integer` — e il corpus la sfonda dal lato opposto con lo slot di un
+    DISPOSITIVO, `u: -3_000_000_000`: se il predicato della mappa perdesse il limite,
+    il popolamento fallirebbe esattamente come prima.
+    """
     version = bootstrap(engine, DOCUMENTS["oversized-integers"])
     report = rebuild(engine)
     assert report.sha256 == recorded_sha(engine, version)
     with engine.begin() as c:
-        row = c.execute(text("SELECT u, extra->'u' FROM inventory_racks "
-                             "WHERE uid = :u"), {"u": relbuild.K1}).one()
-    assert row[0] is None and row[1] == 3_000_000_000
+        row = c.execute(text("SELECT u, extra->'u' FROM inventory_devices "
+                             "WHERE uid = :u"), {"u": relbuild.D1}).one()
+    assert row[0] is None and row[1] == -3_000_000_000
 
 
 def test_a_document_with_a_nul_byte_never_becomes_a_version(db, engine):

@@ -992,29 +992,53 @@ def test_quirky_documents_do_not_break_the_queries(engine, name):
             q.expiries(conn, today=date.fromisoformat(corpus["refDate"]), limit=50)
 
 
-def test_a_rack_height_beyond_int4_goes_to_extra_and_the_column_stays_null(engine):
-    """⚠ `u = 3 000 000 000` non entra nemmeno nella colonna, e questo va saputo.
+def test_a_rack_with_no_height_in_the_column_has_no_capacity(engine):
+    """⚠ RISCRITTO nella 2H. Il soggetto è cambiato, e il fatto vecchio è altrove.
 
-    `inventory_racks.u` è `integer`, cioè int4: il massimo è 2 147 483 647. Un'altezza
-    da tre miliardi non è rappresentabile, quindi la mappa la porta in `extra`
-    (`carried_verbatim`) e la colonna resta NULL. Per lo SQL quel rack non ha altezza e
-    non ha slot; per il frontend è il documento che gli esaurisce la memoria.
+    Prima: si leggeva `rel-oversized-integers`, che portava `u = 3 000 000 000`, e si
+    pretendeva di trovarlo in `extra` con la colonna NULL. Dalla 2H quel documento non
+    entra più — `rack.u` fuori da `1..2^31-1` è rifiutato con `rack_u_out_of_range`
+    (voce 16 del registro) — quindi il corpus non contiene più quel rack, e il test
+    diventava rosso per una ragione giusta.
 
-    Non è un difetto da correggere qui — è la mappa che fa il suo mestiere — ma
-    scoprirlo mentre si scrive un test di prestazione è il genere di cosa che va
-    scritta, perché il test «non enumera» che avevo in mente NON stava provando niente:
-    non c'era nessuna altezza da enumerare.
+    Ciò che QUESTO modulo deve continuare a provare non è la mappa (è il soggetto di
+    `test_domain_sql_pg.test_un_rack_piu_alto_di_int32_e_RIFIUTATO`), ma
+    l'INTERROGAZIONE: un rack la cui colonna `u` è NULL non ha altezza e non ha slot, e
+    la vista Capacità deve dirlo senza inciampare.
+
+    Quel caso resta raggiungibile — un dato storico entrato quando il cancello non
+    c'era — e si scrive come tale, con la stessa tecnica del test che segue: la colonna
+    a mano. Passare dal documento sarebbe impossibile, che è il punto.
     """
-    load(engine, "rel-oversized-integers")
+    load(engine, "capacity")
+    with engine.begin() as c:
+        c.execute(text("UPDATE inventory_racks SET u = NULL "
+                       " WHERE code = 'R-parziale'"))
+
     with snapshot(engine) as conn:
         with conn.begin():
-            righe = conn.execute(text(
-                "SELECT code, u, extra->>'u' AS extra_u FROM inventory_racks "
-                " WHERE extra ? 'u'")).mappings().all()
-    assert righe, "nessun rack ha portato `u` in `extra`: la fixture è cambiata"
-    for r in righe:
-        assert r["u"] is None, "colonna e `extra` valorizzate insieme"
-        assert int(r["extra_u"]) > 2_147_483_647
+            report = q.capacity(conn)
+    racks = [r for L in report.locations for room in L["rooms"] for r in room["racks"]]
+    senza = [r for r in racks if r["code"] == "R-parziale"]
+    assert senza, "il rack senza altezza non compare nel resoconto: sparirebbe da una vista"
+    r = senza[0]
+    assert r["u"] is None
+    assert r["usedU"] == 0, "senza altezza non ci sono slot da occupare"
+    assert r["largestFreeRun"] == 0
+    # ⚠ `freeU` è `None`, non `0`, e la differenza è quella fra «nessuna unità libera»
+    # e «non si sa quante ne siano libere». Dire zero sarebbe una risposta precisa a
+    # una domanda senza risposta.
+    assert r["freeU"] is None
+    # I dispositivi restano CONTATI: il rack non ha altezza, ma le sue macchine
+    # esistono. Perderle qui vorrebbe dire che un rack malformato nasconde il proprio
+    # contenuto.
+    assert r["deviceCount"] > 0
+
+    stanza = [room for L in report.locations for room in L["rooms"]
+              if any(x["code"] == "R-parziale" for x in room["racks"])][0]
+    assert stanza["totalU"] == sum((x["u"] or 0) for x in stanza["racks"]), (
+        "il totale della sala deve ignorare l'altezza sconosciuta, non propagarla")
+    assert stanza["occupancyPercent"] >= 0
 
 
 def test_a_huge_but_storable_rack_height_does_not_enumerate_slots(engine):
@@ -1592,7 +1616,11 @@ def test_there_is_no_endpoint_that_executes_an_arbitrary_query(engine):
     # E i parametri che accetta sono esattamente quelli previsti, così un parametro
     # aggiunto senza pensarci si fa notare.
     attesi = {
-        "/api/inventory/search": {"q", "limit", "cursor"},
+        # `stato` e `presenza` anche qui dalla 2H, per la vista Dismessi: STESSO
+        # vocabolario e stessa validazione delle scadenze. È un'estensione di lettura
+        # ristretta, non una domanda arbitraria — e la differenza è che il server
+        # conosce in anticipo l'elenco dei valori ammessi.
+        "/api/inventory/search": {"q", "stato", "presenza", "limit", "cursor"},
         "/api/inventory/capacity": set(),
         # `stato` e `presenza` dalla 2G: filtri a VOCABOLARIO, non espressioni.
         # Sono la differenza fra «restringi la domanda» e «esegui questa query», ed è

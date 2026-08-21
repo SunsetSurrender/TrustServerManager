@@ -268,13 +268,20 @@ def test_empty_strings_zeroes_and_false_survive():
     device = model.devices[0]
     assert room.w == 0 and room.h == 0
     assert room.segnaposto is False
-    assert rack.x == 0 and rack.y == 0 and rack.u == 0
+    assert rack.x == 0 and rack.y == 0
     assert rack.name == ""
+    # ⚠ `rack.u` NON è più zero nel corpus, e la ragione va letta qui invece di essere
+    # scoperta guardando la fixture: dalla 2H `rack.u = 0` è un documento rifiutato
+    # (voce 16 del registro), quindi un corpus che deve round-trippare non lo contiene.
+    # Lo zero esplicito che questo test difende resta su cinque campi, che bastano:
+    # `room.w`, `room.h`, `rack.x`, `rack.y`, e `device.u`/`device.h` qui sotto.
     assert device.u == 0 and device.h == 0 and device.note == ""
     out = assemble(model)
     r = out["locations"][0]["sale"][0]
     assert r["w"] == 0 and r["segnaposto"] is False
-    assert r["racks"][0]["u"] == 0 and r["racks"][0]["name"] == ""
+    assert r["racks"][0]["name"] == ""
+    assert r["racks"][0]["devices"][0]["u"] == 0, (
+        "lo zero esplicito deve sopravvivere al giro: è il punto del corpus")
 
 
 def test_a_missing_manual_root_stays_missing():
@@ -930,11 +937,17 @@ def test_the_values_a_column_cannot_hold_travel_in_extra_and_survive():
     assert rack.x is None and rack.extra["x"] == 1e20
     assert rack.y is None and json.dumps(rack.extra["y"]) == "-0.0"
 
+    # ⚠ L'intero fuori da `integer` viaggia sullo SLOT DEL DISPOSITIVO, non
+    # sull'altezza del rack. Dalla 2H `rack.u` fuori da `1..2^31-1` non entra nel
+    # documento (voce 16), quindi il corpus lo porta dove resta legittimo: `u` del
+    # dispositivo è la stessa colonna e la sfonda dal lato negativo. La regola provata
+    # — colonna NULL, valore in `extra`, documento identico al ritorno — è la stessa.
     interi = normalise(FIXTURES["oversized-integers"])
-    rack = [r for r in interi.racks if r.uid == relbuild.K1][0]
-    assert rack.u is None and rack.extra["u"] == 3_000_000_000
     device = [d for d in interi.devices if d.uid == relbuild.D1][0]
     assert device.u is None and device.extra["u"] == -3_000_000_000
+    rack = [r for r in interi.racks if r.uid == relbuild.K1][0]
+    assert rack.u == 45 and "u" not in rack.extra, (
+        "l'altezza del rack è dentro il limite: deve stare in COLONNA, non in `extra`")
 
 
 def test_a_schema_version_that_is_not_an_integer_travels_in_root_extra():

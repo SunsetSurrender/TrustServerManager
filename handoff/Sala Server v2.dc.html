@@ -28,6 +28,10 @@
   @keyframes popIn { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
   .pop-in { animation: popIn 0.18s ease both; }
   @media (prefers-reduced-motion: reduce) { .view-in, .pop-in { animation: none; } * { transition: none !important; } }
+  /* Etichetta per chi usa un lettore di schermo, invisibile agli altri (§17 della
+     fase 2H). `clip-path` e non `display:none`: nascosto ma ANCORA letto. */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+             overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: var(--d2b333d); border-radius: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -141,22 +145,52 @@
           <button onClick="{{ toggleInv }}" style="{{ invBtnStyle }}" style-hover="filter:brightness(1.2)">Inventario</button>
           <button onClick="{{ toggleCap }}" style="{{ capBtnStyle }}" style-hover="filter:brightness(1.2)">Capacità</button>
           <button onClick="{{ toggleScad }}" style="{{ scadBtnStyle }}" style-hover="filter:brightness(1.2)">{{ scadTabLabel }}</button>
+          <button data-test="tab-dismessi" onClick="{{ toggleDism }}" style="{{ dismBtnStyle }}" style-hover="filter:brightness(1.2)">Dismessi</button>
         </div>
       <div style="position:relative; flex:1; max-width:460px; min-width:220px; margin:0 12px">
-        <input value="{{ query }}" onChange="{{ onQuery }}" title="Scorciatoie: /  o  Ctrl+F  —  supporta range IP: 10.0.2.0/24, 10.0.0.1-10.0.0.99, 10.0.*" placeholder="Cerca nome, seriale, rack, IP o range" style="width:100%; box-sizing:border-box; background:var(--d12161c); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:9px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <label for="ricerca-globale" class="sr-only">Cerca nell'inventario</label>
+        <input id="ricerca-globale" data-test="ricerca" role="searchbox" aria-label="Cerca nome, seriale, rack, indirizzo IP o rete" value="{{ query }}" onChange="{{ onQuery }}" onKeyDown="{{ onQueryKey }}" title="Scorciatoie: /  o  Ctrl+F  —  indirizzo esatto (10.0.0.1, 2001:db8::1), rete (10.0.2.0/24, 2001:db8::/32), intervallo (10.0.0.1-10.0.0.99) e jolly (10.0.*)" placeholder="Cerca nome, seriale, rack, IP o rete" style="width:100%; box-sizing:border-box; background:var(--d12161c); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:9px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
         <sc-if value="{{ hasResults }}" hint-placeholder-val="{{ false }}">
-          <div class="pop-in" style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; box-shadow:0 12px 32px var(--sh55); z-index:50; max-height:340px; overflow-y:auto">
+          <div class="pop-in" role="listbox" aria-label="Risultati della ricerca" style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; box-shadow:0 12px 32px var(--sh55); z-index:50; max-height:340px; overflow-y:auto">
             <sc-for list="{{ results }}" as="res" hint-placeholder-count="0">
-              <div tabIndex="0" data-kb="1" onClick="{{ res.onClick }}" style="display:flex; align-items:center; gap:10px; padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--d1e252e)" style-hover="background:var(--d1c232c)">
+              <div tabIndex="0" data-kb="1" data-test="risultato" role="option" onClick="{{ res.onClick }}" style="display:flex; align-items:center; gap:10px; padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--d1e252e)" style-hover="background:var(--d1c232c)">
                 <span style="{{ res.dotStyle }}"></span>
                 <span style="font-family:'Roboto Mono',monospace; font-size:13px; font-weight:500">{{ res.label }}</span>
                 <span style="font-size:11px; color:var(--d7c8794); margin-left:auto; font-family:'Roboto Mono',monospace; white-space:nowrap">{{ res.sub }}</span>
               </div>
             </sc-for>
+            <!-- ⚠ La nota sta FUORI dalla condizione «ce n'è ancora»: appena
+                 caricata l'ultima pagina spariva, e con lei l'unica indicazione di
+                 quanti risultati fossero stati caricati. Il pulsante sì, dipende. -->
+            <sc-if value="{{ hasSearchNota }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--d12161c)">
+                <span data-test="ricerca-nota" style="font-size:11px; color:var(--d7c8794); font-family:'Roboto Mono',monospace">{{ searchNota }}</span>
+                <sc-if value="{{ searchHasMore }}" hint-placeholder-val="{{ false }}">
+                  <button data-test="ricerca-altri" onClick="{{ searchMore }}" disabled="{{ searchMoreBusy }}" style="margin-left:auto; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent)">Carica altri</button>
+                </sc-if>
+              </div>
+            </sc-if>
           </div>
         </sc-if>
+        <!-- ⚠ Quattro stati distinti, non «risultati oppure niente» (§12 e §17). Una
+             lista vuota puo significare quattro cose diverse, e mostrarne una sola
+             sarebbe dire a chi guarda una cosa che non sappiamo. -->
+        <sc-if value="{{ searchLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="pop-in" role="status" aria-live="polite" data-test="ricerca-carico" style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; z-index:50; padding:10px 12px; font-size:12px; color:var(--d7c8794)">Ricerca in corso…</div>
+        </sc-if>
         <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
-          <div class="pop-in" style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; z-index:50; padding:10px 12px; font-size:12px; color:var(--d7c8794)">Nessun risultato in nessuna sala</div>
+          <div class="pop-in" role="status" aria-live="polite" data-test="ricerca-vuota" style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; z-index:50; padding:10px 12px; font-size:12px; color:var(--d7c8794)">Nessun risultato in nessuna sala</div>
+        </sc-if>
+        <sc-if value="{{ hasSearchError }}" hint-placeholder-val="{{ false }}">
+          <div class="pop-in" role="alert" data-test="ricerca-errore" style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--d161b22); border:1px solid #ff5c5c; border-radius:8px; z-index:50; padding:10px 12px; font-size:12px; color:#ff8f8f">
+            <!-- ⚠ Il simbolo E il testo: un errore segnalato dal solo colore non
+                 arriva a chi non lo distingue (§17). -->
+            <span style="font-weight:700">⚠ La ricerca non e disponibile.</span>
+            <span style="color:var(--dd7dde4)"> {{ searchError }}{{ searchMismatchTesto }}</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ hasSearchOrfani }}" hint-placeholder-val="{{ false }}">
+          <div role="alert" data-test="ricerca-orfani" style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--d161b22); border:1px solid #ffb020; border-radius:8px; z-index:49; padding:8px 12px; font-size:11.5px; color:#ffd08a">⚠ {{ searchOrfani }}</div>
         </sc-if>
       </div>
         <div style="position:relative; margin-left:auto">
@@ -447,20 +481,34 @@
                contratto che scade. I due filtri servono a fare la domanda ristretta —
                `dismesso + rimosso` e l'elenco dei contratti di cio che e stato portato
                via, che e il riscontro incrociato per cui i dismessi si conservano. -->
-          <select value="{{ scadFiltroStato }}" onChange="{{ onScadFiltroStato }}" title="Filtra per stato operativo" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:5px 8px; font-size:11.5px; font-family:inherit">
+          <select data-test="scad-filtro-stato" aria-label="Filtra per stato operativo" value="{{ scadFiltroStato }}" onChange="{{ onScadFiltroStato }}" title="Filtra per stato operativo" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:5px 8px; font-size:11.5px; font-family:inherit">
             <option value="">tutti gli stati</option>
             <option value="attivo">Attivo</option>
             <option value="manutenzione">In manutenzione</option>
             <option value="dismissione">In dismissione</option>
             <option value="dismesso">Dismesso</option>
           </select>
-          <select value="{{ scadFiltroPresenza }}" onChange="{{ onScadFiltroPresenza }}" title="Filtra per presenza fisica" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:5px 8px; font-size:11.5px; font-family:inherit">
+          <select data-test="scad-filtro-presenza" aria-label="Filtra per presenza fisica" value="{{ scadFiltroPresenza }}" onChange="{{ onScadFiltroPresenza }}" title="Filtra per presenza fisica" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:5px 8px; font-size:11.5px; font-family:inherit">
             <option value="">presente e rimosso</option>
             <option value="presente">Presente in rack</option>
             <option value="rimosso">Rimosso</option>
           </select>
+          <div data-test="scad-oggi" style="font-family:'Roboto Mono',monospace; font-size:10.5px; color:var(--d57626f)">{{ scadOggi }}</div>
           <div style="font-size:11px; color:var(--d57626f); margin-left:auto">Clicca una riga per aprire il dispositivo</div>
         </div>
+        <!-- ⚠ Stati espliciti, nessun ripiego locale (§12). Le date le interpreta il
+             backend: se non risponde, questa vista non ha una risposta da dare, e
+             inventarne una col parser del browser era il difetto della voce 9. -->
+        <sc-if value="{{ scadLoading }}" hint-placeholder-val="{{ false }}">
+          <div role="status" aria-live="polite" data-test="scad-carico" style="padding:24px 0; font-size:12.5px; color:var(--d7c8794)">Lettura delle scadenze in corso…</div>
+        </sc-if>
+        <sc-if value="{{ hasScadError }}" hint-placeholder-val="{{ false }}">
+          <div role="alert" data-test="scad-errore" style="margin:12px 0; border:1px solid #ff5c5c; border-radius:8px; padding:12px 14px; background:var(--d10141a)">
+            <div style="font-size:12.5px; font-weight:700; color:#ff8f8f">⚠ Le scadenze non sono disponibili</div>
+            <div style="font-size:12px; color:var(--dd7dde4); margin-top:6px">{{ scadError }}{{ scadMismatchTesto }}</div>
+            <button data-test="scad-riprova" onClick="{{ scadRiprova }}" style="margin-top:10px; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 12px; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent)">Riprova</button>
+          </div>
+        </sc-if>
         <div style="display:grid; grid-template-columns:1fr 0.8fr 0.9fr 1.6fr 1.2fr 1fr 0.7fr 1.1fr 0.9fr 0.9fr; border-bottom:1px solid var(--d2b333d)">
           <sc-for list="{{ scadCols }}" as="sc" hint-placeholder-count="8">
             <div style="font-size:11px; font-weight:700; letter-spacing:0.05em; color:var(--d8a94a2); padding:6px 10px 8px 0">{{ sc }}</div>
@@ -474,7 +522,68 @@
           </div>
         </sc-for>
         <sc-if value="{{ scadEmpty }}" hint-placeholder-val="{{ false }}">
-          <div style="padding:24px 0; font-size:12.5px; color:var(--d57626f)">Nessuna garanzia o scadenza di supporto registrata sui dispositivi.</div>
+          <div data-test="scad-vuota" style="padding:24px 0; font-size:12.5px; color:var(--d57626f)">Nessuna garanzia o scadenza di supporto corrisponde ai filtri scelti.</div>
+        </sc-if>
+        <sc-if value="{{ scadHasMore }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:12px 0">
+            <button data-test="scad-altri" onClick="{{ scadMore }}" disabled="{{ scadMoreBusy }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:6px 14px; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent)">Carica altre scadenze</button>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- Dismessi: inventario ritenuto (fase 2H §8) -->
+    <sc-if value="{{ dismOpen }}" hint-placeholder-val="{{ false }}">
+      <div class="view-in" data-test="vista-dismessi" style="flex:1; min-height:0; overflow:auto; padding:16px 24px">
+        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:4px; flex-wrap:wrap">
+          <div style="font-size:13px; font-weight:700">Apparati dismessi — inventario conservato</div>
+          <div data-test="dism-riepilogo" style="font-family:'Roboto Mono',monospace; font-size:11px; color:var(--d7c8794)">{{ dismSummary }}</div>
+          <button onClick="{{ dismExportCsv }}" title="Esporta l'elenco dei dismessi" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent); border-color:var(--d2c4a45)">↓ CSV dismessi</button>
+        </div>
+        <div style="font-size:11px; color:var(--d57626f); margin-bottom:12px; max-width:860px; line-height:1.5">
+          Un apparato dismesso NON viene cancellato: resta cercabile e conserva sito, sala e rack di provenienza per i riscontri incrociati sull'hardware.
+          «Presente» significa fuori servizio ma ancora installato — e occupa spazio nel rack. «Rimosso» significa portato via: non occupa niente, e lo slot indicato è l'ultimo che ha avuto.
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap">
+          <label for="dism-ricerca" class="sr-only">Cerca fra gli apparati dismessi</label>
+          <input id="dism-ricerca" data-test="dism-ricerca" value="{{ dismQuery }}" onChange="{{ onDismQuery }}" placeholder="Cerca nome, seriale, modello, IP…" style="flex:1; min-width:220px; max-width:380px; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:7px 10px; font-family:'Roboto Mono',monospace; font-size:12px">
+          <label for="dism-presenza" class="sr-only">Filtra per presenza fisica</label>
+          <select id="dism-presenza" data-test="dism-presenza" value="{{ dismFiltroPresenza }}" onChange="{{ onDismFiltroPresenza }}" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:6px 9px; font-size:11.5px; font-family:inherit">
+            <option value="">presenza: tutte</option>
+            <option value="presente">ancora in rack</option>
+            <option value="rimosso">rimossi</option>
+          </select>
+          <div style="font-size:11px; color:var(--d57626f); margin-left:auto">Clicca una riga per aprire il dispositivo</div>
+        </div>
+        <sc-if value="{{ dismLoading }}" hint-placeholder-val="{{ false }}">
+          <div role="status" aria-live="polite" data-test="dism-carico" style="padding:24px 0; font-size:12.5px; color:var(--d7c8794)">Lettura in corso…</div>
+        </sc-if>
+        <sc-if value="{{ hasDismError }}" hint-placeholder-val="{{ false }}">
+          <div role="alert" data-test="dism-errore" style="margin:12px 0; border:1px solid #ff5c5c; border-radius:8px; padding:12px 14px; background:var(--d10141a)">
+            <div style="font-size:12.5px; font-weight:700; color:#ff8f8f">⚠ L'elenco non è disponibile</div>
+            <div style="font-size:12px; color:var(--dd7dde4); margin-top:6px">{{ dismError }}{{ dismMismatchTesto }}</div>
+            <button data-test="dism-riprova" onClick="{{ dismRiprova }}" style="margin-top:10px; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 12px; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent)">Riprova</button>
+          </div>
+        </sc-if>
+        <div style="display:grid; grid-template-columns:1.4fr 0.8fr 1.1fr 1.1fr 0.9fr 0.9fr 0.9fr 0.9fr 0.7fr 0.8fr 0.9fr 0.9fr; border-bottom:1px solid var(--d2b333d)">
+          <sc-for list="{{ dismCols }}" as="dc" hint-placeholder-count="10">
+            <div style="font-size:11px; font-weight:700; letter-spacing:0.05em; color:var(--d8a94a2); padding:6px 10px 8px 0">{{ dc }}</div>
+          </sc-for>
+        </div>
+        <sc-for list="{{ dismRows }}" as="row" hint-placeholder-count="4">
+          <div tabIndex="0" data-kb="1" data-test="dism-riga" onClick="{{ row.onClick }}" style="display:grid; grid-template-columns:1.4fr 0.8fr 1.1fr 1.1fr 0.9fr 0.9fr 0.9fr 0.9fr 0.7fr 0.8fr 0.9fr 0.9fr; cursor:pointer; border-bottom:1px solid var(--d1e252e)" style-hover="background:var(--d1c232c)">
+            <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="10">
+              <div style="{{ cell.style }}">{{ cell.txt }}</div>
+            </sc-for>
+          </div>
+        </sc-for>
+        <sc-if value="{{ dismEmpty }}" hint-placeholder-val="{{ false }}">
+          <div data-test="dism-vuota" style="padding:24px 0; font-size:12.5px; color:var(--d57626f)">Nessun apparato dismesso corrisponde alla ricerca e ai filtri scelti.</div>
+        </sc-if>
+        <sc-if value="{{ dismHasMore }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:12px 0">
+            <button data-test="dism-altri" onClick="{{ dismMore }}" disabled="{{ dismMoreBusy }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:6px 14px; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent)">Carica altri</button>
+          </div>
         </sc-if>
       </div>
     </sc-if>
@@ -482,10 +591,28 @@
     <!-- Capacità globale -->
     <sc-if value="{{ capOpen }}" hint-placeholder-val="{{ false }}">
       <div class="view-in" style="flex:1; min-height:0; overflow:auto; padding:16px 24px">
-        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:6px">
+        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:6px; flex-wrap:wrap">
           <div style="font-size:13px; font-weight:700">Capacità CED — unità rack libere e occupate</div>
-          <div style="font-size:11px; color:var(--d57626f)">Clicca una sala per aprirla · «miglior slot» = blocco contiguo libero più grande</div>
+          <div style="font-size:11px; color:var(--d57626f)">Clicca una sala per aprirla · «miglior slot» = blocco contiguo libero più grande · un apparato rimosso non occupa</div>
+          <div data-test="cap-revisione" style="margin-left:auto; font-family:'Roboto Mono',monospace; font-size:10.5px; color:var(--d57626f)">{{ capRevisione }}</div>
         </div>
+        <!-- ⚠ Tre stati, e nessun ripiego locale (§12): se l'endpoint non risponde la
+             vista lo DICE. Calcolare i numeri nel browser nasconderebbe un guasto
+             della proiezione a chi lo puo riparare, e rimetterebbe in piedi la
+             seconda implementazione che la 2G ha tolto. -->
+        <sc-if value="{{ capLoading }}" hint-placeholder-val="{{ false }}">
+          <div role="status" aria-live="polite" data-test="cap-carico" style="padding:24px 0; font-size:12.5px; color:var(--d7c8794)">Calcolo della capacità in corso…</div>
+        </sc-if>
+        <sc-if value="{{ hasCapError }}" hint-placeholder-val="{{ false }}">
+          <div role="alert" data-test="cap-errore" style="margin:12px 0; border:1px solid #ff5c5c; border-radius:8px; padding:12px 14px; background:var(--d10141a)">
+            <div style="font-size:12.5px; font-weight:700; color:#ff8f8f">⚠ La capacità non è disponibile</div>
+            <div style="font-size:12px; color:var(--dd7dde4); margin-top:6px">{{ capError }}{{ capMismatchTesto }}</div>
+            <button data-test="cap-riprova" onClick="{{ capRiprova }}" style="margin-top:10px; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 12px; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent)">Riprova</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ capVuota }}" hint-placeholder-val="{{ false }}">
+          <div data-test="cap-vuota" style="padding:24px 0; font-size:12.5px; color:var(--d57626f)">Nessun rack in nessuna sala.</div>
+        </sc-if>
         <sc-for list="{{ capLocs }}" as="cl" hint-placeholder-count="2">
           <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin:16px 0 8px">{{ cl.nome }}</div>
           <sc-for list="{{ cl.rooms }}" as="cr" hint-placeholder-count="4">
@@ -1227,7 +1354,12 @@
 
       <!-- Elenco dispositivi -->
       <div style="padding:14px 20px 24px">
-        <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">DISPOSITIVI ({{ devCount }})</div>
+        <div style="display:flex; align-items:baseline; gap:8px; margin-bottom:8px">
+          <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">DISPOSITIVI ({{ devCount }})</div>
+          <sc-if value="{{ hasDevRimossi }}" hint-placeholder-val="{{ false }}">
+            <div data-test="rack-rimossi" style="font-family:'Roboto Mono',monospace; font-size:10px; color:var(--d7c8794); border:1px solid var(--d2b333d); border-radius:4px; padding:1px 6px">{{ devRimossiLabel }}</div>
+          </sc-if>
+        </div>
         <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:12px; color:var(--d57626f); padding:8px 0">Nessun dispositivo in questo rack.</div>
         </sc-if>
@@ -1310,11 +1442,27 @@ let API = null;
 // fixtures/domain/*.json è il contratto che entrambe le implementazioni soddisfano.
 // Vedi BACKEND-PLAN.md §8.50.
 //
-// ⚠ Il frontend continua a CALCOLARE IN LOCALE: non chiama /api/inventory/search né
-// /capacity né /expiries. Il passaggio alle rotte è una fase a parte. Ciò che la 2G
-// garantisce è che le due risposte COINCIDANO, così quella migrazione non cambierà
-// nessun numero sullo schermo.
+// ⚠ FASE 2H: il frontend NON calcola più ricerca, capacità e scadenze. Le chiede a
+// /api/inventory/search, /capacity, /expiries — che le calcolano con QUESTA stessa
+// semantica, ed è il motivo per cui la migrazione non ha cambiato nessun numero.
+//
+// Di `DOM` resta l'uso per ciò che ha senso restare locale, e sono tre cose:
+//   - la CAPACITÀ del pannello del rack e della dashboard, che si ridisegnano a ogni
+//     interazione e non possono diventare una richiesta per rack (§6 del requisito);
+//   - l'export XLSX/CSV, che deve dare gli stessi numeri (§14);
+//   - i vocabolari, le etichette e i default (`statoOf`, `deviceLabel`, …), che non
+//     sono interrogazioni.
+// Resta quindi UNA implementazione locale di capacità, non tre, e sono le fixture
+// language-neutral a garantire che concordi con lo SQL.
 let DOM = null;
+
+// Client delle interrogazioni relazionali (handoff/queries.js).
+//
+// ⚠ Non è un involucro di comodità attorno a `fetch`: contiene le due regole che
+// rendono sicuro chiedere qualcosa al server mentre l'utente continua a lavorare —
+// una risposta vecchia non sovrascrive una nuova, e un risultato di un'altra
+// revisione non si mescola con l'inventario mostrato. Vedi il file.
+let QRY = null;
 
 /** Identità per una entità nuova. Solleva se il modulo non è pronto: meglio un
  *  errore visibile che un'entità senza identità salvata di nascosto. */
@@ -1338,7 +1486,19 @@ class Component extends DCLogic {
             usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
-            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
+            // --- interrogazioni relazionali (fase 2H) ---
+            //
+            // Uno slot per interrogazione, sempre della stessa forma:
+            //   { status: 'loading' | 'ok' | 'error' | 'mismatch', payload, error }
+            // `null` significa «mai chiesta». Gli stati sono quattro perché le
+            // risposte dell'interfaccia sono quattro, e schiacciarli in
+            // «dati oppure niente» è come si finisce a disegnare una vista vuota
+            // che sembra un inventario vuoto (§12 del requisito).
+            qSearch: null, qCap: null, qScad: null, qDism: null, qBadge: null,
+            qPreview: null,
+            searchMore: false, scadMore: false, dismMore: false,
+            dismOpen: false, dismFiltri: { presenza: '' }, dismQuery: '', dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
 
   // ⚠ `ipToNum` e `parseIpQuery` RIMOSSE dalla fase 2G.
   //
@@ -1469,13 +1629,23 @@ class Component extends DCLogic {
   // server qualcosa che ci rifiuterà — e per un istante l'interfaccia
   // mostrerebbe una schermata vuota invece del login.
   async _boot() {
-    const [ident, api, dom] = await Promise.all([
+    const [ident, api, dom, qry] = await Promise.all([
       import('./identity.js'),
       import('./api.js'),
       import('./domain.js'),
+      import('./queries.js'),
     ]);
     IDENT = ident;
     API = api;
+    QRY = qry;
+    // ⚠ Il client si costruisce QUI, una volta, e non a ogni richiesta: i contatori di
+    // generazione e gli `AbortController` vivono dentro di lui. Uno per richiesta
+    // significherebbe non avere nessuna delle due regole.
+    this._queries = new qry.QueryClient({
+      getLoadedRevision: () => (this.state.serverVersion === null ? null
+        : { version: this.state.serverVersion, sha256: this.state.serverSha }),
+      reloadInventory: () => this._loadInventory({ perRiconciliare: true }),
+    });
     // ⚠ Assegnato PRIMA di _refreshSession, quindi prima che `data` esista. Ogni uso
     // di DOM in render() sta dentro un ramo che dipende da `data` o da una query
     // digitata dall'utente: nessuno può girare con DOM ancora nullo.
@@ -1523,8 +1693,21 @@ class Component extends DCLogic {
     }
   }
 
-  /** Carica l'inventario. Solo per una sessione autenticata e non ristretta. */
-  async _loadInventory() {
+  /**
+   * Carica l'inventario. Solo per una sessione autenticata e non ristretta.
+   *
+   * `perRiconciliare`: il ricaricamento è stato chiesto dal client delle
+   * interrogazioni perché una risposta apparteneva a un'altra revisione.
+   *
+   * ⚠ In quel caso le interrogazioni aperte NON si rilanciano, e la ragione è un ciclo
+   * vero trovato dal test del browser: mismatch → ricarico → rilancio → mismatch →
+   * ricarico… `maxReloads` limita i tentativi dentro una chiamata e faceva il suo
+   * lavoro; il ciclo passava DA FUORI, perché ogni ricaricamento faceva nascere una
+   * chiamata nuova. Chi ha chiesto il ricaricamento riprova da sé — una volta — e poi
+   * si arrende dichiarando il disaccordo: rilanciare al suo posto significa non
+   * arrendersi mai.
+   */
+  async _loadInventory({ perRiconciliare = false } = {}) {
     try {
       const out = await API.getInventory();
       const data = out.doc;
@@ -1548,7 +1731,16 @@ class Component extends DCLogic {
         const K = R && R.racks.find(r => r.id === decodeURIComponent(m[3]));
         if (K) st = { ...st, locId: L.id, roomId: R.id, selRack: K.id };
       }
-      this.setState(st);
+      // ⚠ Il richiamo delle interrogazioni sta nel CALLBACK di setState, non dopo.
+      // React accoda gli aggiornamenti: chiamandolo fuori, il controllo di revisione
+      // confronterebbe la risposta con la versione PRECEDENTE e la dichiarerebbe
+      // discordante appena ricaricato l'inventario.
+      //
+      // ⚠ E non si richiama affatto se il ricaricamento serviva a riconciliare una
+      // revisione: vedi il commento in testa a questo metodo.
+      this.setState(st, () => {
+        if (!perRiconciliare) this._aggiornaInterrogazioniAperte();
+      });
     } catch (err) {
       const d = API.describeError(err);
       if (err instanceof API.ApiError && err.status === 401) {
@@ -1575,7 +1767,7 @@ class Component extends DCLogic {
       serverVersion: version, serverSha: sha,
       saveState: changed ? 'salvato' : 'nessuna-modifica',
       saveError: '', dirty: false,
-    });
+    }, () => { if (changed) this._aggiornaInterrogazioniAperte(); });
   }
 
   async _onConflict(currentVersion) {
@@ -1603,6 +1795,208 @@ class Component extends DCLogic {
       return;
     }
     this.setState({ saveState: 'errore', saveError: d.titolo + ' — ' + d.testo });
+  }
+
+  // ============================================================
+  // Interrogazioni relazionali (fase 2H)
+  // ============================================================
+  //
+  // Tutte passano da `_runQuery`, che è il posto dove i quattro esiti del client
+  // diventano i quattro stati di uno slot. Nessuna vista chiama `API` direttamente:
+  // se lo facesse, si porterebbe dietro la propria idea di «risposta vecchia» e di
+  // «revisione diversa», e sarebbero cinque idee invece di una.
+
+  /**
+   * Indice `uid → entità` del documento caricato, ricostruito solo quando cambia.
+   *
+   * ⚠ Serve perché i risultati delle interrogazioni portano l'`uid` — che è l'identità
+   * (§8.4) — mentre la navigazione dell'applicazione si muove per CODICE (`locId`,
+   * `roomId`, `selRack`). Tradurre passando dall'uid è l'unico modo corretto: un
+   * codice può essere assente, e due entità in ambiti diversi possono averlo uguale.
+   *
+   * La memoizzazione è sull'IDENTITÀ dell'oggetto `data`, non su un contatore: ogni
+   * modifica locale ricostruisce l'albero, quindi l'indice si rifà quando serve e non
+   * a ogni render.
+   */
+  _uidIndex(data) {
+    if (this._uidIdxFor !== data) {
+      this._uidIdxFor = data;
+      this._uidIdx = (data && IDENT) ? IDENT.indexByUid(data) : new Map();
+    }
+    return this._uidIdx;
+  }
+
+  /**
+   * I codici del cammino sito → sala → rack → dispositivo, risalendo per `parentUid`.
+   *
+   * `null` se l'`uid` non è nel documento caricato. Con la regola della revisione non
+   * dovrebbe accadere — è per questo che esiste — e se accade la voce si SALTA invece
+   * di mostrare una riga che non porta da nessuna parte.
+   */
+  _percorsoDiUid(idx, uid) {
+    let e = idx.get(uid);
+    if (!e) return null;
+    const out = {};
+    while (e) {
+      if (e.kind === 'location') out.locId = e.code;
+      if (e.kind === 'room') out.roomId = e.code;
+      if (e.kind === 'rack') out.rackId = e.code;
+      if (e.kind === 'device') out.devId = e.code;
+      e = e.parentUid ? idx.get(e.parentUid) : null;
+    }
+    return out;
+  }
+
+  async _runQuery(nome, chiave, fetcher) {
+    if (!this._queries) return undefined;
+    // Si conserva il payload precedente durante il caricamento: una vista che si
+    // svuota a ogni battuta lampeggia, e il lampeggio si legge come «non c'è niente».
+    this.setState((st) => ({
+      [chiave]: { status: 'loading', payload: (st[chiave] || {}).payload || null,
+                  error: null },
+    }));
+    const esito = await this._queries.run(nome, fetcher);
+
+    // SUPERATA: un'altra richiesta più recente comanda lo slot. Non si scrive niente —
+    // scrivere «non sto più caricando» spegnerebbe l'indicatore di quella nuova.
+    if (esito.status === QRY.STALE) return undefined;
+
+    if (esito.status === QRY.OK) {
+      this.setState({ [chiave]: { status: 'ok', payload: esito.payload, error: null } });
+      return esito.payload;
+    }
+    if (esito.status === QRY.MISMATCH) {
+      // Il risultato NON si mostra, nemmeno in parte. Vedi queries.js: dopo un
+      // ricaricamento la revisione ancora non corrisponde, quindi qualcuno sta
+      // salvando senza sosta e l'unica risposta onesta è dirlo.
+      this.setState({ [chiave]: { status: 'mismatch', payload: null, error: '' } });
+      return undefined;
+    }
+    const d = API.describeError(esito.error);
+    this.setState({
+      [chiave]: { status: 'error', payload: null,
+                  error: d.titolo + (d.testo ? ' — ' + d.testo : '') },
+    });
+    return undefined;
+  }
+
+  _caricaCapacita() {
+    return this._runQuery('capacity', 'qCap', (signal) => API.getCapacity({ signal }));
+  }
+
+  /** Scadenze della vista, coi suoi filtri. 90 giorni è la soglia della vista. */
+  _caricaScadenze(filtri) {
+    const f = filtri || this.state.scadFiltri || { stato: '', presenza: '' };
+    this.setState({ scadMore: false });
+    return this._runQuery('expiries', 'qScad', (signal) => API.getExpiries({
+      warningDays: 90, stato: f.stato || undefined, presenza: f.presenza || undefined,
+      limit: 200, signal,
+    }));
+  }
+
+  /**
+   * Il contatore in barra e il riepilogo della dashboard: totali SENZA filtri.
+   *
+   * ⚠ Slot separato da quello della vista, e `limit: 1`. I totali li calcola il server
+   * su TUTTE le righe, non sulla pagina, quindi non serve scaricarne duecento per
+   * contarle; e separarlo è ciò che permette alla vista di filtrare senza che il
+   * numero sul pulsante diventi il numero filtrato — che si leggerebbe come «adesso ci
+   * sono meno scadenze».
+   */
+  _caricaBadgeScadenze() {
+    return this._runQuery('expiries-badge', 'qBadge', (signal) =>
+      API.getExpiries({ warningDays: 90, limit: 1, signal }));
+  }
+
+  /** Ricerca globale. Il testo grezzo: la semantica la decide il server. */
+  _caricaRicerca(testo) {
+    const q = (testo === undefined ? this.state.query : testo) || '';
+    if (!q.trim()) {
+      // Casella vuota: non si cerca, e si annulla ciò che è in volo. Il server
+      // risponderebbe con zero risultati, ma chiederglielo sarebbe una richiesta per
+      // sapere una cosa che si sa.
+      if (this._queries) this._queries.cancel('search');
+      this.setState({ qSearch: null, searchMore: false });
+      return undefined;
+    }
+    this.setState({ searchMore: false });
+    return this._runQuery('search', 'qSearch', (signal) =>
+      API.searchInventory({ q, limit: 50, signal }));
+  }
+
+  /** Dismessi: la ricerca finale con `stato=dismesso` (estensione 2H). */
+  _caricaDismessi(filtri, testo) {
+    const f = filtri || this.state.dismFiltri || { presenza: '' };
+    const q = (testo === undefined ? this.state.dismQuery : testo) || '';
+    this.setState({ dismMore: false });
+    return this._runQuery('dismessi', 'qDism', (signal) => API.searchInventory({
+      q, stato: 'dismesso', presenza: f.presenza || undefined, limit: 200, signal,
+    }));
+  }
+
+  /**
+   * Anteprima delle notifiche per la finestra in corso di modifica.
+   *
+   * ⚠ Legge `totals.notifiable`, che è il conto del server su TUTTE le righe con la
+   * finestra chiesta: è esattamente «quanti avvisi manderebbe il worker». Prima si
+   * calcolava qui, e per farlo serviva reinterpretare le date — che è ciò che la 2G
+   * ha portato in un posto solo.
+   */
+  _caricaAnteprimaAvvisi(giorni) {
+    return this._runQuery('preview', 'qPreview', (signal) =>
+      API.getExpiries({ warningDays: giorni, limit: 1, signal }));
+  }
+
+  /**
+   * Una pagina in più, appesa a quella che c'è.
+   *
+   * ⚠ Il risultato si CONCATENA, quindi va scritto a mano invece di passare da
+   * `_runQuery`: quello sostituisce il payload, ed è giusto che lo faccia per una
+   * ricerca nuova. Qui la revisione si ricontrolla comunque — una pagina successiva
+   * che arriva da un inventario diverso non si può appendere alla precedente.
+   */
+  async _altraPagina(nome, chiave, fetcher, listaChiave, flagChiave) {
+    const slot = this.state[chiave];
+    if (!slot || !slot.payload || !slot.payload.nextCursor) return;
+    const cursore = slot.payload.nextCursor;
+    this.setState({ [flagChiave]: true });
+    const esito = await this._queries.run(nome + ':more', (signal) =>
+      fetcher(cursore, signal));
+    this.setState({ [flagChiave]: false });
+    if (esito.status !== QRY.OK) {
+      if (esito.status === QRY.STALE) return;
+      const d = esito.status === QRY.MISMATCH
+        ? { titolo: 'Dati cambiati durante il caricamento', testo: 'Rifai la ricerca.' }
+        : API.describeError(esito.error);
+      this.setState({ [chiave]: { status: 'error', payload: null,
+                                  error: d.titolo + (d.testo ? ' — ' + d.testo : '') } });
+      return;
+    }
+    this.setState((st) => {
+      const corrente = st[chiave];
+      if (!corrente || !corrente.payload) return {};
+      return { [chiave]: { status: 'ok', error: null, payload: {
+        ...esito.payload,
+        [listaChiave]: [...corrente.payload[listaChiave], ...esito.payload[listaChiave]],
+      } } };
+    });
+  }
+
+  /**
+   * La revisione è cambiata: ciò che è aperto si richiede.
+   *
+   * ⚠ Si chiama dopo OGNI avanzamento di revisione (salvataggio proprio, conflitto,
+   * ricaricamento). Senza, una vista aperta continuerebbe a mostrare i numeri di prima
+   * del salvataggio, e sarebbe la stessa incoerenza che la fase 2H esiste per chiudere,
+   * spostata dal calcolo al momento della richiesta.
+   */
+  _aggiornaInterrogazioniAperte() {
+    const S = this.state;
+    if (S.capOpen) this._caricaCapacita();
+    if (S.scadOpen) this._caricaScadenze();
+    if (S.dismOpen) this._caricaDismessi();
+    if ((S.query || '').trim()) this._caricaRicerca();
+    this._caricaBadgeScadenze();
   }
 
   componentDidMount() {
@@ -2009,6 +2403,21 @@ class Component extends DCLogic {
     }));
   }
 
+  /**
+   * La finestra di preavviso più AMPIA fra quelle scritte nel campo.
+   *
+   * È quella che determina quante scadenze rientrano in almeno un avviso, ed è la
+   * stessa scelta che fa il worker. Metodo e non espressione dentro il render perché
+   * serve in due punti: il render (per sapere cosa mostrare) e il gestore del campo
+   * (per sapere cosa chiedere), e due copie divergerebbero.
+   */
+  _finestraAvvisi(testo) {
+    const days = (testo || '')
+      .split(/[\s,;]+/).filter(Boolean).map((n) => parseInt(n, 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return days.length ? Math.max(...days) : 30;
+  }
+
   /** Carica dal server e riempie la bozza. L'ETag si CONSERVA così com'è. */
   async _settingsLoad() {
     this.setState({ setLoading: true, setLocalErr: '' });
@@ -2032,7 +2441,8 @@ class Component extends DCLogic {
           hour: String(data.notifications.schedule.hour),
           minute: String(data.notifications.schedule.minute),
         },
-      });
+      }, () => this._caricaAnteprimaAvvisi(
+        this._finestraAvvisi((data.notifications.warningDays || []).join(', '))));
     } catch (err) {
       this.setState({ setLoading: false });
       this._handleSettingsError(err);
@@ -2498,15 +2908,14 @@ class Component extends DCLogic {
     const showQuote = this.props.mostraQuote ?? true;
     const showLegenda = this.props.mostraLegenda ?? true;
     const TYPES = Component.types();
-    // ⚠ Due forme della query, e servono entrambe.
+    // ⚠ UNA forma della query, e non minuscola.
     //
-    // `q` minuscolo è la needle della ricerca testuale (sottostringa senza
-    // distinzione di maiuscole). `qRaw` è il testo ripulito, e va usato per
-    // riconoscere un indirizzo: `2001:DB8::1` e `2001:db8::1` sono lo stesso
-    // indirizzo, ma è il dominio a normalizzarlo, non `toLowerCase()`. Passargli il
-    // minuscolo funzionerebbe per caso.
-    const qRaw = (S.query || '').trim();
-    const q = qRaw.toLowerCase();
+    // Fino alla 2G ce n'erano due: il testo ripulito per riconoscere un indirizzo e la
+    // sua versione minuscola per confrontare sottostringhe. Dalla 2H il confronto lo
+    // fa il server, quindi qui il testo serve a due cose sole: sapere SE si sta
+    // cercando, e mandarlo. Abbassarlo di caso sarebbe un residuo di una regola che
+    // vive altrove — e `2001:DB8::1` lo normalizza il dominio, non `toLowerCase()`.
+    const q = (S.query || '').trim();
 
     const locations = data ? data.locations : [];
     const loc = locations.find(l => l.id === S.locId) || locations[0] || null;
@@ -2518,57 +2927,73 @@ class Component extends DCLogic {
     const canEdit = S.role === 'edit' || S.role === 'admin';
     const canAdmin = S.role === 'admin';
 
-    // --- ricerca globale (tutte le location, tutte le sale) ---
+    // --- ricerca globale: la risposta la calcola il SERVER (fase 2H) ---
     //
-    // ⚠ Tutta la semantica viene da DOM (§8.50). Qui resta soltanto la discesa
-    // dell'albero e la costruzione delle voci del menu: nessuna regola su quali campi
-    // si cercano, su cosa sia un indirizzo, o su come si confronta una sottostringa.
+    // ⚠ Non c'è più nessuna discesa dell'albero, e non c'è nessun ramo di riserva che
+    // filtri il JSON caricato. È deliberato (§2 e §12 del requisito): un fallback
+    // locale «per sicurezza» sarebbe una seconda implementazione della ricerca, cioè
+    // esattamente la duplicazione che la 2G ha chiuso — e nasconderebbe un guasto
+    // della proiezione proprio a chi lo deve riparare.
     //
-    // Rispetto alla versione precedente cambiano tre cose, e sono decisioni:
-    //   - `10.0.0.1` è un indirizzo ESATTO e non trova più `10.0.0.100`;
-    //   - IPv6 si cerca, per indirizzo e per CIDR;
-    //   - i campi del dispositivo sono nove e comprendono id, tipo, stato e presenza
-    //     (le note NO).
+    // La semantica è quella finale, e non è cambiata passando al server: indirizzo
+    // esatto IPv4/IPv6, CIDR, intervalli e jolly IPv4, nove campi del dispositivo,
+    // `%` letterale, le note fuori. Le stesse fixture la fissano da entrambi i lati.
+    //
+    // ⚠ L'identità di un risultato è l'`uid`, e la navigazione passa da
+    // `_percorsoDiUid`: i codici sullo schermo servono a leggere, non a ritrovare.
+    const uidIdx = this._uidIndex(data);
+    const searchSlot = S.qSearch;
+    const searchPayload = searchSlot && searchSlot.payload;
     const results = [];
-    const matchedRacks = new Set(); // "locId/roomId/rackId"
-    const addrQuery = qRaw && DOM ? DOM.parseAddressQuery(qRaw) : null;
-    const devHit = (d) => (addrQuery
-      ? DOM.addressMatches(d.ip, addrQuery)
-      : DOM.deviceMatches(d, q));
-    if (q) {
-      for (const L of locations) for (const R of L.sale) for (const rk of R.racks) {
-        const key = L.id + '/' + R.id + '/' + rk.id;
-        const goRack = () => this.setState({ locId: L.id, roomId: R.id, selRack: rk.id, selDev: null, editing: false, highlightDev: null, query: '', dashOpen: false, invOpen: false, capOpen: false, scadOpen: false });
-        // In modalità indirizzo i rack NON partecipano (§5): un rack che si chiama
-        // «10.0.0.1» non è una macchina con quell'indirizzo, e restituirlo a chi
-        // cerca un host sarebbe un falso positivo che sembra una risposta.
-        if (!addrQuery && DOM.rackMatches(rk, q)) {
-          matchedRacks.add(key);
+    const matchedRacks = new Set();   // uid dei rack con una corrispondenza
+    const matchedRooms = new Set();   // uid delle sale, per le linguette
+    let searchOrfani = 0;             // risultati che il documento caricato non ha
+    if (q && searchPayload) {
+      for (const r of searchPayload.results) {
+        const dove = this._percorsoDiUid(uidIdx,
+          r.kind === 'device' ? r.device.uid : r.rack.uid);
+        if (!dove) { searchOrfani++; continue; }
+        matchedRacks.add(r.rack.uid);
+        matchedRooms.add(r.room.uid);
+        const vaiA = (extra) => () => this.setState({
+          locId: dove.locId, roomId: dove.roomId, selRack: dove.rackId,
+          selDev: null, editing: false, query: '', qSearch: null,
+          dashOpen: false, invOpen: false, capOpen: false, scadOpen: false,
+          dismOpen: false, highlightDev: null, ...extra,
+        });
+        if (r.kind === 'rack') {
           results.push({
-            key: 'r-' + key, label: rk.id, sub: L.nome + ' · ' + R.nome + ' · ' + rk.devices.length + ' disp.',
+            key: 'r-' + r.rack.uid, label: r.rack.label,
+            sub: r.location.label + ' · ' + r.room.label + ' · ' + r.deviceCount + ' disp.',
             dotStyle: { width: 10, height: 10, borderRadius: 2, background: 'var(--d39434f)', border: '1px solid var(--d57626f)', flexShrink: 0 },
-            onClick: goRack
+            onClick: vaiA({}),
           });
-        }
-        for (const d of rk.devices) {
-          if (devHit(d)) {
-            matchedRacks.add(key);
-            const c = (TYPES[d.type] || TYPES.altro).color;
-            results.push({
-              key: 'd-' + key + '-' + d.id, label: d.name, sub: L.nome + ' · ' + R.nome + ' · ' + rk.id + ' · U' + d.u,
-              dotStyle: { width: 10, height: 10, borderRadius: '50%', background: c, flexShrink: 0 },
-              onClick: () => this.setState({ locId: L.id, roomId: R.id, selRack: rk.id, highlightDev: d.id, selDev: null, editing: false, query: '', dashOpen: false, invOpen: false, capOpen: false, scadOpen: false })
-            });
-          }
+        } else {
+          const c = (TYPES[r.device.type] || TYPES.altro).color;
+          results.push({
+            key: 'd-' + r.device.uid, label: r.device.label,
+            sub: r.location.label + ' · ' + r.room.label + ' · ' + r.rack.label
+               + ' · U' + r.device.u
+               // ⚠ Un apparato RIMOSSO si dice nel risultato. Senza, chi cerca un
+               // seriale per un riscontro incrociato andrebbe a cercarlo in un rack
+               // dove non c'è più, e la ricerca lo avrebbe mandato lì lei.
+               + (r.device.presenza === 'rimosso' ? ' · rimosso' : ''),
+            dotStyle: { width: 10, height: 10, borderRadius: '50%', background: c, flexShrink: 0, opacity: r.device.presenza === 'rimosso' ? 0.45 : 1 },
+            onClick: vaiA({ highlightDev: dove.devId }),
+          });
         }
       }
     }
     const shown = results.slice(0, 12);
+    const searchStato = searchSlot ? searchSlot.status : 'idle';
 
     // --- tab sale ---
     const roomTabs = rooms.map(r => {
       const active = room && r.id === room.id;
-      const hasMatch = q && [...matchedRacks].some(k => k.startsWith((loc ? loc.id : '') + '/' + r.id + '/'));
+      // Per uid, non per prefisso di codici concatenati: i codici possono contenere
+      // uno `/` (§9 della 2G), e un prefisso su una stringa costruita con `/` è la
+      // stessa fragilità che la 2F ha toccato nel worker.
+      const hasMatch = q && matchedRooms.has(r._uid);
       return {
         label: r.nome + (r.segnaposto ? ' *' : ''),
         onClick: () => this.setState({ roomId: r.id, selRack: null, selDev: null, editing: false, highlightDev: null }),
@@ -2587,7 +3012,21 @@ class Component extends DCLogic {
     let rackEls = [], roomBoxStyle = {}, vaniWalls = [], vaniEls = [], roomLabelStyle = { display: 'none' };
     let roomLabel = '', roomArea = '', roomMeta = '', quoteW = '', quoteH = '';
     if (room) {
-      const vani = room.vani || [{ x: 0, y: 0, w: room.w, h: room.h, porta: room.porta }];
+      // ⚠ DIFETTO REALE, trovato dai test del browser della fase 2H.
+      //
+      // Era `room.vani || [...]`, e un array VUOTO è vero in JavaScript: una sala con
+      // `vani: []` otteneva una lista vuota, `vaniG[0]` era `undefined` e il render
+      // moriva con «Cannot read properties of undefined (reading 'x')» — l'intera
+      // applicazione, non solo la pianta.
+      //
+      // `vani: []` non è una forma inventata: è il DEFAULT CANONICO della sala
+      // (`ENTITY_DEFAULTS.room.vani`), quindi qualunque documento che non li dichiari
+      // passa la validazione, viene salvato, e poi non si può più aprire. Il seed di
+      // produzione ha i vani in tutte e sei le sale, ed è la ragione per cui nessuno
+      // l'aveva mai visto.
+      const vani = (room.vani && room.vani.length)
+        ? room.vani
+        : [{ x: 0, y: 0, w: room.w, h: room.h, porta: room.porta }];
       // --- rotazione pianta (per sala, a passi di 90° in senso orario) ---
       const rot = ((S.rots || {})[room.id] || 0) % 360;
       let W = room.w, H = room.h;
@@ -2663,9 +3102,8 @@ class Component extends DCLogic {
       };
       rackEls = racksG.map(g => {
         const rk = g.ref;
-        const key = loc.id + '/' + room.id + '/' + rk.id;
         const isSel = S.selRack === rk.id;
-        const isMatch = matchedRacks.has(key);
+        const isMatch = matchedRacks.has(rk._uid);
         // dimensione pianta in CSS px NON scalati (lo zoom è un transform: ingrandisce già box e testo insieme)
         const planH = Math.min(S.vpH || 660, 660, (S.vpW || 2000) * H / W);
         const pxH = g.h / H * planH;
@@ -2674,7 +3112,13 @@ class Component extends DCLogic {
         const bCol = isSel ? accent : (isMatch ? accent : 'var(--d3a4552)');
         const bg = isSel ? accent + '2e' : (isMatch ? accent + '22' : (is3d ? 'var(--d232c37)' : 'var(--d1b222b)'));
         // fasce dispositivo su tutte e 4 le facce: il "blocco" appare pieno da ogni angolo
-        const bands = (mode, shade) => !is3d ? [] : rk.devices.map(d => {
+        // ⚠ §10 della fase 2H: un apparato RIMOSSO conserva il suo rack — è il
+        // riscontro incrociato per cui i dismessi si conservano — ma la vista FISICA
+        // del rack mostra ciò che è installato. Disegnarlo come gli altri direbbe che
+        // quello spazio è pieno mentre la capacità dice che è libero, e sarebbe la
+        // contraddizione visibile peggiore. La relazione resta: si vede nel pannello
+        // del rack (tratteggiato, con l'etichetta «RIMOSSO») e nella vista Dismessi.
+        const bands = (mode, shade) => !is3d ? [] : rk.devices.filter(d => DOM.occupiesSpace(d)).map(d => {
           const c = (TYPES[d.type] || TYPES.altro).color;
           const hl = S.highlightDev === d.id;
           const z0 = (d.u - 1) / (rk.u || 42) * extr;
@@ -2973,6 +3417,11 @@ class Component extends DCLogic {
     const capSel = sel && DOM ? DOM.rackCapacity(sel.u, sel.devices)
                               : { usedU: 0, totalU: 0 };
     const usedU = capSel.usedU;
+    // Quanti apparati sono ancora ASSOCIATI a questo rack ma non ci sono più. È
+    // l'informazione che spiega perché il numero dei dispositivi e le U occupate non
+    // tornano fra loro, e senza la quale sembra un errore di conto.
+    const selRimossi = sel && DOM
+      ? sel.devices.filter(d => !DOM.occupiesSpace(d)).length : 0;
     const occPct = capSel.totalU ? Math.min(1, usedU / capSel.totalU) : 0;
 
     const typeOptions = Object.entries(TYPES).map(([id, t]) => ({ id, label: t.label }));
@@ -3000,99 +3449,153 @@ class Component extends DCLogic {
     //     in corso di modifica, così si vede l'effetto della finestra scelta
     //     prima di salvarla.
     const setDraft = S.setDraft || {};
-    const setWindowDays = (() => {
-      const days = (setDraft.warningDaysText || '')
-        .split(/[\s,;]+/).filter(Boolean).map(n => parseInt(n, 10))
-        .filter(n => Number.isFinite(n) && n > 0);
-      // La più ampia delle finestre: è quella che determina quante scadenze
-      // rientrano in almeno un avviso.
-      return days.length ? Math.max(...days) : 30;
-    })();
-    let setNScad = 0;
-    if (DOM) {
-      // ⚠ L'anteprima deve contare ciò che il WORKER manderebbe, non ciò che è
-      // visibile: stesso parser, stessa finestra, stessa idoneità per stato. Prima
-      // usava `new Date` e non guardava lo stato, quindi prometteva avvisi per
-      // dispositivi che non ne avrebbero mai prodotti — e una anteprima che sbaglia
-      // per eccesso è il modo di far configurare male le notifiche.
-      const oggi = DOM.todayLocal();
-      for (const r of flat) {
-        if (!DOM.notifies(r._dev_obj)) continue;
-        for (const fv of [r.garanzia, r.supporto]) {
-          const parsed = DOM.parseExpiry(fv);
-          if (!parsed) continue;
-          if (DOM.notificationDue(DOM.daysBetween(parsed, oggi), [setWindowDays])) setNScad++;
-        }
-      }
-    }
+    const setWindowDays = this._finestraAvvisi(setDraft.warningDaysText);
+    // ⚠ L'anteprima la conta il SERVER (fase 2H), e conta la cosa giusta.
+    //
+    // `totals.notifiable` è, per definizione dell'endpoint, «quante scadenze
+    // genererebbero un'email con questa finestra»: `0 <= giorni <= finestra` e stato
+    // idoneo, su TUTTE le righe e non sulla pagina. È esattamente la domanda del
+    // worker, quindi l'anteprima e l'avviso non possono più divergere.
+    //
+    // Prima si calcolava qui, e per calcolarlo bisognava reinterpretare le date. La
+    // versione ancora precedente usava `new Date` e non guardava lo stato: prometteva
+    // avvisi per apparati che non ne avrebbero prodotti nessuno, ed è il modo di far
+    // configurare male le notifiche.
+    const previewSlot = S.qPreview;
+    const setNScad = (previewSlot && previewSlot.payload
+                      && previewSlot.payload.warningDays === setWindowDays)
+      ? previewSlot.payload.totals.notifiable
+      : null;
 
-    // --- vista scadenze dedicata ---
-    // ⚠ Riscritta dalla fase 2G, e sono tre difetti chiusi in un colpo.
+    // --- vista scadenze: le calcola il SERVER (fase 2H) ---
     //
-    // 1. `if ((d.stato || 'attivo') === 'dismesso') continue;` — i dismessi
-    //    SPARIVANO. Era sbagliato per la domanda che questa vista pone: un apparato
-    //    dismesso ha un contratto che scade, e chi fa l'inventario dei contratti deve
-    //    poterlo vedere. Adesso compaiono, e i due filtri qui sotto permettono di
-    //    isolarli. Non ricevono più promemoria via posta — quella è l'altra domanda,
-    //    e la decide il worker (§8.48 voce 8);
+    // ⚠ Non c'è più nessun `parseExpiry` qui, e nemmeno una discesa dell'albero. Le
+    // date le interpreta un solo interprete e sta nel backend; questa vista mostra ciò
+    // che ha deciso: `raw` (il valore come è scritto nel documento), `expiry` (la data
+    // riconosciuta), `daysRemaining` (una differenza fra date di calendario), `level` e
+    // `notifiable`.
     //
-    // 2. `new Date(val)` — accettava sette forme che il backend rifiuta, quindi la
-    //    vista mostrava scadenze che nessun avviso avrebbe mai mandato. E su
-    //    `2027-02-30` non rifiutava: la faceva SCORRERE al 2 marzo (voce 9);
+    // I tre difetti che la 2G aveva chiuso restano chiusi, e adesso non possono
+    // riaprirsi da questo lato perché il calcolo non è più qui:
+    //   1. i dismessi COMPAIONO (la domanda è «cosa posso ispezionare»);
+    //   2. le sette forme che `new Date` accettava e il backend rifiuta non compaiono
+    //      come date — e `2027-02-30` non scivola al 2 marzo;
+    //   3. i giorni sono una differenza fra date, non fra istanti.
     //
-    // 3. `Math.round((dt - Date.now()) / 86400000)` — non è un conteggio di giorni.
-    //    Dipende dall'ora del giorno, e nella notte del cambio dell'ora una
-    //    differenza di 23 o 25 ore si arrotondava a un giorno per caso.
-    //
-    // `notifiable` accanto a ogni riga dice se quella scadenza genererebbe davvero
-    // un'email: è l'informazione che spiega la differenza fra le due viste senza
-    // obbligare chi guarda a conoscerla.
-    const scadTot = { scadute: 0, entro90: 0, future: 0 };
-    const scadRows = [];
+    // ⚠ I CAMPI di descrizione (referente, modello, seriale) si leggono dal documento
+    // caricato passando dall'`uid`, e non dalla risposta. È la divisione di lavoro
+    // scelta per la 2H: l'interrogazione dice QUALI righe e in che ordine — la parte
+    // semantica — e il documento, che è già in memoria e appartiene alla STESSA
+    // revisione (lo garantisce queries.js), fornisce i campi da stampare. Il contrario
+    // avrebbe voluto dire allargare la risposta a ogni colonna che una vista mostra.
+    const scadSlot = S.qScad;
+    const scadPayload = scadSlot && scadSlot.payload;
+    const badgePayload = S.qBadge && S.qBadge.payload;
+    // Il contatore in barra e il riepilogo della dashboard: totali SENZA filtri.
+    const scadTot = badgePayload
+      ? { scadute: badgePayload.totals.expired, entro90: badgePayload.totals.warning,
+          future: badgePayload.totals.future, avvisabili: badgePayload.totals.notifiable }
+      : { scadute: 0, entro90: 0, future: 0, avvisabili: 0 };
     const scadFiltri = S.scadFiltri || { stato: '', presenza: '' };
-    if (data && DOM) {
-      const oggi = DOM.todayLocal();
-      const entries = [];
-      for (const L of locations) for (const R of L.sale) for (const rk of R.racks) for (const d of rk.devices) {
-        if (scadFiltri.stato && DOM.statoOf(d) !== scadFiltri.stato) continue;
-        if (scadFiltri.presenza && DOM.presenzaOf(d) !== scadFiltri.presenza) continue;
-        for (const [kind, val] of [['Garanzia', d.garanzia], ['Supporto', d.supporto]]) {
-          const parsed = DOM.parseExpiry(val);
-          if (!parsed) continue;
-          entries.push({ giorni: DOM.daysBetween(parsed, oggi), val, kind, d, L, R, rk });
-        }
-      }
-      // Ordine per GIORNI, che è un intero: ordinare per istante era un ordine sulla
-      // stessa informazione passata per un tipo che non le serviva.
-      entries.sort((a, b) => (a.giorni - b.giorni) || (a.val < b.val ? -1 : 1));
-      for (const en of entries) {
-        const giorni = en.giorni;
-        const livello = DOM.expiryLevel(giorni, 90);
-        const lv = livello === 'expired' ? 2 : (livello === 'warning' ? 1 : 0);
-        const notifiable = DOM.notificationDue(giorni, [90]) && DOM.notifies(en.d);
-        if (lv === 2) scadTot.scadute++; else if (lv === 1) scadTot.entro90++; else scadTot.future++;
+    const scadRows = [];
+    if (scadPayload) {
+      for (const it of scadPayload.items) {
+        const e = uidIdx.get(it.device.uid);
+        const d = e ? e.obj : null;
+        const dove = this._percorsoDiUid(uidIdx, it.device.uid) || {};
+        const lv = it.level === 'expired' ? 2 : (it.level === 'warning' ? 1 : 0);
         const col = lv === 2 ? '#ff5c5c' : (lv === 1 ? '#ffb020' : 'var(--dd7dde4)');
         const cell = (txt, c, bold) => ({ txt, style: { fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: c || 'var(--dd7dde4)', fontWeight: bold ? 700 : 400, padding: '7px 10px 7px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } });
+        const giorni = it.daysRemaining;
         scadRows.push({
-          csv: [en.val, giorni, lv === 2 ? 'scaduta' : (lv === 1 ? 'entro 90 giorni' : 'futura'), en.kind.toLowerCase(), DOM.deviceLabel(en.d), en.d.model || '', en.d.serial || '', en.L.id, en.R.id, en.rk.id, en.d.owner || '', DOM.statoOf(en.d), DOM.presenzaOf(en.d), notifiable ? 'si' : 'no'],
+          csv: [it.raw, giorni, lv === 2 ? 'scaduta' : (lv === 1 ? 'entro 90 giorni' : 'futura'),
+                it.kind, it.device.label, (d && d.model) || '', (d && d.serial) || '',
+                it.location.label, it.room.label, it.rack.label, (d && d.owner) || '',
+                it.device.stato, it.device.presenza, it.notifiable ? 'si' : 'no'],
           cells: [
-            cell(en.val + (lv === 2 ? ' ⚠' : ''), col, lv > 0),
+            cell(it.raw + (lv === 2 ? ' ⚠' : ''), col, lv > 0),
             cell(giorni < 0 ? giorni + ' gg' : '+' + giorni + ' gg', col, lv > 0),
-            cell(en.kind),
-            cell(DOM.deviceLabel(en.d)),
-            cell(en.L.nome), cell(en.R.nome), cell(DOM.rackLabel(en.rk)),
-            cell(en.d.owner || '—'),
+            cell(it.kindLabel),
+            cell(it.device.label),
+            cell(it.location.label), cell(it.room.label), cell(it.rack.label),
+            cell((d && d.owner) || '—'),
             // ⚠ Lo stato in grigio quando non produce avvisi: è il modo di mostrare
             // che la riga è ispezionabile e non azionabile, senza una legenda.
-            cell(DOM.statoOf(en.d), notifiable ? null : 'var(--d57626f)'),
-            cell(DOM.presenzaOf(en.d), DOM.occupiesSpace(en.d) ? null : 'var(--d57626f)')
+            cell(it.device.stato, it.notifiable ? null : 'var(--d57626f)'),
+            cell(it.device.presenza, it.device.presenza === 'rimosso' ? 'var(--d57626f)' : null),
           ],
-          onClick: () => this.setState({ scadOpen: false, dashOpen: false, locId: en.L.id, roomId: en.R.id, selRack: en.rk.id, highlightDev: en.d.id, selDev: null, editing: false })
+          onClick: () => this.setState({ scadOpen: false, dashOpen: false,
+                                         locId: dove.locId, roomId: dove.roomId,
+                                         selRack: dove.rackId, highlightDev: dove.devId,
+                                         selDev: null, editing: false }),
         });
       }
     }
+    const scadStato = scadSlot ? scadSlot.status : 'idle';
+    // --- vista Dismessi: inventario RITENUTO, non un archivio (fase 2H §8) ---
+    //
+    // ⚠ Non c'è nessuna tabella separata e nessun endpoint proprio. La sorgente è la
+    // ricerca finale della 2G con `stato=dismesso`: gli stessi record, la stessa
+    // semantica, un filtro. Se un giorno servisse «tutti i manutenzione», è già lì.
+    //
+    // Le due combinazioni che questa vista esiste per distinguere:
+    //   `dismesso + presente`  fuori servizio, ANCORA nel rack — occupa spazio fisico
+    //   `dismesso + rimosso`   fuori servizio e portato via — non occupa, ma il rack
+    //                          di provenienza resta, ed è il riscontro incrociato per
+    //                          cui questi record si conservano invece di cancellarli.
+    //
+    // ⚠ Nessuna etichetta può essere `None`, `null` o `undefined` (§8): i nomi passano
+    // dalla catena del dominio (già applicata dal server in `label`) e i campi
+    // descrittivi hanno «—» come ripiego. Un «undefined» in una colonna di un
+    // riscontro incrociato è peggio di una cella vuota: sembra un dato.
+    const dismSlot = S.qDism;
+    const dismPayload = dismSlot && dismSlot.payload;
+    const dismFiltri = S.dismFiltri || { presenza: '' };
+    const dismRows = [];
+    let dismPresenti = 0, dismRimossi = 0;
+    if (dismPayload) {
+      for (const r of dismPayload.results) {
+        if (r.kind !== 'device') continue;   // coi filtri il server non manda rack
+        const e = uidIdx.get(r.device.uid);
+        const d = e ? e.obj : null;
+        const dove = this._percorsoDiUid(uidIdx, r.device.uid) || {};
+        const rimosso = r.device.presenza === 'rimosso';
+        if (rimosso) dismRimossi++; else dismPresenti++;
+        const v = (x) => (x === null || x === undefined || x === '' ? '—' : String(x));
+        const cell = (txt, c) => ({ txt, style: { fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: c || 'var(--dd7dde4)', padding: '7px 10px 7px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } });
+        dismRows.push({
+          csv: [r.device.label, v(r.device.code), v(d && d.serial), v(d && d.model),
+                v(d && d.owner), r.location.label, r.room.label, r.rack.label,
+                'U' + v(r.device.u), r.device.presenza, r.device.stato,
+                v(d && d.garanzia), v(d && d.supporto), v(d && d.note)],
+          cells: [
+            cell(r.device.label, rimosso ? 'var(--d8a94a2)' : null),
+            cell(v(r.device.code)),
+            cell(v(d && d.serial)),
+            cell(v(d && d.model)),
+            cell(v(d && d.owner)),
+            cell(r.location.label), cell(r.room.label), cell(r.rack.label),
+            // ⚠ «U12 (ultimo)» quando è rimosso: lo slot è dove ERA. Scriverlo come
+            // gli altri direbbe che lì c'è qualcosa.
+            cell('U' + v(r.device.u) + (rimosso ? ' (ultimo)' : '')),
+            cell(rimosso ? 'rimosso' : 'presente', rimosso ? '#ffb020' : '#3ddc84'),
+            cell(v(d && d.garanzia)),
+            cell(v(d && d.supporto)),
+          ],
+          // Si può ancora aprire il dispositivo: è un record normale, e la scheda è
+          // dove si leggono le note e il valore grezzo di una scadenza illeggibile.
+          onClick: () => this.setState({ dismOpen: false, dashOpen: false,
+                                         locId: dove.locId, roomId: dove.roomId,
+                                         selRack: dove.rackId, highlightDev: dove.devId,
+                                         selDev: null, editing: false }),
+        });
+      }
+    }
+    const dismStato = dismSlot ? dismSlot.status : 'idle';
+
     const scadUrgenti = scadTot.scadute + scadTot.entro90;
-    const piantaActive = !S.invOpen && !S.capOpen && !S.scadOpen && !S.dashOpen && !S.manualOpen && !S.profileOpen;
+    const piantaActive = !S.invOpen && !S.capOpen && !S.scadOpen && !S.dashOpen
+                      && !S.manualOpen && !S.profileOpen && !S.dismOpen;
 
     // --- dashboard riepilogo ---
     const dashTot = { sale: 0, rack: 0, dev: 0, tot: 0, used: 0, manut: 0, dismInCorso: 0, dism: 0, rimossi: 0 };
@@ -3171,53 +3674,52 @@ class Component extends DCLogic {
       dotStyle: { width: 9, height: 9, borderRadius: '50%', background: t.color, display: 'inline-block', flexShrink: 0 }
     }));
 
-    // --- capacità globale ---
-    const capLocs = locations.map(L => ({
-      nome: L.nome.toUpperCase(),
-      rooms: L.sale.map(R => {
-        // ⚠ Riscritta dalla fase 2G, e due difetti chiusi qui (§8.48 voci 6 e 7).
-        //
-        // 1. `if ((d.stato || 'attivo') === 'dismesso') {}` — un blocco VUOTO. Con
-        //    ogni probabilità l'intenzione era escludere i dismessi; il fatto è che
-        //    non li escludeva. La domanda giusta però non era quella: lo stato
-        //    OPERATIVO non dice se un apparato occupa uno slot. Adesso decide la
-        //    PRESENZA FISICA, e `dismesso + presente` occupa mentre
-        //    `qualunque + rimosso` no.
-        //
-        // 2. `const rw = rk.row || '—'` — una SENTINELLA che collide col dato. Nel
-        //    seed di produzione esiste un rack la cui fila è letteralmente «—»
-        //    (CS-Q01): finiva nello stesso gruppo di tutti quelli senza fila, e il
-        //    totale di unità libere di quella fila era la somma di due cose diverse.
-        //    Adesso il gruppo è `DOM.rowGroup`, che tiene separata la CHIAVE
-        //    dall'ETICHETTA: l'aspetto non cambia, cambia ciò che si considera lo
-        //    stesso gruppo.
-        let tot = 0, used = 0, bestRack = null, bestFree = 0;
-        const byRow = new Map();
-        for (const rk of R.racks) {
-          tot += rk.u;
-          const cap = DOM.rackCapacity(rk.u, rk.devices);
-          used += cap.usedU;
-          if (cap.largestFreeRun > bestFree) {
-            bestFree = cap.largestFreeRun;
-            bestRack = DOM.rackLabel(rk);
-          }
-          const g = DOM.rowGroup(rk);
-          if (!byRow.has(g.key)) byRow.set(g.key, { g, tot: 0, used: 0 });
-          const b = byRow.get(g.key);
-          b.tot += rk.u; b.used += cap.usedU;
-        }
-        const pct = tot ? used / tot : 0;
-        const righe = [...byRow.values()].sort((a, b) => DOM.compareRowGroups(a.g, b.g));
+    // --- capacità globale: la calcola il SERVER (fase 2H) ---
+    //
+    // ⚠ Qui NON si conta più niente. La definizione — slot U fisici distinti occupati
+    // da apparati la cui presenza non è `rimosso` — vive in un posto, e questa vista
+    // legge il risultato. Il calcolo locale che stava qui era la terza delle tre
+    // implementazioni di «U usate» che la 2E aveva trovato in disaccordo (§8.48 voce
+    // 5); dalla 2G ne restava una, dalla 2H questa vista non ne ha nessuna.
+    //
+    // ⚠ Resta locale la capacità del PANNELLO DEL RACK e della dashboard, e la scelta
+    // è dichiarata (§6 del requisito): si ridisegnano a ogni trascinamento, e farne
+    // una richiesta per rack sarebbe un'esplosione di richieste per disegnare una
+    // barra. È UNA implementazione — `DOM.rackCapacity` — e le fixture
+    // language-neutral sono ciò che garantisce che dia lo stesso numero di questo
+    // endpoint. Un test del browser confronta i due sullo stesso inventario.
+    const capSlot = S.qCap;
+    const capPayload = capSlot && capSlot.payload;
+    const capLocs = (capPayload ? capPayload.locations : []).map(L => ({
+      nome: (L.label || '').toUpperCase(),
+      rooms: L.rooms.map(R => {
+        const pct = R.totalU ? R.usedU / R.totalU : 0;
+        const rimossi = R.racks.reduce((t, k) => t + (k.removedCount || 0), 0);
+        const dove = this._percorsoDiUid(uidIdx, R.uid) || {};
         return {
-          nome: R.nome,
-          sum: used + '/' + tot + ' U occupate (' + DOM.percent(used, tot) + '%) · ' + R.racks.length + ' rack',
-          best: bestRack ? 'miglior slot: ' + bestRack + ' (' + bestFree + ' U contigue)' : '',
+          nome: R.label,
+          sum: R.usedU + '/' + R.totalU + ' U occupate (' + R.occupancyPercent + '%) · '
+             + R.rackCount + ' rack'
+             // ⚠ Gli apparati RIMOSSI si dicono, e non occupano. È l'informazione che
+             // spiega perché il numero è sceso senza che nessuno abbia smontato niente
+             // dal disegno: sono ancora in inventario, non sono più nel rack.
+             + (rimossi ? ' · ' + rimossi + (rimossi === 1 ? ' rimosso' : ' rimossi') : ''),
+          best: R.bestRack
+            ? 'miglior slot: ' + R.bestRack.label + ' (' + R.bestRack.freeRun + ' U contigue)'
+            : '',
           barStyle: { width: (pct * 100) + '%', height: '100%', background: pct > 0.85 ? '#ff5c5c' : (pct > 0.65 ? '#ffb020' : accent), borderRadius: 4, animation: 'barGrow 0.6s ease both', transformOrigin: 'left' },
-          rows: righe.map(b => 'Fila ' + b.g.label + ': ' + (b.tot - b.used) + ' U libere / ' + b.tot),
-          onClick: () => this.setState({ capOpen: false, dashOpen: false, locId: L.id, roomId: R.id, selRack: null })
+          // ⚠ `rowLabel`, non `row`: l'etichetta la decide il dominio, e la CHIAVE del
+          // gruppo — che tiene separata «fila assente» da «fila che vale —» — non
+          // arriva nemmeno qui. Il rack CS-Q01 del seed ha la fila «—» per davvero, e
+          // nella risposta è un gruppo suo.
+          rows: R.rows.map(b => 'Fila ' + b.rowLabel + ': ' + b.freeU + ' U libere / ' + b.totalU),
+          onClick: () => this.setState({ capOpen: false, dashOpen: false,
+                                         locId: dove.locId, roomId: dove.roomId,
+                                         selRack: null }),
         };
-      })
+      }),
     }));
+    const capStato = capSlot ? capSlot.status : 'idle';
     const IF = S.invFilters || {};
     const invList = flat.filter(r => COLS.every(([k]) => !IF[k] || String(r[k]).toLowerCase().includes(IF[k].toLowerCase())));
     const so = S.invSort;
@@ -3322,10 +3824,62 @@ class Component extends DCLogic {
         this.setState({ roomFormOpen: false, roomId: id, selRack: null, roomError: '' });
       },
       query: S.query,
-      onQuery: (e) => this.setState({ query: e.target.value }),
+      // ⚠ Il testo va nello stato SUBITO (la casella deve rispondere alla tastiera) e
+      // la richiesta parte dopo il ritardo. Il ritardo è creato una volta sola: uno
+      // per battuta non ritarderebbe niente, perché ognuno avrebbe il proprio timer.
+      onQuery: (e) => {
+        const v = e.target.value;
+        this.setState({ query: v });
+        if (!this._cercaRitardata) {
+          this._cercaRitardata = QRY.debounce((t) => this._caricaRicerca(t), 250);
+        }
+        if (!v.trim()) { this._cercaRitardata.cancel(); this._caricaRicerca(''); }
+        else this._cercaRitardata(v);
+      },
+      // Invio: chi lo premette ha finito di digitare e non deve aspettare il ritardo.
+      onQueryKey: (e) => {
+        if (e.key !== 'Enter' || !this._cercaRitardata) return;
+        this._cercaRitardata.flush();
+      },
       results: shown,
       hasResults: shown.length > 0,
-      noResults: q.length > 0 && shown.length === 0,
+      // ⚠ «Nessun risultato» SOLO quando il server ha risposto. Prima bastava che la
+      // lista fosse vuota; adesso una lista vuota può voler dire «sto ancora
+      // chiedendo», e dire «nessun risultato» a chi ha appena digitato è una risposta
+      // sbagliata data in fretta.
+      noResults: q.length > 0 && searchStato === 'ok' && shown.length === 0,
+      searchLoading: q.length > 0 && searchStato === 'loading' && shown.length === 0,
+      searchError: searchStato === 'error' ? (searchSlot.error || '') : '',
+      searchMismatch: searchStato === 'mismatch',
+      hasSearchError: searchStato === 'error' || searchStato === 'mismatch',
+      // Quante ne mostra su quante ce ne sono, e il pulsante per chiederne altre.
+      // «12 di 60 caricati» — e «(ce ne sono altri)» finché il cursore c'è. Due
+      // informazioni diverse: quanti se ne vedono, e se l'elenco è completo.
+      searchNota: (searchPayload && searchStato === 'ok' && results.length)
+        ? (shown.length < results.length
+            ? shown.length + ' di ' + results.length + ' caricati'
+            : results.length + ' caricati')
+          + (searchPayload.nextCursor ? ' · ce ne sono altri' : '')
+        : '',
+      hasSearchNota: !!(searchPayload && searchStato === 'ok' && results.length
+                        && (shown.length < results.length || searchPayload.nextCursor)),
+      searchHasMore: !!(searchPayload && searchPayload.nextCursor),
+      searchMoreBusy: !!S.searchMore,
+      searchMore: () => this._altraPagina('search', 'qSearch',
+        (cursor, signal) => API.searchInventory({ q: (S.query || ''), limit: 50, cursor, signal }),
+        'results', 'searchMore'),
+      // ⚠ Un risultato che il documento caricato non contiene si conta e si DICE.
+      // Con la regola della revisione non dovrebbe capitare mai: se capita, è un
+      // sintomo, e un sintomo taciuto è un difetto che nessuno cerca.
+      searchOrfani: searchOrfani
+        ? searchOrfani + ' risultati non presenti nei dati caricati: ricarica la pagina'
+        : '',
+      hasSearchOrfani: searchOrfani > 0,
+      searchMismatchTesto: searchStato === 'mismatch'
+        ? 'I dati sono cambiati mentre cercavi e continuano a cambiare. '
+          + 'Riprova fra un momento: i risultati di una revisione diversa non si '
+          + 'mostrano di proposito.'
+        : '',
       dirty: S.dirty,
       esporta: doExpJson,
       onImportFile: (e) => {
@@ -3359,6 +3913,23 @@ class Component extends DCLogic {
                   + (idErrors.length > 5 ? '\n…' : '')
                   + '\n\nUn backup precedente all\'introduzione degli _uid va migrato una volta '
                   + 'con tools/migrate-seed-uids.mjs. Il percorso di import non genera identità.');
+              return;
+            }
+            // Altezza dei rack: il limite dichiarato (§8.48 voce 16). Il form la
+            // stringe già a 1..60, ma un backup non passa dal form. Il backend lo
+            // rifiuta comunque con `rack_u_out_of_range`: questo controllo esiste per
+            // dire QUALE rack, invece di un 422 su un documento da 4 MB.
+            const fuoriScala = [];
+            for (const L of parsed.locations)
+              for (const R of (L.sale || []))
+                for (const rk of (R.racks || []))
+                  if (!DOM.rackHeightSupported(rk.u)) fuoriScala.push((rk.id || '?') + ' (u=' + rk.u + ')');
+            if (fuoriScala.length) {
+              alert('Backup rifiutato: ' + fuoriScala.length
+                  + ' rack con altezza fuori dall\'intervallo sostenuto ('
+                  + DOM.RACK_U_MIN + '–' + DOM.RACK_U_MAX + ').'
+                  + '\n\n' + fuoriScala.slice(0, 5).map(t => '• ' + t).join('\n')
+                  + (fuoriScala.length > 5 ? '\n…' : ''));
               return;
             }
             const nSale = parsed.locations.reduce((t, l) => t + l.sale.length, 0);
@@ -3765,11 +4336,26 @@ class Component extends DCLogic {
       onSetEnabled: (e) => this._setDraftPatch({ enabled: e.target.checked }),
       onSetTimezone: (e) => this._setDraftPatch({ timezone: e.target.value }),
       onSetRecipients: (e) => this._setDraftPatch({ recipientsText: e.target.value }),
-      onSetWarningDays: (e) => this._setDraftPatch({ warningDaysText: e.target.value }),
+      // ⚠ Il conteggio si chiede col RITARDO: il campo è di testo libero («30, 7, 1»)
+      // e ogni carattere sarebbe una richiesta. Il ritardo è creato una volta sola.
+      onSetWarningDays: (e) => {
+        this._setDraftPatch({ warningDaysText: e.target.value });
+        if (!this._anteprimaRitardata) {
+          this._anteprimaRitardata = QRY.debounce(
+            (g) => this._caricaAnteprimaAvvisi(g), 350);
+        }
+        this._anteprimaRitardata(this._finestraAvvisi(e.target.value));
+      },
       onSetHour: (e) => this._setDraftPatch({ hour: e.target.value }),
       onSetMinute: (e) => this._setDraftPatch({ minute: e.target.value }),
 
-      setPreview: setNScad + ' scadenze entro ' + setWindowDays + ' giorni',
+      // ⚠ `null` significa «non lo so ancora», e si dice. Prima l'anteprima era
+      // sempre un numero, quindi durante il caricamento mostrava «0 scadenze» — che
+      // per chi sta configurando gli avvisi è una risposta, e sbagliata.
+      setPreview: setNScad === null
+        ? 'conteggio in corso…'
+        : setNScad + (setNScad === 1 ? ' avviso' : ' avvisi')
+          + ' entro ' + setWindowDays + ' giorni',
 
       // Credenziali SMTP: un sì/no. Nient'altro passa da qui.
       setSmtpLabel: S.setSmtpConfigured
@@ -3853,7 +4439,24 @@ class Component extends DCLogic {
       },
       // --- capacità ---
       capOpen: S.capOpen,
-      toggleCap: () => this.setState(s => ({ capOpen: !s.capOpen, invOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false })),
+      // ⚠ La richiesta parte quando la vista si APRE, non a ogni render: un render
+      // avviene a ogni battuta di tastiera e a ogni movimento del mouse sulla pianta.
+      toggleCap: () => this.setState(s => ({ capOpen: !s.capOpen, invOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false, dismOpen: false }),
+        () => { if (this.state.capOpen) this._caricaCapacita(); }),
+      capLoading: capStato === 'loading' && !capPayload,
+      capError: capStato === 'error' ? (capSlot.error || '') : '',
+      capMismatch: capStato === 'mismatch',
+      hasCapError: capStato === 'error' || capStato === 'mismatch',
+      capVuota: capStato === 'ok' && capLocs.length === 0,
+      capRiprova: () => this._caricaCapacita(),
+      // La revisione a cui appartengono i numeri mostrati. Non è decorazione: è ciò
+      // che rende verificabile un confronto con l'export o col pannello del rack.
+      capRevisione: capPayload ? ('revisione ' + capPayload.version) : '',
+      capMismatchTesto: capStato === 'mismatch'
+        ? 'I dati sono cambiati durante il calcolo e continuano a cambiare. I numeri '
+          + 'di una revisione diversa da quella che hai sullo schermo non si mostrano '
+          + 'di proposito: riprova fra un momento.'
+        : '',
       capBtnStyle: {
         background: S.capOpen ? accentSoft : 'transparent',
         color: S.capOpen ? accent : 'var(--dd7dde4)',
@@ -3945,15 +4548,15 @@ class Component extends DCLogic {
       },
       // --- manuale d'uso ---
       manualOpen: S.manualOpen,
-      toggleManual: () => this.setState(s => ({ manualOpen: !s.manualOpen, profileOpen: false, accountOpen: false, invOpen: false, capOpen: false, scadOpen: false, dashOpen: false })),
+      toggleManual: () => this.setState(s => ({ manualOpen: !s.manualOpen, profileOpen: false, accountOpen: false, invOpen: false, capOpen: false, scadOpen: false, dashOpen: false, dismOpen: false })),
       ...this._manualVals(),
       // --- inventario tabellare ---
       invOpen: S.invOpen,
       invClosed: piantaActive,
       piantaView: piantaActive,
       panelVisible: piantaActive && S.panelOpen,
-      toggleInv: () => this.setState(s => ({ invOpen: !s.invOpen, capOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false })),
-      showPianta: () => this.setState({ invOpen: false, capOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false }),
+      toggleInv: () => this.setState(s => ({ invOpen: !s.invOpen, capOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false, dismOpen: false })),
+      showPianta: () => this.setState({ invOpen: false, capOpen: false, scadOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false, dismOpen: false }),
       piantaBtnStyle: {
         background: piantaActive ? accentSoft : 'transparent',
         color: piantaActive ? accent : 'var(--dd7dde4)',
@@ -3962,7 +4565,7 @@ class Component extends DCLogic {
       },
       // --- dashboard ---
       dashOpen: S.dashOpen,
-      toggleDash: () => this.setState(s => ({ dashOpen: !s.dashOpen, invOpen: false, capOpen: false, scadOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false })),
+      toggleDash: () => this.setState(s => ({ dashOpen: !s.dashOpen, invOpen: false, capOpen: false, scadOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false, dismOpen: false })),
       dashBtnStyle: {
         background: S.dashOpen ? accentSoft : 'transparent',
         color: S.dashOpen ? accent : 'var(--dd7dde4)',
@@ -3991,9 +4594,69 @@ class Component extends DCLogic {
       dashRoomsMore: dashRooms.length > 5,
       toggleAllRooms: () => this.setState(s => ({ dashAllRooms: !s.dashAllRooms })),
       allRoomsLabel: S.dashAllRooms ? 'Mostra solo le più occupate' : 'Mostra tutte le sale (' + dashRooms.length + ')',
+      // --- vista Dismessi (fase 2H) ---
+      dismOpen: S.dismOpen,
+      toggleDism: () => this.setState(s => ({ dismOpen: !s.dismOpen, scadOpen: false, invOpen: false, capOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false }),
+        () => { if (this.state.dismOpen) this._caricaDismessi(); }),
+      dismBtnStyle: {
+        background: S.dismOpen ? accentSoft : 'transparent',
+        color: S.dismOpen ? accent : 'var(--dd7dde4)',
+        border: 'none', borderLeft: '1px solid var(--d2b333d)', padding: '10px 16px', fontSize: 12, fontWeight: S.dismOpen ? 700 : 500,
+        cursor: 'pointer', fontFamily: 'inherit'
+      },
+      dismCols: ['Dispositivo', 'Codice', 'Seriale', 'Modello', 'Referente',
+                 'Ultimo sito', 'Ultima sala', 'Ultimo rack', 'Slot', 'Presenza',
+                 'Garanzia', 'Supporto'],
+      dismRows,
+      dismQuery: S.dismQuery,
+      // La ricerca dentro i dismessi è la STESSA ricerca: stesso endpoint, stessa
+      // semantica, un filtro in più. Non ne esiste una seconda.
+      onDismQuery: (e) => {
+        const v = e.target.value;
+        this.setState({ dismQuery: v });
+        if (!this._cercaDismRitardata) {
+          this._cercaDismRitardata = QRY.debounce(
+            (t) => this._caricaDismessi(undefined, t), 250);
+        }
+        this._cercaDismRitardata(v);
+      },
+      dismFiltroPresenza: dismFiltri.presenza,
+      onDismFiltroPresenza: (e) => {
+        const f = { presenza: e.target.value };
+        this.setState({ dismFiltri: f }, () => this._caricaDismessi(f));
+      },
+      dismSummary: dismPayload
+        ? (dismRows.length + (dismRows.length === 1 ? ' apparato dismesso' : ' apparati dismessi')
+           + ' · ' + dismPresenti + ' ancora in rack · ' + dismRimossi + ' rimossi')
+        : '',
+      dismEmpty: dismStato === 'ok' && dismRows.length === 0,
+      dismLoading: dismStato === 'loading' && !dismPayload,
+      dismError: dismStato === 'error' ? (dismSlot.error || '') : '',
+      hasDismError: dismStato === 'error' || dismStato === 'mismatch',
+      dismMismatchTesto: dismStato === 'mismatch'
+        ? 'I dati sono cambiati durante la lettura e continuano a cambiare: un elenco '
+          + 'di una revisione diversa non si mostra di proposito.'
+        : '',
+      dismRiprova: () => this._caricaDismessi(),
+      dismHasMore: !!(dismPayload && dismPayload.nextCursor),
+      dismMoreBusy: !!S.dismMore,
+      dismMore: () => this._altraPagina('dismessi', 'qDism',
+        (cursor, signal) => API.searchInventory({
+          q: (S.dismQuery || ''), stato: 'dismesso',
+          presenza: dismFiltri.presenza || undefined, limit: 200, cursor, signal }),
+        'results', 'dismMore'),
+      dismExportCsv: () => {
+        const rows = [['dispositivo', 'codice', 'seriale', 'modello', 'referente',
+                       'ultimo_sito', 'ultima_sala', 'ultimo_rack', 'slot', 'presenza',
+                       'stato', 'garanzia', 'supporto', 'note']]
+          .concat(dismRows.map(r => r.csv));
+        csvDownload(rows, 'dismessi-ced.csv');
+      },
+
       // --- vista scadenze ---
       scadOpen: S.scadOpen,
-      toggleScad: () => this.setState(s => ({ scadOpen: !s.scadOpen, invOpen: false, capOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false })),
+      toggleScad: () => this.setState(s => ({ scadOpen: !s.scadOpen, invOpen: false, capOpen: false, dashOpen: false, manualOpen: false, profileOpen: false, expOpen: false, regOpen: false, accountOpen: false, dismOpen: false }),
+        () => { if (this.state.scadOpen) this._caricaScadenze(); }),
       scadTabLabel: 'Scadenze' + (scadUrgenti > 0 ? ' (' + scadUrgenti + ')' : ''),
       scadBtnStyle: {
         background: S.scadOpen ? accentSoft : 'transparent',
@@ -4005,12 +4668,47 @@ class Component extends DCLogic {
       scadRows,
       scadFiltroStato: scadFiltri.stato,
       scadFiltroPresenza: scadFiltri.presenza,
-      onScadFiltroStato: (e) => this.setState(st => ({
-        scadFiltri: { ...(st.scadFiltri || { stato: '', presenza: '' }), stato: e.target.value } })),
-      onScadFiltroPresenza: (e) => this.setState(st => ({
-        scadFiltri: { ...(st.scadFiltri || { stato: '', presenza: '' }), presenza: e.target.value } })),
-      scadSummary: scadTot.scadute + ' scadute · ' + scadTot.entro90 + ' entro 90 giorni · ' + scadTot.future + ' future',
-      scadEmpty: scadRows.length === 0,
+      // ⚠ I filtri li applica il SERVER, non un `filter` su una pagina già scaricata.
+      // Filtrare la pagina darebbe un elenco parziale che si legge come completo: con
+      // duecento righe per pagina, «tutti i dismessi» sarebbero «i dismessi fra le
+      // prime duecento scadenze».
+      onScadFiltroStato: (e) => {
+        const f = { ...(this.state.scadFiltri || { stato: '', presenza: '' }),
+                    stato: e.target.value };
+        this.setState({ scadFiltri: f }, () => this._caricaScadenze(f));
+      },
+      onScadFiltroPresenza: (e) => {
+        const f = { ...(this.state.scadFiltri || { stato: '', presenza: '' }),
+                    presenza: e.target.value };
+        this.setState({ scadFiltri: f }, () => this._caricaScadenze(f));
+      },
+      // ⚠ Due riepiloghi, e la differenza è dichiarata nel testo. I totali senza
+      // filtri sono quelli del contatore in barra; il numero di righe mostrate è
+      // quello della domanda in corso. Mostrare solo i primi, con un filtro attivo,
+      // direbbe che l'elenco è più corto di quanto dice il riepilogo.
+      scadSummary: scadTot.scadute + ' scadute · ' + scadTot.entro90
+        + ' entro 90 giorni · ' + scadTot.future + ' future'
+        + (scadTot.avvisabili !== undefined
+            ? ' · ' + scadTot.avvisabili + ' con avviso' : '')
+        + ((scadFiltri.stato || scadFiltri.presenza) && scadPayload
+            ? ' — filtrate: ' + scadRows.length : ''),
+      scadEmpty: scadStato === 'ok' && scadRows.length === 0,
+      scadLoading: scadStato === 'loading' && !scadPayload,
+      scadError: scadStato === 'error' ? (scadSlot.error || '') : '',
+      hasScadError: scadStato === 'error' || scadStato === 'mismatch',
+      scadMismatchTesto: scadStato === 'mismatch'
+        ? 'I dati sono cambiati durante la lettura e continuano a cambiare: le '
+          + 'scadenze di una revisione diversa non si mostrano di proposito.'
+        : '',
+      scadRiprova: () => this._caricaScadenze(),
+      scadOggi: scadPayload ? ('oggi: ' + scadPayload.today) : '',
+      scadHasMore: !!(scadPayload && scadPayload.nextCursor),
+      scadMoreBusy: !!S.scadMore,
+      scadMore: () => this._altraPagina('expiries', 'qScad',
+        (cursor, signal) => API.getExpiries({
+          warningDays: 90, stato: scadFiltri.stato || undefined,
+          presenza: scadFiltri.presenza || undefined, limit: 200, cursor, signal }),
+        'items', 'scadMore'),
       scadExportCsv: () => {
         const rows = [['scadenza', 'giorni', 'livello', 'tipo', 'dispositivo', 'modello', 'seriale', 'location', 'sala', 'rack', 'referente', 'stato', 'presenza', 'genera_avviso']]
           .concat(scadRows.map(r => r.csv));
@@ -4298,6 +4996,10 @@ class Component extends DCLogic {
       },
       selId, selMeta, elevBoxStyle, uMarks, elevDevices, devRows, devCount,
       isEmpty: !!sel && devCount === 0,
+      devRimossiLabel: selRimossi
+        ? (selRimossi === 1 ? '1 rimosso, non occupa' : selRimossi + ' rimossi, non occupano')
+        : '',
+      hasDevRimossi: selRimossi > 0,
       isEditing: S.editing,
       formTitle: S.selDev ? 'MODIFICA DISPOSITIVO' : 'NUOVO DISPOSITIVO',
       canDelete: !!S.selDev,

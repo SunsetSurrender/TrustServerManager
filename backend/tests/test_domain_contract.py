@@ -147,6 +147,93 @@ def test_un_rack_enorme_non_enumera_nessuno_slot():
 
 
 # ==================================================================
+# 2-bis. altezza del rack: il limite dichiarato (§8.48 voce 16)
+# ==================================================================
+
+RACK_HEIGHT = load("rack-height")
+
+
+@pytest.mark.parametrize("case", RACK_HEIGHT["cases"],
+                         ids=[repr(c["u"]) for c in RACK_HEIGHT["cases"]])
+def test_l_altezza_sostenuta_di_un_rack(case):
+    assert domain.rack_height_supported(case["u"]) is case["supported"]
+
+
+def test_il_limite_del_corpus_e_quello_del_modulo():
+    assert (domain.RACK_U_MIN, domain.RACK_U_MAX) == (RACK_HEIGHT["min"], RACK_HEIGHT["max"])
+
+
+def test_il_limite_e_quello_della_COLONNA_non_un_numero_inventato():
+    """⚠ Il legame fra la regola di prodotto e la sua ragione tecnica.
+
+    `domain` non importa `relational` — è puro di proposito — quindi il numero è
+    scritto due volte, e due numeri scritti due volte divergono. Questo test è ciò
+    che lo impedisce: il giorno in cui qualcuno portasse la colonna a `bigint`,
+    diventa rosso e dice che il limite dichiarato non è più quello vero.
+    """
+    from app.inventory import relational
+    assert domain.RACK_U_MAX == relational.INT32_MAX
+
+
+def test_fuori_intervallo_le_due_letture_divergono_davvero():
+    """La controprova. Senza di lei il corpus dimostrerebbe che una funzione
+    restituisce dei booleani, non che la regola serve a qualcosa.
+
+    Un `u` fuori intervallo resta nel documento e NON entra in colonna: si calcola
+    quindi la capacità come la calcola il modello puro (che legge il documento) e come
+    la calcola lo SQL (che legge una colonna restata NULL), e si pretende che i due
+    numeri siano diversi. È quella differenza che la voce 16 chiamava divergenza.
+    """
+    devices = [{"u": 1, "h": 2}]
+    dal_documento = domain.rack_capacity(3_000_000_000, devices)
+    dalla_colonna = domain.rack_capacity(None, devices)
+    assert dal_documento.total_u != dalla_colonna.total_u
+    assert dal_documento.used_u != dalla_colonna.used_u
+
+    # E il rovescio, che è la ragione per cui `'45'` è ammesso: lì le due letture
+    # coincidono, quindi non c'è nessuna divergenza da impedire.
+    assert domain.rack_capacity("45", devices) == dalla_colonna
+
+
+def test_il_documento_rifiuta_un_rack_fuori_intervallo():
+    """La regola non vive solo nel modello: il cancello del `PUT` la applica.
+
+    ⚠ Il codice è controllato per nome. `rack_u_out_of_range` è un contratto verso il
+    client — il frontend lo distingue da un errore di forma — e cambiarlo in silenzio
+    lascerebbe un messaggio generico dove c'era una spiegazione.
+    """
+    from app.inventory.document import RACK_U_OUT_OF_RANGE, validate_normal_document
+
+    def documento(u):
+        return {
+            "schemaVersion": 1,
+            "locations": [{
+                "_uid": "11111111-1111-4111-8111-111111111111", "id": "S1", "nome": "Sito",
+                "sale": [{
+                    "_uid": "22222222-2222-4222-8222-222222222222", "id": "R1", "nome": "Sala",
+                    "racks": [{
+                        "_uid": "33333333-3333-4333-8333-333333333333", "id": "K1",
+                        "name": "Rack", "u": u, "devices": [],
+                    }],
+                }],
+            }],
+        }
+
+    codici = [e.code for e in validate_normal_document(documento(3_000_000_000))]
+    assert codici == [RACK_U_OUT_OF_RANGE]
+    # Il percorso deve dire QUALE rack: un errore che non lo dice, su un documento con
+    # cento rack, obbliga a cercarlo a mano.
+    errore = validate_normal_document(documento(3_000_000_000))[0]
+    assert errore.path.endswith("K1")
+
+    for accettato in (domain.RACK_U_MAX, 45, 1, None, "45"):
+        assert validate_normal_document(documento(accettato)) == [], (
+            f"u={accettato!r} deve passare: la regola riguarda la DIVERGENZA, non il tipo")
+    for rifiutato in (domain.RACK_U_MAX + 1, 0, -1):
+        assert [e.code for e in validate_normal_document(documento(rifiutato))] ==             [RACK_U_OUT_OF_RANGE]
+
+
+# ==================================================================
 # 3. percentuale HALF-UP
 # ==================================================================
 

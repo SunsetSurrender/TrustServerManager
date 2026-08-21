@@ -796,6 +796,46 @@ nessuno ha detto che quegli apparati sono stati portati via. Chi conosce la sala
 marcare `rimosso` a mano ciò che non c'è più — e finché non lo fa, la capacità continua
 a contarli come occupati, che è il verso giusto in cui sbagliare.
 
+### 3.8.2 Aggiornare alla fase 2H: nessuna migrazione, ma l'immagine web va rifatta
+
+⚠ **Niente migrazioni, niente ricostruzione, niente privilegi nuovi.** Le tre rotte di
+interrogazione esistevano già dalla 2E e la loro semantica è quella della 2G: la 2H
+cambia soltanto CHI le chiama. Se si viene dalla 2G non c'è nessun passo sul database.
+
+C'è però un passo che non si può saltare, e che rompe tutto invece di una parte:
+
+```bash
+# L'immagine web COPIA i file statici al build. `handoff/queries.js` è nuovo:
+# senza ricostruire, il browser riceve 404 sull'import e l'applicazione NON PARTE.
+docker compose build web && docker compose up -d web
+
+# verifica, in un colpo: il modulo si scarica
+curl -sk -o /dev/null -w "%{http_code}\n" https://<host>/queries.js     # atteso 200
+```
+
+⚠ Non è un'ipotesi: è successo durante lo sviluppo di questa fase, e il sintomo non
+dice la causa — la pagina resta bianca, senza errori nell'API e senza righe nei log di
+nginx che sembrino un problema. Lo stesso inciampo della 2G con `domain.js`. Il
+`Dockerfile` e le due `nginx.conf` elencano i moduli uno per uno di proposito
+(allowlist, §6 del piano), quindi un modulo nuovo va aggiunto in **tre** posti.
+
+**Che cosa cambia per chi usa l'applicazione:**
+
+| | prima | dopo |
+|---|---|---|
+| ricerca, capacità, scadenze | calcolate nel browser | chieste al server |
+| i numeri | uguali a quelli del server (garanzia della 2G) | **gli stessi**, per costruzione |
+| se la proiezione non è attuale | le viste mostravano numeri calcolati in locale | le viste lo DICONO e non mostrano numeri |
+| apparati dismessi | visibili solo nell'inventario tabellare | vista **Dismessi** dedicata, con filtro per presenza |
+| apparato rimosso sulla pianta | disegnato come installato | non disegnato; il pannello del rack lo mostra tratteggiato e lo conta a parte |
+
+⚠ **Il terzo punto è quello da spiegare a chi risponde al telefono.** Se qualcuno vede
+«Le viste Ricerca, Capacità e Scadenze leggono una copia dei dati che il server sta
+ancora aggiornando», non è un guasto dell'interfaccia: è la proiezione che non
+rispecchia la testa, e il rimedio è `project.py --rebuild` (§3.8.1). L'inventario resta
+consultabile e modificabile nel frattempo — di proposito: si sospende ciò che
+mostrerebbe numeri sbagliati, non tutto.
+
 ---
 
 ## 4. Il caso che conta: disco dei dati assente

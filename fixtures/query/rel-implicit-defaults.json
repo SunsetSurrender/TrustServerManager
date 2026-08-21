@@ -30,6 +30,7 @@
                     "name": "srv",
                     "u": 1,
                     "stato": "attivo",
+                    "presenza": "presente",
                     "h": 1,
                     "type": "altro",
                     "model": "",

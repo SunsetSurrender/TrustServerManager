@@ -108,6 +108,22 @@ NO_NAME = "(senza nome)"
 #: `row_group`.
 ROW_UNSET_LABEL = "—"
 
+#: Altezza di un rack: limite DICHIARATO del prodotto (§8.48 voce 16).
+#:
+#: Il numero è quello dell'`integer` della proiezione, e non è un dettaglio
+#: d'implementazione che sia finito qui per sbaglio: un `u` intero fuori da questo
+#: intervallo va in `extra` e la colonna resta NULL, quindi la capacità calcolata
+#: DALLO SQL vede un rack senza altezza mentre questo modulo — che legge il
+#: documento — calcola sul valore vero. Era l'unica divergenza SQL/modello che la
+#: 2G non poteva chiudere spostando del codice: si chiude rifiutando il valore in
+#: ingresso, che è dove la si può ancora chiamare un dato sbagliato.
+#:
+#: `1` e non `0` come minimo: un rack alto zero non è un rack, e `slot_span`
+#: già non gli assegna nessuno slot. Il documento non deve poter contenere una
+#: forma che nessuna delle due implementazioni sa disegnare.
+RACK_U_MIN = 1
+RACK_U_MAX = 2147483647
+
 
 def _falsy_string(value: Any, default: str) -> str:
     """`(value || default)` con la falsità di JavaScript, per i campi a vocabolario.
@@ -196,6 +212,32 @@ def _as_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
+
+
+def rack_height_supported(value: Any) -> bool:
+    """`u` di un rack sta dentro il limite dichiarato?
+
+    Tre risposte «sì» che meritano di essere lette, perché sono la ragione per cui
+    questa non è una convalida di tipo:
+
+      - **assente / `None`**: sì. Il default canonico mette 45, e rifiutare qui
+        vorrebbe dire rifiutare ogni rack creato senza toccare il campo;
+      - **non intero** (`"45"`, `4.5`, `True`): sì, e non è indulgenza. `_as_int`
+        lo rifiuta e la colonna lo lascia a NULL: SQL e modello puro vedono
+        ENTRAMBI un rack senza altezza. Nessuna divergenza, quindi niente da
+        rifiutare in nome di questa regola — l'avviso `carried_verbatim` resta a
+        dire che quel campo non risponde a una query;
+      - **intero dentro l'intervallo**: sì, ovviamente.
+
+    Il «no» è uno solo: un intero fuori dall'intervallo, che è esattamente il caso
+    in cui le due implementazioni darebbero due numeri diversi.
+    """
+    if value is None:
+        return True
+    n = _as_int(value)
+    if n is None:
+        return True
+    return RACK_U_MIN <= n <= RACK_U_MAX
 
 
 def slot_span(u: Any, h: Any, rack_u: Any) -> tuple[int, int] | None:

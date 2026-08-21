@@ -51,6 +51,7 @@ from app.inventory.json_strings import unrepresentable_text_reason
 from app.inventory.representable import walk_scalars
 from app.inventory.relational import (
     DERIVED,
+    DEVICE_PRESENCES,
     DEVICE_STATES,
     DEVICE_TYPES,
     FIELD_MAP,
@@ -82,6 +83,10 @@ NON_CONTIGUOUS_ORDINAL = "non_contiguous_ordinal"
 DUPLICATE_DEVICE_CODE = "duplicate_device_code"
 INVALID_ENUM = "invalid_enum"
 INVALID_DATE = "invalid_date"
+#: Fase 2G: `ip` valorizzato ma non interpretabile come indirizzo. Codice PROPRIO e
+#: non `invalid_date` riusato: chi legge il registro deve poter contare quante righe
+#: hanno un indirizzo illeggibile senza sottrarre le date da un totale.
+INVALID_ADDRESS = "invalid_address"
 
 #: Tipi le cui collezioni non ammettono due codici uguali nello stesso ambito.
 #: I dispositivi non ci sono, di proposito: vedi la nota in testa al modulo.
@@ -283,6 +288,19 @@ def validate_model(model: RelationalModel, *,
                         f"device.stato={device.stato!r} fuori dal vocabolario noto "
                         f"({', '.join(DEVICE_STATES)})",
                         field="stato"))
+        if device.presenza is not None and device.presenza not in DEVICE_PRESENCES:
+            # AVVISO e non errore, come per `stato` e `type`: un valore fuori elenco è
+            # un dato dell'utente che si conserva e si segnala. La conseguenza
+            # operativa va detta, perché non è ovvia: `occupies_space` guarda solo se
+            # la presenza è `rimosso`, quindi qualunque altro valore — compreso uno
+            # scritto male — fa OCCUPARE lo slot. È il verso giusto in cui sbagliare:
+            # un'unità contata come occupata si scopre guardando il rack, una contata
+            # come libera si scopre quando l'apparato nuovo non ci sta.
+            add(Finding(INVALID_ENUM, WARNING, "device", device.uid,
+                        f"device.presenza={device.presenza!r} fuori dal vocabolario "
+                        f"noto ({', '.join(DEVICE_PRESENCES)}): la capacità lo "
+                        "conterà come PRESENTE, perché solo «rimosso» libera lo slot",
+                        field="presenza"))
         # Le colonne derivate si controllano leggendo `DERIVED`, non ripetendo qui
         # l'elenco `("garanzia", "supporto")`: due elenchi divergono, e questo è il
         # posto dove la divergenza non si vedrebbe.
@@ -308,14 +326,40 @@ def validate_model(model: RelationalModel, *,
                             field=name))
 
             if value not in (None, "") and expected is None:
-                # Si usa il parser dello SCANNER delle scadenze (§8.41), quindi
-                # l'avviso significa esattamente «il worker ignorerà questa data».
-                add(Finding(INVALID_DATE, WARNING, "device", device.uid,
-                            f"device.{source}={value!r} non è una data "
-                            "`YYYY-MM-DD`: lo scanner delle scadenze la ignorerà",
-                            field=source))
+                # ⚠ Il messaggio dipende da COSA si stava interpretando, e non è
+                # cosmetica: dalla fase 2G le colonne derivate sono di due specie
+                # (date di scadenza e indirizzo), e dire «non è una data
+                # `YYYY-MM-DD`» di un campo `ip` manderebbe chi legge il registro a
+                # cercare il difetto nel posto sbagliato.
+                #
+                # Il parser è quello del DOMINIO (§8.50), quindi l'avviso significa
+                # esattamente «nessuna delle tre implementazioni interpreterà questo
+                # valore» — non «secondo una delle idee di valore valido».
+                add(Finding(*_uninterpretable(name, device.uid, source, value)))
 
     return found
+
+
+#: Cosa dire quando una colonna derivata non si è potuta calcolare. La chiave è la
+#: COLONNA derivata, così aggiungerne una senza decidere che messaggio darle rompe il
+#: dizionario invece di produrre un messaggio plausibile e sbagliato.
+_UNINTERPRETABLE = {
+    "garanzia_date": (INVALID_DATE,
+                      "non è una data `YYYY-MM-DD`: nessuna vista la mostrerà come "
+                      "scadenza e il worker non ne manderà avvisi"),
+    "supporto_date": (INVALID_DATE,
+                      "non è una data `YYYY-MM-DD`: nessuna vista la mostrerà come "
+                      "scadenza e il worker non ne manderà avvisi"),
+    "ip_addr": (INVALID_ADDRESS,
+                "non è un indirizzo IPv4 o IPv6: la ricerca per rete e per indirizzo "
+                "esatto non lo troverà, mentre la ricerca testuale sì"),
+}
+
+
+def _uninterpretable(column: str, uid, source: str, value) -> tuple:
+    code, spiegazione = _UNINTERPRETABLE[column]
+    return (code, WARNING, "device", uid,
+            f"device.{source}={value!r} {spiegazione}", source)
 
 
 def _check_collection(add, kind: str, rows: list, parent_uid: Any) -> None:

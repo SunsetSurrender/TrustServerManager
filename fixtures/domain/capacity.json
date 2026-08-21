@@ -1,0 +1,517 @@
+{
+ "_nota": "usedU = slot U DISTINTI occupati da dispositivi con presenza != rimosso. sumH e la vecchia definizione sbagliata, riportata dove differisce perche un test possa dimostrare di distinguerle.",
+ "cases": [
+  {
+   "name": "due dispositivi contigui",
+   "rackU": 45,
+   "devices": [
+    {
+     "u": 1,
+     "h": 2
+    },
+    {
+     "u": 3,
+     "h": 1
+    }
+   ],
+   "usedU": 3,
+   "freeU": 42,
+   "largestFreeRun": 42,
+   "percent": 7,
+   "slots": [
+    1,
+    2,
+    3
+   ]
+  },
+  {
+   "name": "SOVRAPPOSTI: lo slot in comune conta una volta sola",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 1,
+     "h": 3
+    },
+    {
+     "u": 3,
+     "h": 3
+    }
+   ],
+   "usedU": 5,
+   "freeU": 5,
+   "largestFreeRun": 5,
+   "percent": 50,
+   "slots": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "sumH": 6
+  },
+  {
+   "name": "SPORGENZA: un 4U a U9 di un rack da 10 occupa due unita",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 9,
+     "h": 4
+    }
+   ],
+   "usedU": 2,
+   "freeU": 8,
+   "largestFreeRun": 8,
+   "percent": 20,
+   "slots": [
+    9,
+    10
+   ],
+   "sumH": 4
+  },
+  {
+   "name": "h = 0 vale 1",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 5,
+     "h": 0
+    }
+   ],
+   "usedU": 1,
+   "freeU": 9,
+   "largestFreeRun": 5,
+   "percent": 10,
+   "slots": [
+    5
+   ],
+   "_nota": "nessun sumH: la formula legacy era `d.h || 1`, quindi anche lei dava 1. Questo caso NON distingue le due definizioni, e dichiararlo e meglio che scrivere un confronto che non puo fallire."
+  },
+  {
+   "name": "h assente vale 1",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 5
+    }
+   ],
+   "usedU": 1,
+   "freeU": 9,
+   "largestFreeRun": 5,
+   "percent": 10,
+   "slots": [
+    5
+   ]
+  },
+  {
+   "name": "h null vale 1",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 5,
+     "h": null
+    }
+   ],
+   "usedU": 1,
+   "freeU": 9,
+   "largestFreeRun": 5,
+   "percent": 10,
+   "slots": [
+    5
+   ]
+  },
+  {
+   "name": "h NEGATIVO non occupa niente",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 5,
+     "h": -3
+    }
+   ],
+   "usedU": 0,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 0,
+   "slots": [],
+   "sumH": -3
+  },
+  {
+   "name": "slot iniziale 0: la parte sotto il rack non esiste",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 0,
+     "h": 3
+    }
+   ],
+   "usedU": 2,
+   "freeU": 8,
+   "largestFreeRun": 8,
+   "percent": 20,
+   "slots": [
+    1,
+    2
+   ],
+   "sumH": 3
+  },
+  {
+   "name": "slot iniziale negativo, interamente fuori",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": -5,
+     "h": 3
+    }
+   ],
+   "usedU": 0,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 0,
+   "slots": [],
+   "sumH": 3
+  },
+  {
+   "name": "slot iniziale oltre la cima",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 11,
+     "h": 2
+    }
+   ],
+   "usedU": 0,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 0,
+   "slots": [],
+   "sumH": 2
+  },
+  {
+   "name": "RIMOSSO: non occupa, e questa e la voce che il difetto cancellava",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 1,
+     "h": 2,
+     "presenza": "rimosso"
+    },
+    {
+     "u": 5,
+     "h": 1
+    }
+   ],
+   "usedU": 1,
+   "freeU": 9,
+   "largestFreeRun": 5,
+   "percent": 10,
+   "slots": [
+    5
+   ],
+   "sumH": 3
+  },
+  {
+   "name": "dismesso + PRESENTE occupa: e la voce che il ramo vuoto del prototipo lasciava per caso corretta, e che ora e corretta per decisione",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 1,
+     "h": 2,
+     "stato": "dismesso",
+     "presenza": "presente"
+    }
+   ],
+   "usedU": 2,
+   "freeU": 8,
+   "largestFreeRun": 8,
+   "percent": 20,
+   "slots": [
+    1,
+    2
+   ]
+  },
+  {
+   "name": "dismesso + rimosso non occupa",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 1,
+     "h": 2,
+     "stato": "dismesso",
+     "presenza": "rimosso"
+    }
+   ],
+   "usedU": 0,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 0,
+   "slots": [],
+   "sumH": 2
+  },
+  {
+   "name": "manutenzione occupa: lo stato operativo non muove la fisica",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 4,
+     "h": 2,
+     "stato": "manutenzione"
+    }
+   ],
+   "usedU": 2,
+   "freeU": 8,
+   "largestFreeRun": 5,
+   "percent": 20,
+   "slots": [
+    4,
+    5
+   ]
+  },
+  {
+   "name": "legacy senza presenza occupa",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 4,
+     "h": 2,
+     "stato": "dismesso"
+    }
+   ],
+   "usedU": 2,
+   "freeU": 8,
+   "largestFreeRun": 5,
+   "percent": 20,
+   "slots": [
+    4,
+    5
+   ]
+  },
+  {
+   "name": "rack vuoto: libero per intero",
+   "rackU": 42,
+   "devices": [],
+   "usedU": 0,
+   "freeU": 42,
+   "largestFreeRun": 42,
+   "percent": 0,
+   "slots": []
+  },
+  {
+   "name": "rack pieno",
+   "rackU": 4,
+   "devices": [
+    {
+     "u": 1,
+     "h": 4
+    }
+   ],
+   "usedU": 4,
+   "freeU": 0,
+   "largestFreeRun": 0,
+   "percent": 100,
+   "slots": [
+    1,
+    2,
+    3,
+    4
+   ]
+  },
+  {
+   "name": "buco in mezzo: il blocco contiguo piu ampio e quello sopra",
+   "rackU": 20,
+   "devices": [
+    {
+     "u": 1,
+     "h": 2
+    },
+    {
+     "u": 6,
+     "h": 1
+    }
+   ],
+   "usedU": 3,
+   "freeU": 17,
+   "largestFreeRun": 14,
+   "percent": 15,
+   "slots": [
+    1,
+    2,
+    6
+   ]
+  },
+  {
+   "name": "due isole ADIACENTI: nessuno slot libero fra loro",
+   "rackU": 20,
+   "devices": [
+    {
+     "u": 1,
+     "h": 5
+    },
+    {
+     "u": 6,
+     "h": 5
+    }
+   ],
+   "usedU": 10,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 50,
+   "slots": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+   ]
+  },
+  {
+   "name": "rack di altezza 0: non ha unita, non e occupato al 100%",
+   "rackU": 0,
+   "devices": [
+    {
+     "u": 1,
+     "h": 1
+    }
+   ],
+   "usedU": 0,
+   "freeU": 0,
+   "largestFreeRun": 0,
+   "percent": 0,
+   "slots": []
+  },
+  {
+   "name": "rack di altezza negativa",
+   "rackU": -5,
+   "devices": [
+    {
+     "u": 1,
+     "h": 1
+    }
+   ],
+   "usedU": 0,
+   "freeU": 0,
+   "largestFreeRun": 0,
+   "percent": 0,
+   "slots": []
+  },
+  {
+   "name": "rack di altezza null",
+   "rackU": null,
+   "devices": [
+    {
+     "u": 1,
+     "h": 1
+    }
+   ],
+   "usedU": 0,
+   "freeU": 0,
+   "largestFreeRun": 0,
+   "percent": 0,
+   "slots": []
+  },
+  {
+   "name": "u non intero: non si arrotonda un dato che non e uno slot",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": 2.5,
+     "h": 1
+    }
+   ],
+   "usedU": 0,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 0,
+   "slots": []
+  },
+  {
+   "name": "u testuale: nel documento sarebbe finito in extra, e la colonna e NULL",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": "3",
+     "h": 1
+    }
+   ],
+   "usedU": 0,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 0,
+   "slots": []
+  },
+  {
+   "name": "u booleano: true non e 1",
+   "rackU": 10,
+   "devices": [
+    {
+     "u": true,
+     "h": 1
+    }
+   ],
+   "usedU": 0,
+   "freeU": 10,
+   "largestFreeRun": 10,
+   "percent": 0,
+   "slots": []
+  },
+  {
+   "name": "RACK ENORME: nessuna enumerazione degli slot, il conto e sugli estremi",
+   "rackU": 3000000000,
+   "devices": [
+    {
+     "u": 1,
+     "h": 2
+    },
+    {
+     "u": 2999999999,
+     "h": 5
+    }
+   ],
+   "usedU": 4,
+   "freeU": 2999999996,
+   "largestFreeRun": 2999999996,
+   "percent": 0,
+   "_nota": "3 miliardi di slot: enumerarli esaurisce la memoria del browser e produce 3 miliardi di righe in SQL. Nessun campo slots: e il caso in cui materializzare l'insieme e proprio la cosa da non fare."
+  },
+  {
+   "name": "tre sovrapposti, uno rimosso, uno sporgente",
+   "rackU": 12,
+   "devices": [
+    {
+     "u": 2,
+     "h": 3
+    },
+    {
+     "u": 3,
+     "h": 4,
+     "presenza": "rimosso"
+    },
+    {
+     "u": 11,
+     "h": 6
+    },
+    {
+     "u": 4,
+     "h": 1
+    }
+   ],
+   "usedU": 5,
+   "freeU": 7,
+   "largestFreeRun": 6,
+   "percent": 42,
+   "slots": [
+    2,
+    3,
+    4,
+    11,
+    12
+   ],
+   "sumH": 14
+  }
+ ]
+}

@@ -1,0 +1,168 @@
+{
+ "_nota": "stato operativo (attivo|manutenzione|dismissione|dismesso) e presenza fisica (presente|rimosso) sono ORTOGONALI. occupies dipende solo dalla presenza, notifies solo dallo stato. L'assenza di presenza canonicalizza a presente.",
+ "cases": [
+  {
+   "name": "attivo + presente",
+   "device": {
+    "stato": "attivo",
+    "presenza": "presente"
+   },
+   "stato": "attivo",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "manutenzione + presente",
+   "device": {
+    "stato": "manutenzione",
+    "presenza": "presente"
+   },
+   "stato": "manutenzione",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "dismissione + presente",
+   "device": {
+    "stato": "dismissione",
+    "presenza": "presente"
+   },
+   "stato": "dismissione",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "dismesso + presente: fuori servizio ma occupa ancora lo slot",
+   "device": {
+    "stato": "dismesso",
+    "presenza": "presente"
+   },
+   "stato": "dismesso",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": false
+  },
+  {
+   "name": "dismesso + rimosso: non occupa e non avvisa",
+   "device": {
+    "stato": "dismesso",
+    "presenza": "rimosso"
+   },
+   "stato": "dismesso",
+   "presenza": "rimosso",
+   "occupies": false,
+   "notifies": false
+  },
+  {
+   "name": "attivo + rimosso: portato via ma ancora in servizio altrove",
+   "device": {
+    "stato": "attivo",
+    "presenza": "rimosso"
+   },
+   "stato": "attivo",
+   "presenza": "rimosso",
+   "occupies": false,
+   "notifies": true
+  },
+  {
+   "name": "legacy senza presenza: presente per difetto",
+   "device": {
+    "stato": "attivo"
+   },
+   "stato": "attivo",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "legacy dismesso senza presenza: NON si deduce rimosso",
+   "device": {
+    "stato": "dismesso"
+   },
+   "stato": "dismesso",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": false
+  },
+  {
+   "name": "presenza vuota: il default, come stato vuoto",
+   "device": {
+    "stato": "",
+    "presenza": ""
+   },
+   "stato": "attivo",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "presenza null",
+   "device": {
+    "stato": null,
+    "presenza": null
+   },
+   "stato": "attivo",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "presenza fuori vocabolario: si conserva e occupa",
+   "device": {
+    "stato": "attivo",
+    "presenza": "in transito"
+   },
+   "stato": "attivo",
+   "presenza": "in transito",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "stato fuori vocabolario: si conserva e avvisa",
+   "device": {
+    "stato": "rottamato",
+    "presenza": "presente"
+   },
+   "stato": "rottamato",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "presenza numerica da foglio di calcolo",
+   "device": {
+    "stato": "attivo",
+    "presenza": 0
+   },
+   "stato": "attivo",
+   "presenza": "0",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "presenza booleana: non e un valore del vocabolario, vale il default",
+   "device": {
+    "stato": "attivo",
+    "presenza": false
+   },
+   "stato": "attivo",
+   "presenza": "presente",
+   "occupies": true,
+   "notifies": true
+  },
+  {
+   "name": "maiuscole: il vocabolario e sensibile, Rimosso NON e rimosso",
+   "device": {
+    "stato": "attivo",
+    "presenza": "Rimosso"
+   },
+   "stato": "attivo",
+   "presenza": "Rimosso",
+   "occupies": true,
+   "notifies": true
+  }
+ ]
+}

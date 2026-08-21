@@ -1,0 +1,422 @@
+{
+ "_nota": "Una grammatica sola. exact IPv4/IPv6, CIDR IPv4/IPv6, intervallo IPv4, jolly IPv4. Niente intervalli ne jolly IPv6: non si inventa una grammatica. null significa «non e un indirizzo, cercalo come testo», NON «zero risultati».",
+ "parse": [
+  {
+   "raw": "10.0.0.1",
+   "family": 4,
+   "text": "10.0.0.1"
+  },
+  {
+   "raw": "0.0.0.0",
+   "family": 4,
+   "text": "0.0.0.0"
+  },
+  {
+   "raw": "255.255.255.255",
+   "family": 4,
+   "text": "255.255.255.255"
+  },
+  {
+   "raw": "010.0.0.1",
+   "family": 4,
+   "text": "10.0.0.1",
+   "_meta": "zeri iniziali: ipToNum li accettava, togliere una forma che funzionava sarebbe una regressione"
+  },
+  {
+   "raw": " 10.0.0.1 ",
+   "family": 4,
+   "text": "10.0.0.1"
+  },
+  {
+   "raw": "256.0.0.1",
+   "family": null
+  },
+  {
+   "raw": "10.0.0",
+   "family": null,
+   "_meta": "mezzo indirizzo: e testo, e come testo trova 10.0.0.x"
+  },
+  {
+   "raw": "10.0.0.1.2",
+   "family": null
+  },
+  {
+   "raw": "10.0.0.1%eth0",
+   "family": null
+  },
+  {
+   "raw": "10.0.0.1/32",
+   "family": null,
+   "_meta": "un prefisso non e un host"
+  },
+  {
+   "raw": "::1",
+   "family": 6,
+   "text": "::1"
+  },
+  {
+   "raw": "::",
+   "family": 6,
+   "text": "::"
+  },
+  {
+   "raw": "2001:db8::1",
+   "family": 6,
+   "text": "2001:db8::1"
+  },
+  {
+   "raw": "2001:0db8:0000:0000:0000:0000:0000:0001",
+   "family": 6,
+   "text": "2001:db8::1",
+   "_meta": "forma estesa: stesso indirizzo, forma canonica compressa"
+  },
+  {
+   "raw": "2001:DB8::1",
+   "family": 6,
+   "text": "2001:db8::1",
+   "_meta": "maiuscole ammesse"
+  },
+  {
+   "raw": "::ffff:10.0.0.1",
+   "family": 6,
+   "text": "::ffff:10.0.0.1",
+   "_meta": "IPv4-mapped: si SCRIVE col quartetto puntato"
+  },
+  {
+   "raw": "0:0:0:0:0:ffff:c0a8:1",
+   "family": 6,
+   "text": "::ffff:192.168.0.1",
+   "_meta": "stesso indirizzo scritto in esadecimale: la forma canonica e quella puntata"
+  },
+  {
+   "raw": "::1.2.3.4",
+   "family": 6,
+   "text": "::102:304",
+   "_meta": "IPv4-COMPATIBLE (senza ffff): NON si scrive puntato"
+  },
+  {
+   "raw": "1:2:3:4:5:6:7:8",
+   "family": 6,
+   "text": "1:2:3:4:5:6:7:8"
+  },
+  {
+   "raw": "1:2:3:4:5:6:7::",
+   "family": 6,
+   "text": "1:2:3:4:5:6:7:0",
+   "_meta": ":: per un solo gruppo si scrive per esteso"
+  },
+  {
+   "raw": "1:2:3:4:5:6:7:8:9",
+   "family": null
+  },
+  {
+   "raw": "1:2:3:4:5:6:7:8::",
+   "family": null
+  },
+  {
+   "raw": "1::2::3",
+   "family": null,
+   "_meta": "due compressioni"
+  },
+  {
+   "raw": "1:::2",
+   "family": null
+  },
+  {
+   "raw": "12345::1",
+   "family": null,
+   "_meta": "gruppo a cinque cifre"
+  },
+  {
+   "raw": "1.2.3.4::",
+   "family": null,
+   "_meta": "IPv4 non in ultima posizione"
+  },
+  {
+   "raw": "::ffff:010.0.0.1",
+   "family": null,
+   "_meta": "zeri iniziali nell IPv4 INCORPORATO: forma nuova di questa fase, niente da conservare, e ipaddress in Python la rifiuta"
+  },
+  {
+   "raw": "::ffff:1.2.3.4.5",
+   "family": null
+  },
+  {
+   "raw": "fe80::1%eth0",
+   "family": null,
+   "_meta": "identificatore di zona: privo di senso in un inventario"
+  },
+  {
+   "raw": "gggg::1",
+   "family": null
+  },
+  {
+   "raw": ":",
+   "family": null
+  },
+  {
+   "raw": "",
+   "family": null
+  },
+  {
+   "raw": "srv-01",
+   "family": null
+  }
+ ],
+ "query": [
+  {
+   "raw": "10.0.0.1",
+   "kind": "exact",
+   "family": 4,
+   "lo": "10.0.0.1",
+   "hi": "10.0.0.1"
+  },
+  {
+   "raw": "2001:db8::1",
+   "kind": "exact",
+   "family": 6,
+   "lo": "2001:db8::1",
+   "hi": "2001:db8::1"
+  },
+  {
+   "raw": "10.0.2.0/24",
+   "kind": "cidr",
+   "family": 4,
+   "lo": "10.0.2.0",
+   "hi": "10.0.2.255"
+  },
+  {
+   "raw": "10.0.2.5/24",
+   "kind": "cidr",
+   "family": 4,
+   "lo": "10.0.2.0",
+   "hi": "10.0.2.255",
+   "_meta": "la base si azzera sul prefisso: e la rete, non l'host"
+  },
+  {
+   "raw": "10.0.0.0/0",
+   "kind": "cidr",
+   "family": 4,
+   "lo": "0.0.0.0",
+   "hi": "255.255.255.255"
+  },
+  {
+   "raw": "10.0.0.7/32",
+   "kind": "cidr",
+   "family": 4,
+   "lo": "10.0.0.7",
+   "hi": "10.0.0.7"
+  },
+  {
+   "raw": "10.0.0.0/33",
+   "kind": null,
+   "_meta": "prefisso impossibile: testo, e come testo non trova niente"
+  },
+  {
+   "raw": "2001:db8::/32",
+   "kind": "cidr",
+   "family": 6,
+   "lo": "2001:db8::",
+   "hi": "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"
+  },
+  {
+   "raw": "2001:db8::5/32",
+   "kind": "cidr",
+   "family": 6,
+   "lo": "2001:db8::",
+   "hi": "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"
+  },
+  {
+   "raw": "::/0",
+   "kind": "cidr",
+   "family": 6,
+   "lo": "::",
+   "hi": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
+  },
+  {
+   "raw": "::/129",
+   "kind": null
+  },
+  {
+   "raw": "10.0.0.1-10.0.0.9",
+   "kind": "range",
+   "family": 4,
+   "lo": "10.0.0.1",
+   "hi": "10.0.0.9"
+  },
+  {
+   "raw": "10.0.0.9-10.0.0.1",
+   "kind": "range",
+   "family": 4,
+   "lo": "10.0.0.1",
+   "hi": "10.0.0.9",
+   "_meta": "estremi rovesciati: si riordinano"
+  },
+  {
+   "raw": "10.0.0.1 - 10.0.0.9",
+   "kind": "range",
+   "family": 4,
+   "lo": "10.0.0.1",
+   "hi": "10.0.0.9"
+  },
+  {
+   "raw": "2001:db8::1-2001:db8::9",
+   "kind": null,
+   "_meta": "NON esistono intervalli IPv6: non si inventa una grammatica"
+  },
+  {
+   "raw": "10.0.*",
+   "kind": "wildcard",
+   "family": 4,
+   "lo": "10.0.0.0",
+   "hi": "10.0.255.255"
+  },
+  {
+   "raw": "10.*",
+   "kind": "wildcard",
+   "family": 4,
+   "lo": "10.0.0.0",
+   "hi": "10.255.255.255"
+  },
+  {
+   "raw": "10.0.0.*",
+   "kind": "wildcard",
+   "family": 4,
+   "lo": "10.0.0.0",
+   "hi": "10.0.0.255"
+  },
+  {
+   "raw": "*",
+   "kind": null
+  },
+  {
+   "raw": "300.*",
+   "kind": null
+  },
+  {
+   "raw": "2001:db8::*",
+   "kind": null,
+   "_meta": "NON esistono jolly IPv6"
+  },
+  {
+   "raw": "10.0.0",
+   "kind": null,
+   "_meta": "mezzo indirizzo: testo"
+  },
+  {
+   "raw": "",
+   "kind": null
+  },
+  {
+   "raw": "10.0.0.1/24",
+   "kind": "cidr",
+   "family": 4,
+   "lo": "10.0.0.0",
+   "hi": "10.0.0.255"
+  }
+ ],
+ "matches": {
+  "_nota": "IL CASO CHE VALE PIU DI TUTTI: 10.0.0.1 esatto NON trova 10.0.0.100. Era un falso positivo da sottostringa, e chi cercava una macchina precisa riceveva la sua vicina di sottorete.",
+  "cases": [
+   {
+    "query": "10.0.0.1",
+    "ip": "10.0.0.1",
+    "match": true
+   },
+   {
+    "query": "10.0.0.1",
+    "ip": "10.0.0.100",
+    "match": false,
+    "_meta": "IL difetto §13"
+   },
+   {
+    "query": "10.0.0.1",
+    "ip": "10.0.0.10",
+    "match": false
+   },
+   {
+    "query": "10.0.0.1",
+    "ip": "110.0.0.1",
+    "match": false
+   },
+   {
+    "query": "10.0.0.1",
+    "ip": " 10.0.0.1 ",
+    "match": true,
+    "_meta": "spazi nel dato"
+   },
+   {
+    "query": "10.0.0.1",
+    "ip": "010.0.0.1",
+    "match": true
+   },
+   {
+    "query": "10.0.0.1",
+    "ip": null,
+    "match": false
+   },
+   {
+    "query": "10.0.0.1",
+    "ip": "srv-01",
+    "match": false
+   },
+   {
+    "query": "2001:db8::1",
+    "ip": "2001:0db8::0001",
+    "match": true
+   },
+   {
+    "query": "2001:db8::1",
+    "ip": "2001:db8::10",
+    "match": false
+   },
+   {
+    "query": "10.0.2.0/24",
+    "ip": "10.0.2.255",
+    "match": true
+   },
+   {
+    "query": "10.0.2.0/24",
+    "ip": "10.0.3.0",
+    "match": false
+   },
+   {
+    "query": "10.0.*",
+    "ip": "10.0.255.255",
+    "match": true
+   },
+   {
+    "query": "10.0.*",
+    "ip": "10.1.0.0",
+    "match": false
+   },
+   {
+    "query": "10.0.*",
+    "ip": "::a00:1",
+    "match": false,
+    "_meta": "FAMIGLIE SEPARATE: stesso valore numerico, spazi di indirizzamento diversi"
+   },
+   {
+    "query": "::/0",
+    "ip": "10.0.0.1",
+    "match": false,
+    "_meta": "tutto IPv6 non contiene nessun IPv4"
+   },
+   {
+    "query": "0.0.0.0/0",
+    "ip": "2001:db8::1",
+    "match": false
+   },
+   {
+    "query": "10.0.0.1-10.0.0.9",
+    "ip": "10.0.0.5",
+    "match": true
+   },
+   {
+    "query": "10.0.0.1-10.0.0.9",
+    "ip": "10.0.0.10",
+    "match": false
+   }
+  ]
+ }
+}

@@ -43,6 +43,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 
+from app import domain
 from app.db import read_snapshot
 from app.inventory import Actor, InventoryRepository, canonical_sha256
 from app.inventory.errors import (NotBootstrappedError,
@@ -308,16 +309,23 @@ def test_a_numeric_device_name_survives_because_extra_is_read(db, engine):
 
 @pytest.mark.parametrize("code,atteso", [
     ("con-nome", "Il Nome"),
-    ("solo-id", "solo-id"),          # `name` assente → l'id
-    ("nome-vuoto", "nome-vuoto"),    # `name` vuoto → l'id (la stringa vuota è falsa)
-    ("numerico", "42"),
-    ("zero", "zero"),                # `name: 0` è falso → l'id
-    ("falso", "falso"),              # `name: False` è falso → l'id
-    ("lista", "['a', 'b']"),
-    ("dizionario", "{'x': 1}"),
+    ("solo-id", "solo-id"),          # `name` assente → il codice
+    ("nome-vuoto", "nome-vuoto"),    # `name` vuoto → il codice (stringa vuota falsa)
+    ("numerico", "42"),              # `name: 42` → «42»
+    ("zero", "zero"),                # `name: 0` non è un'etichetta → il codice
+    ("falso", "falso"),              # `name: False` non è un'etichetta → il codice
+    # ⚠ FASE 2G: un elenco e un oggetto NON sono etichette.
+    #
+    # Fino alla 2F questi due davano `str(['a', 'b'])` e `str({'x': 1})`, cioè
+    # «['a', 'b']» e «{'x': 1}» dentro un'email. Non era una decisione: era `or` di
+    # Python su una struttura non vuota, e in JavaScript `String([])` è la stringa
+    # vuota mentre `str([])` in Python è «[]» — due etichette diverse per lo stesso
+    # dato. Il contratto (§9) le esclude entrambe e passa al candidato successivo.
+    ("lista", "lista"),
+    ("dizionario", "dizionario"),
 ])
 def test_the_device_label_chain_branch_by_branch(db, engine, code, atteso):
-    """`obj.get("name") or obj.get("id") or "(senza nome)"`, ramo per ramo.
+    """La catena del contratto — nome → codice → «(senza nome)» — ramo per ramo.
 
     I valori sono fissati a mano, non presi dall'oracolo: qui il punto è che la
     catena resti QUELLA, e un confronto con l'oracolo passerebbe anche se entrambi
@@ -339,7 +347,7 @@ def test_a_device_without_name_and_without_id_is_unnamed(db, engine):
     con la stessa etichetta. Non è un problema: l'identità è l'`_uid`, e due avvisi
     su «(senza nome)» restano due entità distinte."""
     bootstrap(engine, CORPORA["labels"])
-    senza = [i for i in from_projection().items if i.device == candidates.NO_NAME]
+    senza = [i for i in from_projection().items if i.device == domain.NO_NAME]
     assert len(senza) == 2
     assert len({i.entity_uid for i in senza}) == 2
 
@@ -348,70 +356,82 @@ def test_a_device_without_name_and_without_id_is_unnamed(db, engine):
 # 2. l'unica divergenza voluta: gli id con uno `/` dentro
 # ==================================================================
 
-def test_a_slash_in_a_code_is_no_longer_truncated(db, engine):
-    """⚠ LA divergenza deliberata della fase 2F, con entrambi i valori fissati.
+def test_a_slash_in_a_code_is_never_truncated(db, engine):
+    """⚠ Il troncamento del percorso impacchettato, chiuso e sorvegliato (§8.48 v.12).
 
     `walk` componeva il contesto come UNA stringa —
     `f"{L['id']} / {R['id']} / {K['id']} / {V['id']}"` — e `_context` la rispezzava su
-    ogni `/`. Un id che contiene uno `/` rompeva quel giro:
+    ogni `/`. Un codice che contiene uno `/` rompeva quel giro:
 
       - un rack `10.0.0.0/24` arrivava nel digest come `10.0.0.0`;
       - uno `/` nel SITO spostava tutto di un posto, e il campo «rack» dell'avviso
-        finiva per contenere il nome della SALA.
+        finiva per contenere il codice della SALA.
 
-    La JOIN ha il valore intero e lo restituisce intero. Riprodurre il troncamento
-    avrebbe voluto dire scrivere codice nuovo il cui unico scopo è corrompere un
-    valore che il database ha già giusto.
+    La 2F l'aveva già chiuso prendendo il contesto dalle JOIN; la 2G lo rende
+    contratto: il contesto è fatto di TRE VALORI SEPARATI e nessuno costruisce quella
+    stringa.
 
-    Questo test fissa ENTRAMBI i valori — quello che l'oracolo produce e quello che
-    la proiezione produce — così la differenza sta in un file di test invece che in
-    una frase di un rapporto. Non cambia MAI quali scadenze sono dovute: la
-    §1 lo verifica separatamente, corpus per corpus.
-    """
-    bootstrap(engine, CORPORA["context"])
-    vecchio = labels(due_items(stored_document(engine), today=TODAY,
-                               warning_days=WINDOWS))
-    nuovo = labels(from_projection().items)
-
-    # Le voci sono le stesse: la divergenza è solo nel testo della posizione.
-    assert set(vecchio) == set(nuovo)
-
-    per_nome_vecchio = {v[0]: v for v in vecchio.values()}
-    per_nome_nuovo = {v[0]: v for v in nuovo.values()}
-
-    # Rack con uno `/`: troncato prima, intero adesso.
-    assert per_nome_vecchio["rack-con-slash"][1] == "10.0.0.0"
-    assert per_nome_nuovo["rack-con-slash"][1] == "10.0.0.0/24"
-
-    # Sito con uno `/`: tutte le parti scalate di uno. Il campo «rack» conteneva la
-    # SALA, e il campo «sala» conteneva la seconda metà del codice del sito.
-    assert per_nome_vecchio["sito-con-slash"][1:] == ("sala-5", "b", "a")
-    assert per_nome_nuovo["sito-con-slash"][1:] == ("R05", "sala-5", "a/b")
-
-    # Tutto il resto combacia: la divergenza è confinata agli id che CONTENGONO
-    # uno `/`. Il filtro guarda il valore NUOVO, non il vecchio: il vecchio è quello
-    # troncato, quindi non contiene più lo `/` e si escluderebbe da solo — un filtro
-    # sul vecchio avrebbe reso il ciclo vacuo proprio sui casi interessanti.
-    intatti = {k for k, v in nuovo.items() if "/" not in "".join(map(str, v))}
-    assert len(intatti) == 3, f"il filtro esclude troppo: {sorted(intatti)}"
-    for k in intatti:
-        assert vecchio[k] == nuovo[k]
-
-
-def test_a_missing_code_is_still_the_string_none(db, engine):
-    """`id` assente → l'etichetta è la stringa «None», come prima.
-
-    `id` non è obbligatorio nello schema del documento, e `walk` lo interpolava in una
-    f-string: un rack senza id mostrava «None» nell'avviso. Non è un difetto che la
-    fase 2F corregge — correggerlo cambierebbe il testo di un avviso reale senza che
-    nessuno l'abbia chiesto — ma è un difetto, e sta nel registro (§8.48).
+    ⚠ Il caso su cui il test si appoggia è cambiato, e la ragione va detta. Dalla 2G
+    l'etichetta preferisce il NOME al codice (§9): il rack `10.0.0.0/24` ha
+    `name="rete"`, quindi nell'avviso compare «rete» e il codice non si vede più. Se
+    il test guardasse solo quello, non potrebbe più accorgersi di un troncamento —
+    passerebbe anche con la vecchia implementazione rotta. Da qui due gruppi di
+    asserzioni: dove il nome esiste è il nome a comparire, e dove NON esiste il
+    codice compare INTERO, barre comprese.
     """
     bootstrap(engine, CORPORA["context"])
     nuovo = {v[0]: v for v in labels(from_projection().items).values()}
-    assert nuovo["rack-senza-id"][1] == "None"
-    assert nuovo["sala-senza-id"][2] == "None"
-    # Un id numerico invece diventa il suo `str()`, in entrambe le implementazioni.
-    assert nuovo["sala-senza-id"][3] == "3"
+
+    # --- dove esiste un nome, vince il nome (§9) ---
+    assert nuovo["rack-con-slash"][1] == "rete"
+    assert nuovo["sito-con-slash"][1:] == ("R05", "Sala 5", "Sito 5")
+
+    # --- dove NON esiste, il codice compare INTERO: è qui che un troncamento si
+    #     rivedrebbe, e per questo il corpus porta un caso senza nome ---
+    assert nuovo["slash-nudo"][1] == "10.1.1.0/24", "il codice del rack è troncato"
+    assert nuovo["slash-nudo"][2] == "sala/6", "il codice della sala è troncato"
+    assert nuovo["slash-nudo"][3] == "c/d", "il codice del sito è troncato"
+
+    # --- e la controprova che rende il test non vacuo: il percorso impacchettato
+    #     avrebbe dato QUESTO, e nessuna delle tre coincide col valore atteso ---
+    impacchettato = f"c/d / sala/6 / 10.1.1.0/24 / slash-nudo"
+    pezzi = [p.strip() for p in impacchettato.split("/")]
+    assert pezzi[:3] == ["c", "d", "sala"], (
+        "la controprova non riproduce più il difetto: il test non dimostra niente")
+
+
+def test_a_missing_code_is_never_the_string_none(db, engine):
+    """⚠ ROVESCIATO dalla 2G: «None» non compare mai più (§8.48 voce 11).
+
+    `id` non è obbligatorio nello schema del documento, e `walk` lo interpolava in una
+    f-string: un rack senza id mostrava la stringa **«None»** nell'avviso. La 2F lo
+    conservava di proposito — correggerlo avrebbe cambiato il testo di un avviso reale
+    senza che nessuno l'avesse chiesto — e §9 adesso lo chiede: «None» in un'email a
+    un cliente non è un dato, è un difetto che si legge.
+
+    ⚠ Questo test PRIMA pretendeva «None». È stato rovesciato, non cancellato: la
+    forma vecchia resta scritta qui accanto, così chi legge vede che cosa è cambiato e
+    perché, invece di trovare un test che non spiega la sua storia.
+    """
+    bootstrap(engine, CORPORA["context"])
+    nuovo = {v[0]: v for v in labels(from_projection().items).values()}
+
+    # Rack senza codice ma con nome: il nome. (Prima: «None».)
+    assert nuovo["rack-senza-id"][1] == "anonimo"
+    # Sala senza codice ma con nome: il nome. (Prima: «None».)
+    assert nuovo["sala-senza-id"][2] == "Sala 3"
+    # Sito con codice numerico e nome: il nome. (Prima: «3».)
+    assert nuovo["sala-senza-id"][3] == "Sito 3"
+    # Né nome né codice, a tutti e tre i livelli: «(senza nome)», mai «None».
+    assert nuovo["tutto-anonimo"][1:] == (domain.NO_NAME,) * 3
+
+    # E la proprietà, su TUTTO il corpus: nessuna etichetta è un valore
+    # dell'implementazione. È l'asserzione che non ha eccezioni, e che quindi non
+    # dipende da quali casi il corpus contiene oggi.
+    vietati = {"None", "none", "null", "undefined", "NULL"}
+    for voce in nuovo.values():
+        for etichetta in voce:
+            assert etichetta not in vietati, voce
 
 
 # ==================================================================
@@ -925,17 +945,22 @@ def _gonfia(engine, *, copie: int) -> None:
 # 4. le divergenze fra worker e vista Scadenze, provate (§11)
 # ==================================================================
 
-def test_the_worker_still_reminds_about_decommissioned_devices(db, engine):
-    """⚠ Divergenza DELIBERATA: la vista salta i dismessi, il worker no.
+def test_the_worker_no_longer_reminds_about_decommissioned_devices(db, engine):
+    """⚠ ROVESCIATO dalla 2G: i dismessi non generano più avvisi (§7, §8.48 voce 8).
 
-    `due_items` scorre `walk(doc)` e non guarda `stato`. Una macchina dismessa con la
-    garanzia in scadenza ha sempre prodotto un promemoria, e la fase 2F conserva quel
-    comportamento invece di «migliorarlo»: se un domani si decide che i dismessi non
-    devono più produrre avvisi, è una scelta di prodotto con la sua riga nel registro,
-    non l'effetto collaterale di una migrazione tecnica.
+    Fino alla 2F lo scanner non guardava `stato`: una macchina dismessa con la
+    garanzia in scadenza produceva un promemoria. Era il comportamento misurato, e la
+    2F l'ha conservato di proposito. La 2G lo decide nell'altro verso — nessuno deve
+    rinnovare la garanzia di un apparato che non tornerà in servizio — e con esso
+    decide anche il verso opposto della divergenza: **la vista Scadenze adesso li
+    MOSTRA**, perché la sua domanda è «cosa posso ispezionare».
 
-    Il test mette i due risultati uno accanto all'altro e pretende che divergano. Se
-    diventassero uguali, qualcuno ha cambiato la semantica di uno dei due.
+    Le due domande sono quindi ancora diverse, ma non più in disaccordo: prima ognuna
+    faceva l'opposto dell'altra senza che nessuno l'avesse deciso, adesso ognuna fa
+    ciò che serve alla sua domanda.
+
+    Il test pretende ENTRAMBI i versi. Se il worker ricominciasse a ricordarli, o se
+    la vista ricominciasse a saltarli, una delle due asserzioni cade.
     """
     from app.inventory import queries
 
@@ -945,10 +970,86 @@ def test_the_worker_still_reminds_about_decommissioned_devices(db, engine):
         vista = queries.expiries(snap, today=TODAY, warning_days=7)
     dalla_vista = {v["device"]["name"] for v in vista.items}
 
-    assert "dismesso" in dal_worker, "il worker deve continuare a ricordarli"
-    assert "dismesso" not in dalla_vista, "la vista deve continuare a saltarli"
-    # Tutto il resto combacia: la divergenza è solo sui dismessi.
-    assert dal_worker - dalla_vista == {"dismesso"}
+    assert "dismesso" not in dal_worker, (
+        "un dispositivo dismesso non deve generare avvisi nuovi (§7)")
+    assert "dismesso" in dalla_vista, (
+        "un dispositivo dismesso deve restare ISPEZIONABILE nella vista Scadenze")
+
+    # Gli altri stati restano idonei, e `dismissione` è quello che conta: la
+    # decisione non è conclusa, il contratto vale ancora. `ignoto` conta quasi
+    # altrettanto — un valore fuori vocabolario NON si esclude a naso, perché
+    # escluderlo significherebbe spegnere gli avvisi di un apparato per un campo
+    # compilato male.
+    for nome in ("attivo", "manutenzione", "dismissione", "vuoto", "ignoto",
+                 "dismissione-rimosso", "attivo-rimosso"):
+        assert nome in dal_worker, f"{nome} deve restare idoneo"
+
+    # ⚠ La vista è un SOVRAINSIEME del worker su questo corpus, e la differenza è
+    # esattamente l'insieme dei dismessi. Scritto come sottrazione, non come due
+    # conteggi: un conteggio uguale può nascondere due differenze che si compensano.
+    assert dal_worker <= dalla_vista
+    assert dalla_vista - dal_worker == {"dismesso", "dismesso-rimosso"}
+
+
+def test_the_expiry_view_can_be_filtered_by_state_and_presence(db, engine):
+    """I filtri che rendono i dismessi utili invece che solo visibili (§7, §8).
+
+    `?stato=dismesso&presenza=rimosso` è l'elenco dei contratti di ciò che è stato
+    portato via — il riscontro incrociato per cui i dismessi si conservano invece di
+    essere cancellati.
+    """
+    from app.inventory import queries
+
+    bootstrap(engine, CORPORA["decommissioned"])
+    with read_snapshot() as snap:
+        tutti = queries.expiries(snap, today=TODAY, warning_days=7)
+        solo_dismessi = queries.expiries(snap, today=TODAY, warning_days=7,
+                                         stato="dismesso")
+        solo_presenti = queries.expiries(snap, today=TODAY, warning_days=7,
+                                         presenza="presente")
+
+    nomi = lambda pagina: {v["device"]["name"] for v in pagina.items}
+    assert nomi(solo_dismessi) == {"dismesso", "dismesso-rimosso"}
+    assert "attivo-rimosso" in nomi(tutti) - nomi(solo_presenti), (
+        "il filtro sulla presenza non toglie i rimossi")
+    assert nomi(solo_presenti) < nomi(tutti)
+    assert solo_dismessi.filters == {"stato": "dismesso", "presenza": None}
+
+    # ⚠ Le due dimensioni sono INDIPENDENTI, e il modo di dimostrarlo è incrociarle:
+    # `dismesso` compare con entrambe le presenze, `rimosso` con entrambi gli stati.
+    with read_snapshot() as snap:
+        incrocio = {
+            (st, pr): nomi(queries.expiries(snap, today=TODAY, warning_days=7,
+                                            stato=st, presenza=pr))
+            for st in ("attivo", "dismesso") for pr in ("presente", "rimosso")}
+    assert incrocio[("dismesso", "presente")] == {"dismesso"}
+    assert incrocio[("dismesso", "rimosso")] == {"dismesso-rimosso"}
+    assert incrocio[("attivo", "rimosso")] == {"attivo-rimosso"}
+    assert "attivo" in incrocio[("attivo", "presente")]
+
+    # `notifiable` spiega la differenza fra le due viste dentro la risposta, senza
+    # obbligare il client a conoscerla.
+    per_nome = {v["device"]["name"]: v for v in tutti.items}
+    assert per_nome["dismesso"]["notifiable"] is False
+    assert per_nome["attivo"]["notifiable"] is True
+
+
+def test_an_unknown_filter_value_is_a_rejection_not_an_empty_list(db, engine):
+    """⚠ `?stato=dismessi` (plurale) deve essere un ERRORE, non zero risultati.
+
+    Un elenco vuoto si legge come «non ci sono apparati dismessi», ed è la risposta
+    peggiore possibile: plausibile e falsa. Un 422 dice che la domanda era scritta
+    male, ed è l'unica delle due che porta a correggerla.
+    """
+    from app.inventory import queries
+
+    bootstrap(engine, CORPORA["decommissioned"])
+    with read_snapshot() as snap:
+        for campo, valore in (("stato", "dismessi"), ("stato", "Dismesso"),
+                              ("presenza", "rimossi"), ("presenza", "")):
+            with pytest.raises(queries.QueryRejected):
+                queries.expiries(snap, today=TODAY, warning_days=7,
+                                 **{campo: valore})
 
 
 def test_the_worker_ignores_expired_items_and_the_view_lists_them(db, engine):
@@ -1740,8 +1841,20 @@ def test_the_digest_body_carries_the_context_from_the_joins(db, engine, smtp):
     bootstrap(engine, CORPORA["tree"])
     assert wk.run_once(engine, now_utc=_at(TODAY)).reason == "sent"
     corpo = smtp.sent[0].get_content()
-    assert "alfa / sala-a / rack R01" in corpo
-    assert "beta / sala-a / rack R01" in corpo
+    # ⚠ Le etichette, non i codici: dalla 2G la catena preferisce il nome mostrabile
+    # (§9). Il corpus `tree` dà ai siti i nomi «Alfa» e «Beta» e alle sale «Sala A».
+    with read_snapshot() as snap:
+        contesti = {(i.location, i.room, i.rack) for i in
+                    candidates.due_items_from_projection(
+                        snap, today=TODAY, warning_days=WINDOWS).items}
+    assert contesti, "nessun candidato: il test non verificherebbe niente"
+    for location, room, rack in contesti:
+        # Il formato del corpo è «sito / sala / rack CODICE»: il prefisso letterale
+        # «rack » fa parte del messaggio e non dell'etichetta.
+        assert f"{location} / {room} / rack {rack}" in corpo, (location, room, rack)
+    # E i tre valori arrivano DAVVERO dalle JOIN, cioè sono quelli del documento e non
+    # una ricomposizione: almeno due siti distinti devono comparire.
+    assert len({c[0] for c in contesti}) >= 2
 
 
 def test_a_hostile_name_from_the_projection_adds_no_header(db, engine, smtp):

@@ -50,6 +50,23 @@ ENTITY_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "device": {
         "stato": "attivo",   # app: d.stato || 'attivo'
+        # ⚠ Aggiunta dalla fase 2G (§8.50). La PRESENZA FISICA è un campo nuovo, e
+        # materializzarla come `presente` è la canonicalizzazione dell'assenza
+        # richiesta da §10 del requisito: l'inventario di prima non registra le
+        # rimozioni, quindi di quelle macchine si sa solo che nessuno ha detto che
+        # sono state portate via.
+        #
+        # Non alza `schemaVersion`, e la ragione è che non ne ha bisogno: un documento
+        # senza `presenza` resta INTERPRETABILE, perché l'assenza ha un significato
+        # dichiarato. È la stessa condizione di `stato`, `h` e `type`, che hanno
+        # sempre avuto un default e non hanno mai richiesto una versione nuova. Alzare
+        # `schemaVersion` avrebbe imposto una migrazione del documento a tutti i
+        # client per un campo che si può omettere.
+        #
+        # ⚠ Cambia però il DIGEST canonico del seed: un campo in più per dispositivo.
+        # È un cambiamento atteso, e `tools/verify-seed-migration.mjs --update` lo
+        # registra dopo che è stato guardato a mano.
+        "presenza": "presente",
         "h": 1,              # app: d.h || 1
         "type": "altro",     # app: TYPES[d.type] || TYPES.altro
         "model": "",

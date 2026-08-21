@@ -1,0 +1,357 @@
+{
+ "_nota": "parseExpiry accetta solo YYYY-MM-DD, con spazi intorno tollerati. Nessuna altra forma, nessuna euristica, nessun new Date. Il valore grezzo resta nell'inventario com'e: rifiutato come SCADENZA, mai riscritto.",
+ "parse": [
+  {
+   "raw": "2027-03-15",
+   "date": "2027-03-15"
+  },
+  {
+   "raw": "  2027-03-15  ",
+   "date": "2027-03-15",
+   "_meta": "spazi intorno tollerati"
+  },
+  {
+   "raw": "\t2027-03-15\n",
+   "date": "2027-03-15"
+  },
+  {
+   "raw": "2024-02-29",
+   "date": "2024-02-29",
+   "_meta": "bisestile vero"
+  },
+  {
+   "raw": "2000-02-29",
+   "date": "2000-02-29",
+   "_meta": "divisibile per 400: bisestile"
+  },
+  {
+   "raw": "1900-02-29",
+   "date": null,
+   "_meta": "divisibile per 100 e non per 400: NON bisestile"
+  },
+  {
+   "raw": "2100-02-29",
+   "date": null
+  },
+  {
+   "raw": "2027-02-30",
+   "date": null,
+   "_meta": "ROLLOVER: new Date la fa scorrere al 2 marzo. E la ragione per cui new Date non puo essere una validazione."
+  },
+  {
+   "raw": "2027-04-31",
+   "date": null
+  },
+  {
+   "raw": "2027-13-01",
+   "date": null
+  },
+  {
+   "raw": "2027-00-01",
+   "date": null
+  },
+  {
+   "raw": "2027-01-00",
+   "date": null
+  },
+  {
+   "raw": "2027-01-32",
+   "date": null
+  },
+  {
+   "raw": "2027-3-15",
+   "date": null,
+   "_meta": "mese a una cifra: new Date la accetta"
+  },
+  {
+   "raw": "2027-03-5",
+   "date": null
+  },
+  {
+   "raw": "2027/03/15",
+   "date": null,
+   "_meta": "barre: new Date le accetta"
+  },
+  {
+   "raw": "15/03/2027",
+   "date": null
+  },
+  {
+   "raw": "03-15-2027",
+   "date": null
+  },
+  {
+   "raw": "March 15, 2027",
+   "date": null,
+   "_meta": "nome del mese: new Date lo accetta"
+  },
+  {
+   "raw": "2027-03-15T10:00:00Z",
+   "date": null,
+   "_meta": "istante, non data di business"
+  },
+  {
+   "raw": "2027-03-15 10:00:00",
+   "date": null
+  },
+  {
+   "raw": "2027-03",
+   "date": null,
+   "_meta": "anno e mese: new Date li accetta"
+  },
+  {
+   "raw": "2027",
+   "date": null,
+   "_meta": "solo anno: new Date lo accetta"
+  },
+  {
+   "raw": "",
+   "date": null
+  },
+  {
+   "raw": "   ",
+   "date": null
+  },
+  {
+   "raw": "in attesa",
+   "date": null,
+   "_meta": "valore reale scritto a mano: resta, non e una data"
+  },
+  {
+   "raw": "n/a",
+   "date": null
+  },
+  {
+   "raw": "0000-01-01",
+   "date": null,
+   "_meta": "anno 0000: non esiste nel calendario gregoriano e datetime.date non lo rappresenta. La prima stesura della fixture lo dava per valido e il confronto fra le due implementazioni ha mostrato che divergevano."
+  },
+  {
+   "raw": "0001-01-01",
+   "date": "0001-01-01",
+   "_meta": "il primo anno rappresentabile"
+  },
+  {
+   "raw": "9999-12-31",
+   "date": "9999-12-31"
+  },
+  {
+   "raw": "+2027-03-15",
+   "date": null
+  },
+  {
+   "raw": "2027-03-15Z",
+   "date": null
+  },
+  {
+   "raw": "２０２７-０３-１５",
+   "date": null,
+   "_meta": "cifre a larghezza intera: non sono \\d nel contratto"
+  }
+ ],
+ "parseNonString": [
+  {
+   "raw": null,
+   "date": null
+  },
+  {
+   "raw": 20270315,
+   "date": null,
+   "_meta": "un numero non e una data: la colonna resterebbe NULL"
+  },
+  {
+   "raw": true,
+   "date": null
+  }
+ ],
+ "days": {
+  "_nota": "daysRemaining e la differenza fra DUE DATE DI CALENDARIO, in giorni interi. Mai Math.round((dt - Date.now())/86400000): quello dipende dall'ora del giorno e nella notte del cambio dell'ora si arrotonda per caso.",
+  "cases": [
+   {
+    "today": "2026-08-20",
+    "expiry": "2026-08-20",
+    "days": 0
+   },
+   {
+    "today": "2026-08-20",
+    "expiry": "2026-08-21",
+    "days": 1
+   },
+   {
+    "today": "2026-08-20",
+    "expiry": "2026-08-19",
+    "days": -1
+   },
+   {
+    "today": "2026-08-20",
+    "expiry": "2026-09-19",
+    "days": 30
+   },
+   {
+    "today": "2026-08-20",
+    "expiry": "2026-11-18",
+    "days": 90
+   },
+   {
+    "today": "2026-10-24",
+    "expiry": "2026-10-26",
+    "days": 2,
+    "_meta": "attraversa il ritorno all'ora solare in Europa (25 ottobre 2026): 49 ore di calendario, e comunque 2 giorni."
+   },
+   {
+    "today": "2027-03-27",
+    "expiry": "2027-03-29",
+    "days": 2,
+    "_meta": "attraversa il passaggio all'ora legale: 47 ore, e comunque 2 giorni."
+   },
+   {
+    "today": "2024-02-28",
+    "expiry": "2024-03-01",
+    "days": 2,
+    "_meta": "anno bisestile"
+   },
+   {
+    "today": "2023-02-28",
+    "expiry": "2023-03-01",
+    "days": 1
+   },
+   {
+    "today": "2026-12-31",
+    "expiry": "2027-01-01",
+    "days": 1
+   },
+   {
+    "today": "2026-08-20",
+    "expiry": "2036-08-20",
+    "days": 3653
+   }
+  ]
+ },
+ "level": {
+  "_nota": "Livello ISPETTIVO della vista Scadenze: mostra tutto. warning e la soglia della vista (90 nel frontend), non le finestre del worker.",
+  "cases": [
+   {
+    "days": -1,
+    "warning": 90,
+    "level": "expired"
+   },
+   {
+    "days": -400,
+    "warning": 90,
+    "level": "expired"
+   },
+   {
+    "days": 0,
+    "warning": 90,
+    "level": "warning",
+    "_meta": "scade OGGI: ancora in finestra"
+   },
+   {
+    "days": 90,
+    "warning": 90,
+    "level": "warning",
+    "_meta": "estremo compreso"
+   },
+   {
+    "days": 91,
+    "warning": 90,
+    "level": "future"
+   },
+   {
+    "days": 0,
+    "warning": 0,
+    "level": "warning"
+   },
+   {
+    "days": 1,
+    "warning": 0,
+    "level": "future"
+   }
+  ]
+ },
+ "notificationDue": {
+  "_nota": "Regola del worker: 0 <= giorni <= almeno una soglia. Gli scaduti NO. L'idoneita per STATO e un'altra cosa e sta in notifications.json.",
+  "cases": [
+   {
+    "days": 0,
+    "windows": [
+     90,
+     30,
+     7
+    ],
+    "due": true
+   },
+   {
+    "days": 7,
+    "windows": [
+     90,
+     30,
+     7
+    ],
+    "due": true
+   },
+   {
+    "days": 90,
+    "windows": [
+     90,
+     30,
+     7
+    ],
+    "due": true
+   },
+   {
+    "days": 91,
+    "windows": [
+     90,
+     30,
+     7
+    ],
+    "due": false
+   },
+   {
+    "days": -1,
+    "windows": [
+     90,
+     30,
+     7
+    ],
+    "due": false,
+    "_meta": "scaduto: nessun avviso nuovo. Resta visibile in Scadenze."
+   },
+   {
+    "days": 45,
+    "windows": [
+     7
+    ],
+    "due": false
+   },
+   {
+    "days": 5,
+    "windows": [
+     7
+    ],
+    "due": true
+   },
+   {
+    "days": 0,
+    "windows": [],
+    "due": false,
+    "_meta": "nessuna finestra configurata"
+   },
+   {
+    "days": 0,
+    "windows": [
+     0
+    ],
+    "due": true
+   },
+   {
+    "days": 1,
+    "windows": [
+     0
+    ],
+    "due": false
+   }
+  ]
+ }
+}

@@ -1,0 +1,82 @@
+{
+ "_nota": "Solo lo STATO decide l'idoneita a un avviso nuovo. dismesso NO; attivo, manutenzione e dismissione SI. La presenza fisica non c'entra: una garanzia scade anche a magazzino, e chi la rinnova deve saperlo.",
+ "cases": [
+  {
+   "device": {
+    "stato": "attivo",
+    "presenza": "presente"
+   },
+   "eligible": true
+  },
+  {
+   "device": {
+    "stato": "attivo",
+    "presenza": "rimosso"
+   },
+   "eligible": true,
+   "_meta": "portato via: la garanzia scade comunque"
+  },
+  {
+   "device": {
+    "stato": "manutenzione",
+    "presenza": "presente"
+   },
+   "eligible": true
+  },
+  {
+   "device": {
+    "stato": "manutenzione",
+    "presenza": "rimosso"
+   },
+   "eligible": true
+  },
+  {
+   "device": {
+    "stato": "dismissione",
+    "presenza": "presente"
+   },
+   "eligible": true,
+   "_meta": "in dismissione: la decisione non e conclusa, il contratto vale ancora"
+  },
+  {
+   "device": {
+    "stato": "dismissione",
+    "presenza": "rimosso"
+   },
+   "eligible": true
+  },
+  {
+   "device": {
+    "stato": "dismesso",
+    "presenza": "presente"
+   },
+   "eligible": false,
+   "_meta": "occupa lo slot ma non genera piu promemoria di rinnovo"
+  },
+  {
+   "device": {
+    "stato": "dismesso",
+    "presenza": "rimosso"
+   },
+   "eligible": false
+  },
+  {
+   "device": {},
+   "eligible": true,
+   "_meta": "legacy senza stato: attivo"
+  },
+  {
+   "device": {
+    "stato": ""
+   },
+   "eligible": true
+  },
+  {
+   "device": {
+    "stato": "DISMESSO"
+   },
+   "eligible": true,
+   "_meta": "il vocabolario e sensibile alle maiuscole: DISMESSO non e dismesso, e un valore fuori elenco resta idoneo invece di essere escluso a naso"
+  }
+ ]
+}

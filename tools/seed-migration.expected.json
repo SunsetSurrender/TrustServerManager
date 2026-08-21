@@ -7,7 +7,7 @@
     "device": 86
   },
   "total": 197,
-  "canonicalSha256": "4290d8ec5951a536492d6132be95c03a86373afaa2b11fe1def04c2ea1f8c0fd",
+  "canonicalSha256": "409e5dc7b4f6d4666941ce5ff46314b293ee352d7d861149c296b656e3aa9978",
   "schemaVersion": 1,
   "canonicalNote": "SHA-256 di JSON.stringify del seed dopo: canonicalise() (default documentati materializzati), rimozione ricorsiva degli _uid, e ordinamento alfabetico delle chiavi a ogni livello."
 }

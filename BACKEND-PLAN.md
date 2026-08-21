@@ -5200,63 +5200,68 @@ era la delimitazione giusta della 2C, della 2D e della 2E, ed è la decisione pr
 
 ### 8.48 Registro del debito semantico
 
-Incoerenze **reali e misurate** dell'applicazione, scoperte nelle fasi 2E e 2F. Nessuna è
-stata corretta: correggerle mentre si migrava avrebbe mescolato una modifica di prodotto con
-una migrazione tecnica, e reso impossibile dire quale delle due ha cambiato un comportamento.
+Incoerenze **reali e misurate** dell'applicazione, scoperte nelle fasi 2E e 2F. Nessuna era
+stata corretta allora: correggerle mentre si migrava avrebbe mescolato una modifica di
+prodotto con una migrazione tecnica, e reso impossibile dire quale delle due ha cambiato un
+comportamento.
 
-Il registro esiste perché siano **risolte di proposito** — prima di migrare il frontend alle
-rotte nuove, e prima del rilascio in produzione — invece di essere scoperte una seconda volta
-da chi farà quel lavoro. Un controllo statico pretende che questa sezione esista.
+⚠ **La fase 2G le risolve.** Il registro resta, e resta con il comportamento vecchio
+scritto accanto: serve a chi legge un ticket di sei mesi fa, o un export prodotto prima
+della 2G, e non capisce perché i numeri non tornano. Ogni voce porta l'esito.
+
+Le colonne: **cosa** era il comportamento misurato, **dove** viveva, **esito** che cosa è
+adesso. Un controllo statico pretende che le voci da 1 a 9 — quelle che il requisito della
+2G dichiara da chiudere prima del rilascio — siano tutte marcate RISOLTA.
 
 #### Ricerca
 
-| # | cosa | dove |
-|---|---|---|
-| 1 | Un IP esatto **non** è una query di rete: `parseIpQuery` gestisce solo CIDR, intervalli e jolly, quindi `10.0.0.1` è una ricerca testuale e combacia anche con `10.0.0.100`. | frontend + endpoint |
-| 2 | La ricerca per rete è **solo IPv4** (`ipToNum`): un dispositivo IPv6 è irraggiungibile per intervallo, raggiungibile per testo. | frontend + endpoint |
-| 3 | In modalità rete i **rack non partecipano affatto**, nemmeno quello il cui codice è un indirizzo. | frontend + endpoint |
-| 4 | I campi cercati sono cinque (`name, model, ip, serial, owner`): `id`, `type`, `stato` e `note` **non** si cercano, e nessuna interfaccia lo dice. | frontend + endpoint |
+| # | cosa | dove | esito |
+|---|---|---|---|
+| 1 | Un IP esatto **non** è una query di rete: `parseIpQuery` gestisce solo CIDR, intervalli e jolly, quindi `10.0.0.1` è una ricerca testuale e combacia anche con `10.0.0.100`. | frontend + endpoint | **RISOLTA** (2G). `exact` è una forma riconosciuta per IPv4 e IPv6: `10.0.0.1` significa quell'indirizzo. `10.0.0` resta testo, e resta giusto che lo sia — mezzo indirizzo è un prefisso. §8.50.6 |
+| 2 | La ricerca per rete è **solo IPv4** (`ipToNum`): un dispositivo IPv6 è irraggiungibile per intervallo, raggiungibile per testo. | frontend + endpoint | **RISOLTA** (2G). IPv6 esatto e CIDR IPv6. Intervalli e jolly IPv6 **non** esistono, per decisione: `2001:db8::*` non ha un significato che qualcuno abbia chiesto. §8.50.6 |
+| 3 | In modalità rete i **rack non partecipano affatto**, nemmeno quello il cui codice è un indirizzo. | frontend + endpoint | **RISOLTA — confermata come voluta** (2G, §5 del requisito). Un rack che si chiama «10.0.0.1» non è una macchina con quell'indirizzo: restituirlo a chi cerca un host è un falso positivo che *sembra* una risposta. Era un comportamento giusto per caso; adesso è una scelta. |
+| 4 | I campi cercati sono cinque (`name, model, ip, serial, owner`): `id`, `type`, `stato` e `note` **non** si cercano, e nessuna interfaccia lo dice. | frontend + endpoint | **RISOLTA** (2G). Nove campi: `id, name, model, ip, serial, owner, tipo, stato, presenza`. Le `note` restano fuori **per decisione** — testo libero e lungo, che renderebbe qualunque parola comune un risultato di massa. §8.50.6 |
 
 #### Capacità
 
-| # | cosa | dove |
-|---|---|---|
-| 5 | «U usate» ha **tre** implementazioni che non concordano: la vista Capacità conta gli **slot distinti occupati**, il pannello del rack e l'export XLSX fanno `SUM(h)`. Sovrapposizioni e sporgenze danno numeri diversi. | frontend (3 posti) |
-| 6 | I dispositivi **dismessi occupano spazio** nella vista Capacità, per un blocco vuoto: `if ((d.stato \|\| 'attivo') === 'dismesso') {}`. La vista Scadenze li esclude con un `continue` vero. Lo stesso stato ha due significati nella stessa applicazione. | frontend + endpoint |
-| 7 | Il raggruppamento per fila usa la sentinella `rk.row \|\| '—'`, e il seed di produzione contiene un rack la cui fila **è** `—` (`CS-Q01`): si fonde con i rack senza fila. | frontend + endpoint |
+| # | cosa | dove | esito |
+|---|---|---|---|
+| 5 | «U usate» ha **tre** implementazioni che non concordano: la vista Capacità conta gli **slot distinti occupati**, il pannello del rack e l'export XLSX fanno `SUM(h)`. Sovrapposizioni e sporgenze danno numeri diversi. | frontend (3 posti) | **RISOLTA** (2G). Una definizione: `domain.rack_capacity` / `DOM.rackCapacity`, slot U distinti. I tre posti la chiamano. Un controllo statico vieta il ritorno di `SUM(h)`, e le fixture di capacità riportano `sumH` accanto a `usedU` **solo dove differisce**, con un test che pretende la differenza. §8.50.3 |
+| 6 | I dispositivi **dismessi occupano spazio** nella vista Capacità, per un blocco vuoto: `if ((d.stato \|\| 'attivo') === 'dismesso') {}`. La vista Scadenze li esclude con un `continue` vero. Lo stesso stato ha due significati nella stessa applicazione. | frontend + endpoint | **RISOLTA** (2G), e la domanda era sbagliata. Lo stato OPERATIVO non dice se un apparato occupa uno slot: lo dice la **presenza fisica**, che è un campo nuovo. `dismesso + presente` occupa, `qualunque + rimosso` no. Il ramo vuoto dava per caso la risposta giusta nella metà dei casi. §8.50.2 |
+| 7 | Il raggruppamento per fila usa la sentinella `rk.row \|\| '—'`, e il seed di produzione contiene un rack la cui fila **è** `—` (`CS-Q01`): si fonde con i rack senza fila. | frontend + endpoint | **RISOLTA** (2G). `domain.row_group` tiene separata la CHIAVE del gruppo dall'ETICHETTA mostrata; la chiave contiene un byte NUL, che nessun valore di documento può contenere (§8.31). L'interfaccia mostra ancora «—» in entrambi i casi: cambia solo ciò che considera lo stesso gruppo. §8.50.5 |
 
 #### Scadenze
 
-| # | cosa | dove |
-|---|---|---|
-| 8 | La vista Scadenze e lo scanner del worker **non sono d'accordo**: la vista salta i dismessi ed elenca gli scaduti, il worker fa l'opposto. La 2F segue il worker (§8.47), l'endpoint segue la vista. | frontend / worker |
-| 9 | Il frontend interpreta le date con `new Date(v)`, i due backend con `parse_expiry`. Sette forme sono visibili nella vista e **invisibili** a worker ed endpoint, e sono queste: `2027-3-15`, `2027/03/15`, `March 15, 2027`, `2027-03-15T10:00:00Z`, `2027-03`, `2027`, `2027-02-30` (V8 lo fa scorrere al 2 marzo). `15/03/2027` è rifiutato da **entrambi** (V8 legge il mese 15). | frontend vs backend |
-| 10 | Un avviso per una scadenza **già passata** non esiste: si ripeterebbe ogni giorno per sempre, o no? Nessuna fase lo decide. | worker |
+| # | cosa | dove | esito |
+|---|---|---|---|
+| 8 | La vista Scadenze e lo scanner del worker **non sono d'accordo**: la vista salta i dismessi ed elenca gli scaduti, il worker fa l'opposto. La 2F segue il worker (§8.47), l'endpoint segue la vista. | frontend / worker | **RISOLTA** (2G). Restano diverse **per scelta**, non per caso, e ognuna fa ciò che serve alla sua domanda: la vista è ISPETTIVA (mostra tutto, dismessi compresi), il worker è AZIONABILE (`0 <= giorni <= finestra`, e non i dismessi). La risposta della vista porta `notifiable` accanto a ogni riga, così la differenza si legge invece di essere sapere di pochi. §8.50.8 |
+| 9 | Il frontend interpreta le date con `new Date(v)`, i due backend con `parse_expiry`. Sette forme sono visibili nella vista e **invisibili** a worker ed endpoint, e sono queste: `2027-3-15`, `2027/03/15`, `March 15, 2027`, `2027-03-15T10:00:00Z`, `2027-03`, `2027`, `2027-02-30` (V8 lo fa scorrere al 2 marzo). `15/03/2027` è rifiutato da **entrambi** (V8 legge il mese 15). | frontend vs backend | **RISOLTA** (2G). Un interprete solo, `domain.parse_expiry`, e il frontend lo chiama. Un test lo pretende sull'IDENTITÀ della funzione, non sul comportamento. Il corpus porta le sette forme con l'attesa `null` **e la controprova** che `new Date` le accettava — senza quella, il corpus dimostrerebbe solo che il parser rifiuta qualcosa. §8.50.7 |
+| 10 | Un avviso per una scadenza **già passata** non esiste: si ripeterebbe ogni giorno per sempre, o no? Nessuna fase lo decide. | worker | **APERTA, e per scelta.** La 2G non la decide: è un prodotto diverso — un avviso che si ripete per sempre, o una volta sola e allora quale — e nessuno l'ha chiesto. Gli scaduti restano **visibili** nella vista Scadenze con il livello `expired`, che è dove si guardano. Non è un blocco al rilascio: è una funzione che non c'è. |
 
 #### Etichette e contesto
 
-| # | cosa | dove |
-|---|---|---|
-| 11 | `id` non è obbligatorio nello schema del documento, e il percorso di `walk` lo interpolava in una f-string: un sito o un rack senza `id` compare nel digest come la stringa **`"None"`**. Conservato nella 2F. | worker |
-| 12 | Gli id che contengono `/` erano troncati dal rispezzamento del percorso; dalla 2F le JOIN restituiscono il valore intero (§8.47.2). **Divergenza risolta a favore del valore corretto**, l'unica della 2F. | worker (risolta) |
+| # | cosa | dove | esito |
+|---|---|---|---|
+| 11 | `id` non è obbligatorio nello schema del documento, e il percorso di `walk` lo interpolava in una f-string: un sito o un rack senza `id` compare nel digest come la stringa **`"None"`**. Conservato nella 2F. | worker | **RISOLTA** (2G, §9 del requisito). La catena è nome → codice → «(senza nome)», e «None» non compare mai. Il test che pretendeva «None» è stato ROVESCIATO, non cancellato: la forma vecchia resta scritta accanto. §8.50.9 |
+| 12 | Gli id che contengono `/` erano troncati dal rispezzamento del percorso; dalla 2F le JOIN restituiscono il valore intero (§8.47.2). | worker | **RISOLTA** dalla 2F, **rafforzata** dalla 2G. Il contesto è fatto di tre valori separati e nessuno costruisce più quella stringa. ⚠ Il test si appoggiava al fatto che il codice comparisse nell'etichetta, e dalla 2G l'etichetta preferisce il nome: il corpus porta ora un rack e un sito con lo `/` nel codice **e senza nome**, che è l'unico caso in cui un troncamento tornerebbe visibile. |
+| 13 | Una corruzione delle **colonne derivate** non muove né digest né versione: era invisibile alla guardia del worker, e gli avvisi smettevano senza che niente lo dicesse. | worker | **RISOLTA** dalla 2F: `validate_model` dentro lo stesso snapshot, e rifiuto con `projection_inconsistent` (§8.47.4). ⚠ La 2G aggiunge una derivata (`ip_addr`) e quindi ALLARGA la superficie: una `ip_addr` corrotta darebbe ricerche sbagliate, e le tre interrogazioni **non** eseguono `validate_model` (costa troppo per richiesta). La rete di sicurezza resta `project.py --verify`. Dichiarato in §8.50.11. |
 
 #### Coerenza e dati
 
-| # | cosa | dove |
-|---|---|---|
-| 13 | Una corruzione delle **colonne derivate** non muove né digest né versione: era invisibile alla guardia del worker, e gli avvisi smettevano senza che niente lo dicesse. **CHIUSA**: dalla 2F il worker esegue `validate_model` dentro lo stesso snapshot e rifiuta con `projection_inconsistent` (§8.47.4). Costa una lettura completa della proiezione una volta al giorno. | worker (risolta) |
-| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale, ed è il buco dei dati di seed che §7 registra da tempo. | dati |
-| 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend |
+| # | cosa | dove | esito |
+|---|---|---|---|
+| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale. | dati | **APERTA, e resta un blocco al rilascio.** La 2F l'ha aggirata con un corpus derivato (`seed-dated`) e la 2G ci ha aggiunto le presenze, ma un corpus costruito da me non è un dato reale: la funzione più delicata del prodotto non è ancora stata esercitata su scadenze che qualcuno ha scritto davvero. Vedi §7. |
+| 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend | **APERTA, non urgente.** Non è una divergenza semantica: è un costo. Nessun numero sullo schermo cambia. |
+| 16 | ⚠ **NUOVA, scoperta dalla 2G.** `rack.u` nel documento è un intero JSON senza massimo; la colonna della proiezione è `integer`. Un rack più alto di 2³¹ finisce in `extra` e la colonna resta NULL, quindi la capacità **dallo SQL** riporta quel rack senza altezza mentre il modello puro — che legge il documento — calcola sul valore vero. | backend | **LIMITE DICHIARATO, non discrepanza aperta.** `validate_model` lo segnala (`carried_verbatim`) e `test_un_rack_piu_alto_di_int32_non_entra_nella_colonna` lo fissa. Non si passa a `bigint`: sarebbe cambiare il tipo di una colonna — quindi la versione della mappa e una ricostruzione — per un dato che l'interfaccia non può produrre e che nel browser esaurisce la memoria della scheda. Il giorno in cui qualcuno lo volesse, quel test diventa rosso e gli dice dove guardare. |
 
-⚠ Da risolvere **prima** di migrare il frontend: 5, 6, 7, 8, 9. Sono le voci in cui la nuova
-implementazione SQL riproduce fedelmente un comportamento che il frontend non intendeva —
-e nel momento in cui il frontend chiamerà l'endpoint, quel comportamento diventerà l'unico.
+⚠ Bilancio dopo la 2G: **chiuse le voci da 1 a 9, più la 11**; già chiuse dalla 2F la 12 e
+la 13. Restano aperte la **10** (avvisi sugli scaduti: funzione che non esiste, non
+difetto), la **14** (il seed senza scadenze, **blocco al rilascio**) e la **15** (costo,
+non semantica).
 
-Chiuse: la **12** dalla 2F (gli id con lo `/`), la **13** dalla 2F (la validazione del
-modello nel worker). Resta aperta prima del rilascio la **14**: il seed di produzione non ha
-scadenze, quindi la funzione più delicata del prodotto non ha nessun dato reale su cui essere
-esercitata.
-
+Nessuna incoerenza semantica visibile all'utente resta aperta. Se ne comparisse una,
+§14 del requisito della 2G la dichiara un blocco al rilascio, e il posto dove scriverla
+è questa tabella.
 
 ### 8.49 Mappatura dei commit della fase 2
 
@@ -5281,6 +5286,616 @@ descrivono i contenuti indicati nella colonna «fase reale». Il soggetto di un 
 una fonte affidabile per la fase, in questo intervallo di storia.
 
 Non si fa `--force-push` e non si fa `--amend` su questi commit.
+
+### 8.50 Fase 2G: una semantica sola
+
+Fino alla 2E il contratto del prodotto era **il comportamento misurato del prototipo**.
+Era la scelta giusta: cambiare la semantica durante una migrazione tecnica avrebbe reso
+impossibile dire quale delle due cose aveva cambiato un numero sullo schermo. Ma era una
+scelta a scadenza, e la 2G è la scadenza.
+
+Il conto di ciò che divergeva, dal registro §8.48: **tre** definizioni di «U occupate»,
+**due** interpreti di data, **due** elenchi di campi cercabili, **due** idee di
+«dismesso», una sentinella di raggruppamento che collideva col dato, e un indirizzo IP
+esatto che trovava la macchina sbagliata.
+
+#### 8.50.1 Come è fatto: un modello, tre implementazioni, un contratto in dati
+
+    backend/app/domain.py        Python, e per estensione SQL
+    handoff/domain.js            JavaScript, per il frontend
+    fixtures/domain/*.json       il CONTRATTO: dati, non codice
+
+⚠ **Le attese delle fixture sono scritte a mano**, e questo è il cardine. Il generatore
+della 2E (`make-query-fixtures.mjs`) CALCOLAVA le attese copiando alla lettera il
+JavaScript del frontend, e allora era giusto: ciò che andava dimostrato era la parità con
+il comportamento che girava, e scrivere le attese a mano avrebbe dimostrato soltanto che
+lo SQL corrispondeva alla mia lettura del prototipo.
+
+Qui la domanda è rovesciata. Il comportamento del prototipo non è più il riferimento — è
+ciò che si sta sostituendo — e l'attesa è una decisione di prodotto. Calcolarla da una
+delle due implementazioni renderebbe il contratto **vacuo**: se sbagliassero entrambe
+allo stesso modo, nessun test diventerebbe rosso.
+
+Da qui la regola per chi tocca `tools/make-domain-fixtures.mjs`: *un'attesa non si
+aggiorna perché un test è rosso.* Si aggiorna quando la decisione cambia, e allora il
+rosso è il messaggio che l'implementazione non l'ha ancora seguita — in tutte e tre le
+suite contemporaneamente.
+
+L'unica eccezione, dichiarata: `addresses-fuzz.json`. Quattromilacinquecento forme mutate
+non si benedicono a mano, e non è quello il loro scopo — servono a dimostrare che le due
+implementazioni non divergono su nessuna. I verdetti li scrive il generatore (cioè
+JavaScript) e la suite Python pretende di produrre gli stessi: è un confronto
+**differenziale**, non un giudizio di prodotto. I casi che portano una decisione stanno
+tutti in `addresses.json`, con le attese a mano.
+
+⚠ Il confronto differenziale ha fatto il suo lavoro subito, e non era un esercizio: ha
+trovato **tre difetti** nella mia prima stesura del parser JavaScript nel giro di un
+minuto — i gruppi IPv6 renderizzati alla rovescia (`::1` diventava `1::`, e i valori
+numerici combaciavano comunque, quindi solo il testo lo mostrava), `1.2.3.4::` accettato
+dove Python rifiuta, e la forma puntata usata anche per gli IPv4-*compatible* invece dei
+soli IPv4-*mapped*. Poi, sulle 4567 forme mutate, una quarta classe: gli zeri iniziali
+nell'IPv4 incorporato in un IPv6. Nessuna rilettura del codice ci sarebbe arrivata.
+
+#### 8.50.2 Presenza fisica ≠ stato operativo
+
+`stato` descrive il **ciclo di vita operativo**: `attivo`, `manutenzione`,
+`dismissione`, `dismesso`. Vocabolario invariato.
+
+`presenza` è nuova e descrive la **presenza fisica**: `presente`, `rimosso`.
+
+    presente   l'hardware occupa ancora il suo slot nel rack
+    rimosso    l'hardware è stato portato via
+
+Le due domande sono **indipendenti**, e la tabella delle sei combinazioni non è una
+formalità:
+
+| stato | presenza | significato |
+|---|---|---|
+| attivo | presente | in servizio e installato |
+| manutenzione | presente | installato, in manutenzione |
+| dismissione | presente | installato, in via di dismissione |
+| dismesso | presente | **fuori servizio ma ancora nel rack** |
+| dismesso | rimosso | fuori servizio e portato via |
+| attivo | rimosso | in servizio altrove, non ancora ri-registrato |
+
+⚠ **La presenza non si deduce dallo stato**, e dedurla sarebbe il difetto peggiore
+possibile in questa fase. Un `dismesso` senza `presenza` canonicalizza a
+`dismesso + presente`: l'inventario di prima della 2G non registra le rimozioni, quindi
+l'unica cosa che si sa di quelle macchine è che *nessuno ha detto* che sono state portate
+via. Dedurre `rimosso` da `dismesso` libererebbe d'un colpo unità rack che in sala sono
+occupate — e il primo a scoprirlo sarebbe chi arriva con un apparato nuovo e non trova
+posto.
+
+Un test lo pretende in forma verificabile e non a parole: per ogni stato esistono
+entrambe le presenze, e per ogni presenza entrambe le risposte a «occupa». Se qualcuno
+reintroducesse una deduzione, una delle due mappe diventerebbe costante e il test lo
+direbbe.
+
+Un apparato `rimosso` **non si cancella** dall'inventario. Conserva `_uid`, seriale, id
+di business, nome, modello, referente, stato, note e l'ultimo rack in cui stava. È
+deliberato: serve al riscontro incrociato dell'hardware, che è la ragione per cui un
+inventario esiste.
+
+⚠ `schemaVersion` **non** cambia, e la ragione è che non ne ha bisogno. Un documento
+senza `presenza` resta interpretabile, perché l'assenza ha un significato dichiarato: è
+la stessa condizione di `stato`, `h` e `type`, che hanno sempre avuto un default e non
+hanno mai richiesto una versione nuova. Alzarla avrebbe imposto una migrazione del
+documento a tutti i client per un campo che si può omettere.
+
+Cambia invece il **digest canonico del seed**, perché la forma canonica ha un campo in
+più per dispositivo. È atteso, e `tools/verify-seed-migration.mjs --update` lo registra
+dopo che è stato guardato a mano.
+
+#### 8.50.3 Capacità: una definizione, e il conto di quelle che ha sostituito
+
+> `used_u` = numero di slot U fisici **DISTINTI** occupati da dispositivi la cui
+> `presenza` non è `rimosso`.
+
+Le tre implementazioni che c'erano (§8.48 voce 5):
+
+| dove | formula | sbagliava su |
+|---|---|---|
+| vista Capacità | slot distinti, `if (dismesso) {}` vuoto | i rimossi |
+| pannello del rack | `SUM(h)` | sovrapposizioni, sporgenze, rimossi |
+| export XLSX | `SUM(h)`, e `NaN%` con `rk.u = 0` | idem, più la divisione per zero |
+
+Le cinque regole fisiche, adesso scritte in un posto (`domain.slot_span`):
+
+  - `h` assente o `0` vale 1 — è il `d.h || 1` di sempre;
+  - `h` **negativo** non occupa niente: `-3` da U10 sarebbe un intervallo rovesciato, e
+    inventargli un verso vorrebbe dire decidere al posto di chi ha digitato male;
+  - slot iniziale `<= 0` sta **fuori** dal rack: i rack si contano da 1;
+  - la sporgenza oltre la cima si **taglia**: un 4U montato a U44 di un rack da 45 occupa
+    due unità, perché sono due quelle che esistono;
+  - `u` o `h` non interi non occupano niente: non si arrotonda un dato che non è un
+    numero di slot.
+
+⚠ Il costo è quello dei **dispositivi**, non dell'altezza del rack. `rack.u` è un
+`integer` senza massimo e il corpus `oversized-integers` ne contiene uno da 3 000 000 000:
+enumerare gli slot sarebbe la traduzione ovvia e sarebbe un guasto — nel browser esaurisce
+la memoria della scheda, in SQL produce tre miliardi di righe dentro una richiesta HTTP.
+In SQL è un'unione di intervalli con funzioni finestra, in Python e JavaScript una
+fusione di intervalli ordinati.
+
+⚠ **Il test che rende rossa la reintroduzione di `SUM(h)`.** Non basta che `used_u` sia
+giusto: bisogna che il corpus **distingua** le due definizioni. Le fixture di capacità
+riportano `sumH` accanto a `usedU` solo dove differisce, e un test pretende
+`sumH != usedU` su ognuna di quelle righe. Un corpus in cui le due formule coincidono
+passerebbe anche con l'implementazione sbagliata — e un test che non può fallire non
+protegge niente.
+
+Lo stesso test ha trovato una fixture mal progettata: il caso `h = 0` dichiarava
+`sumH: 0`, mentre la formula legacy era `sum(d.h || 1)` e quindi dava 1, cioè lo stesso
+valore degli slot distinti. Quel caso **non distingue** le due definizioni, e adesso lo
+dice invece di far passare un confronto vacuo.
+
+#### 8.50.4 Percentuale: aritmetica intera, HALF-UP
+
+Tre linguaggi, tre risposte diverse sulla metà esatta:
+
+    JavaScript   Math.round(0.5)  =  1     (metà verso l'alto)
+    Python       round(0.5)       =  0     (metà al pari, «del banchiere»)
+    PostgreSQL   round(0.5)       =  1     (metà lontano da zero)
+
+Un rack da 8 U con 1 U occupata è al 12,5%: il frontend mostrava **13** e Python avrebbe
+detto **12**. Nessuno dei due è sbagliato in sé; averli entrambi lo è.
+
+    floor(used * 100 / total + 1/2)  ==  (used * 200 + total) // (total * 2)
+
+La forma a destra non contiene divisioni in virgola mobile, quindi non contiene nemmeno il
+loro arrotondamento: le tre implementazioni danno lo stesso intero **per costruzione**,
+non per fortuna. Un totale nullo o negativo dà 0 — un rack alto zero unità non è occupato
+al 100%, non ha unità.
+
+Un test esercita ogni `used/total` con `total` fino a 400: sono i casi in cui il risultato
+cade esattamente su una metà, cioè quelli in cui `floor(x + 0.5)` in virgola mobile può
+sbagliare per un epsilon. E una controprova pretende che `round()` di Python dia una
+risposta DIVERSA su almeno un caso del corpus: senza, il corpus dimostrerebbe soltanto che
+`percent` restituisce dei numeri.
+
+#### 8.50.5 File: l'identità del gruppo non è l'etichetta
+
+Il prototipo raggruppava per `rk.row || '—'`. È una **sentinella che collide col dato**:
+nel seed di produzione esiste un rack la cui fila È «—» (CS-Q01), e finiva nel gruppo di
+tutti quelli senza fila. Il totale di unità libere di quella fila era la somma di due cose
+diverse.
+
+`domain.row_group` restituisce quattro campi: `assigned`, `value`, `key`, `label`.
+
+  - `key` identifica il gruppo e contiene un **byte NUL**, che nessun valore di documento
+    può contenere (`json_strings.is_representable_text` lo rifiuta, §8.31). È la stessa
+    tecnica dei separatori di chiave in `identity.js`;
+  - `label` è ciò che si mostra, e per una fila non impostata resta «—».
+
+L'interfaccia non cambia aspetto. Cambia soltanto ciò che considera lo stesso gruppo.
+
+⚠ Il NUL non è un dettaglio di implementazione: è la **ragione** per cui la collisione non
+può ripresentarsi. Con un separatore stampabile, un rack la cui fila valesse esattamente
+quel separatore ricreerebbe il difetto — la stessa storia, con un carattere diverso. Un
+test lo pretende, e pretende anche che il carattere sia irrappresentabile in un documento.
+
+Il gruppo «senza fila» si ordina per **ultimo**: è il residuo, non una fila che si chiama
+«—», e metterlo in testa lo farebbe leggere come la prima fila della sala.
+
+#### 8.50.6 Ricerca: una grammatica di indirizzi, e nove campi
+
+**Testo.** Sottostringa **letterale**, senza distinzione di maiuscole. `strpos` su
+`lower(...)` e non `LIKE`: `LIKE` attribuisce un significato a `%` e `_`, che in una
+casella di ricerca sono caratteri normali — con `LIKE` una query contenente `%`
+troverebbe tutto. Nove campi del dispositivo (`id, name, model, ip, serial, owner, tipo,
+stato, presenza`) e tre del rack (`id, name, seriali`).
+
+`tipo`, `stato` e `presenza` si cercano nel **valore memorizzato** (`server`, `attivo`,
+`rimosso`), non nell'etichetta tradotta: le etichette vivono nell'interfaccia e cambiano
+con la lingua, i valori sono il dato. E passano dal loro **default**: un dispositivo senza
+`stato` è `attivo` e va trovato cercando «attivo», perché è così che l'interfaccia lo
+mostra e così che la proiezione lo memorizza.
+
+Le `note` restano fuori **per decisione**: testo libero e lungo, che renderebbe qualunque
+parola comune un risultato di massa. È una scelta rivedibile, non una dimenticanza, e la
+differenza sta scritta nel contratto.
+
+⚠ **`extra` partecipa**, dalla 2G. Un valore che la mappa non ha potuto mettere in una
+colonna tipizzata sta in `extra` (§8.42), e nella 2E la ricerca non lo guardava: un rack i
+cui `seriali` contengono un numero porta l'intero array in `extra`, e i suoi seriali non si
+trovavano — mentre l'utente li vedeva sullo schermo. Era registrata come «stranezza», e
+resta una **risposta sbagliata**. Adesso ogni campo cercabile si guarda nella colonna
+**oppure** in `extra`, che è la stessa regola che `candidates.py` applica alle etichette.
+
+**Indirizzi.** Una grammatica sola (`domain.parse_address_query`):
+
+    10.0.0.1                esatto IPv4
+    2001:db8::1             esatto IPv6
+    10.0.2.0/24             CIDR IPv4
+    2001:db8::/32           CIDR IPv6
+    10.0.0.1 - 10.0.0.99    intervallo IPv4
+    10.0.*                  jolly IPv4
+
+⚠ **`10.0.0.1` non trova più `10.0.0.100`.** Era il difetto più visibile del prodotto: un
+IP esatto non era una forma riconosciuta, quindi finiva nella ricerca testuale, e
+`10.0.0.1` è una sottostringa di `10.0.0.100`. Chi cercava una macchina precisa riceveva
+la sua vicina di sottorete.
+
+⚠ **Non esistono intervalli né jolly IPv6**, e non si inventano: `2001:db8::*` dovrebbe
+voler dire «un gruppo qualsiasi» o «il resto dell'indirizzo»? Ogni risposta è una
+grammatica nuova che nessuno ha chiesto, e sbagliarla vorrebbe dire mostrare all'utente
+una rete diversa da quella che ha cercato. Restano testo.
+
+⚠ **Le famiglie non si mescolano.** Un jolly `10.0.*` non trova `::a00:1` anche se quel
+valore numerico coincide: sono due spazi di indirizzamento. È anche l'ordinamento che
+PostgreSQL dà al tipo `inet` — prima la famiglia, poi l'indirizzo — quindi la regola è la
+stessa nei tre posti in cui viene applicata, e un test la pretende **dal database** invece
+di fidarsi di questa frase.
+
+`10.0.0` continua a essere testo, e a trovare `10.0.0.1`, `10.0.0.100`… Non è
+un'incoerenza: mezzo indirizzo non è un indirizzo, e chi lo scrive sta cercando un
+prefisso.
+
+**In modalità indirizzo i rack non partecipano** (§8.48 voce 3, confermata come voluta).
+
+#### 8.50.7 Date: un interprete, e la controprova che ne servivano meno
+
+`domain.parse_expiry`: `YYYY-MM-DD` esatto, spazi intorno tollerati, niente altro.
+Autorevole per lo scanner, per la colonna derivata, per l'endpoint e — dalla 2G — per il
+frontend, che usava `new Date(v)`.
+
+Un test lo pretende sull'**identità** dell'oggetto funzione, non sul comportamento: due
+funzioni equivalenti oggi divergono domani, e divergono sui casi limite.
+
+Le sette forme che `new Date` accettava e il backend no stanno nel corpus con l'attesa
+`null`, **e con la controprova** che `new Date` le accetta davvero. Senza quella, il
+corpus dimostrerebbe soltanto che il parser rifiuta qualcosa, non che rifiuta qualcosa che
+l'implementazione precedente accettava. Per `2027-02-30` la controprova è più forte:
+`new Date` non rifiuta, la fa **scorrere al 2 marzo**. Una data inesistente diventava una
+data esistente, e chi gestisce il contratto l'avrebbe scoperto il 2 marzo.
+
+⚠ **Il valore grezzo non si riscrive mai.** `supporto = "March 15, 2027"` resta
+nell'inventario esattamente com'è, e si limita a non essere una scadenza riconosciuta.
+`validate_model` lo segnala come AVVISO — non errore — con un messaggio che dice la
+conseguenza: «nessuna vista la mostrerà come scadenza e il worker non ne manderà avvisi».
+
+⚠ Lo spostamento del parser ha chiuso un difetto **che era già lì**: in Python `\d`
+combacia con OGNI cifra decimale Unicode, quindi `２０２７-０３-１５` (cifre a larghezza
+intera) era una data per il backend e non per il frontend, dove `\d` è ASCII. Non l'ha
+trovato una rilettura: l'ha trovato il confronto fra le due implementazioni sul corpus
+condiviso. Adesso la classe è `[0-9]` in entrambi.
+
+⚠ **I giorni sono una differenza fra due date di calendario**, intera. Il frontend faceva
+`Math.round((dt - Date.now()) / 86400000)`, che non è un conteggio di giorni: dipende
+dall'ora del giorno, e nella notte del cambio dell'ora una differenza di 23 o 25 ore si
+arrotondava a un giorno **per caso**. `daysFromCivil` (algoritmo di Howard Hinnant) dà
+l'intero esatto senza toccare `Date`, e il corpus porta due casi che attraversano i
+passaggi dell'ora legale del 2026 e del 2027.
+
+L'anno `0000` è rifiutato da entrambe le implementazioni: non esiste nel calendario
+gregoriano e `datetime.date` non lo rappresenta. La prima stesura della fixture lo dava
+per valido, e il confronto fra le due implementazioni ha mostrato che divergevano.
+
+#### 8.50.8 Scadenze e notifiche: due domande, decise
+
+    vista Scadenze   ISPETTIVA
+                     «quali informazioni di scadenza può ispezionare un operatore?»
+                     → tutte quelle valide: scadute, di oggi, future
+                     → **compresi i dismessi**, con i filtri per stato e presenza
+
+    worker           AZIONABILE
+                     «quale scadenza ATTUALMENTE AZIONABILE richiede un'email?»
+                     → 0 <= giorni <= finestra più larga
+                     → **non i dismessi**
+
+Prima ognuna faceva l'opposto dell'altra **senza che nessuno l'avesse deciso** (§8.48 voce
+8). Adesso restano diverse per scelta, e ognuna fa ciò che serve alla sua domanda.
+
+Le due decisioni di prodotto:
+
+  1. **`dismesso` non genera più avvisi nuovi.** Nessuno deve rinnovare la garanzia di un
+     apparato che non tornerà in servizio. `attivo`, `manutenzione` e `dismissione`
+     restano idonei, perché «in dismissione» significa che la decisione non è ancora
+     conclusa;
+  2. **la vista Scadenze mostra i dismessi.** Un apparato dismesso ha un contratto che
+     scade, e chi fa l'inventario dei contratti deve poterlo vedere.
+
+⚠ La **presenza fisica non decide l'idoneità**. Un apparato portato in un altro sito ha
+la garanzia che scade comunque, e chi la rinnova ha bisogno di saperlo. La presenza decide
+l'occupazione dello spazio; lo stato decide gli avvisi. Un test incrocia le due dimensioni
+sul corpus — `dismesso + presente`, `dismesso + rimosso`, `attivo + rimosso`,
+`dismissione + rimosso` — perché senza l'incrocio nessuno può distinguere «guardo lo
+stato» da «guardo la presenza».
+
+⚠ Un valore di stato **fuori vocabolario resta idoneo**. Escluderlo a naso vorrebbe dire
+spegnere gli avvisi di un apparato per un campo compilato male, ed è il verso sbagliato in
+cui sbagliare.
+
+⚠ L'idoneità si applica anche al **ritentativo**. Se un dispositivo diventa `dismesso` fra
+la creazione del promemoria e il ritentativo, la sua voce esce dal digest — come esce
+quella di chi ha corretto la garanzia. È la stessa regola: non si manda un avviso su
+qualcosa che nel frattempo ha smesso di richiederlo.
+
+La risposta dell'endpoint porta `notifiable` accanto a ogni riga e nei totali. È
+l'informazione che spiega la differenza fra le due viste **dentro la risposta**, senza
+obbligare chi legge a conoscerla: un dismesso compare con `notifiable: false`.
+
+I filtri `stato` e `presenza` sono il modo di fare la domanda ristretta:
+`?stato=dismesso&presenza=rimosso` è l'elenco dei contratti di ciò che è stato portato
+via, cioè il riscontro incrociato per cui i dismessi si conservano invece di essere
+cancellati (§8.48 voce 8, §8 del requisito).
+
+⚠ Un filtro **fuori vocabolario è 422, non zero risultati**. `?stato=dismessi` al plurale
+darebbe un elenco vuoto, e chi lo legge concluderebbe che non ci sono apparati dismessi:
+plausibile e falsa. Un errore dice che la domanda era scritta male, ed è l'unica delle due
+risposte che porta a correggerla.
+
+#### 8.50.9 Etichette: mai un valore dell'implementazione
+
+Catena: **nome mostrabile → codice di business → «(senza nome)»**. Mai `None`, mai
+`undefined`, mai `null`.
+
+Che cosa può essere un'etichetta, dichiarato invece che dedotto — perché le due
+implementazioni non hanno la stessa idea di «vuoto», e la differenza si vede sui dati
+importati da un foglio di calcolo:
+
+  - una **stringa** non vuota sì, anche di soli spazi: è ciò che l'utente ha scritto;
+  - un **numero** diverso da zero sì, in forma decimale (`name: 42` → «42»);
+  - zero, `false`, `null`, **elenchi e oggetti** no. `String([])` in JavaScript è la
+    stringa vuota e `str([])` in Python è «[]»: due etichette diverse per lo stesso dato,
+    cioè esattamente ciò che questa fase elimina. Nessuno dei due è un'etichetta, e la
+    risposta giusta è passare al candidato successivo;
+  - `42.0` è «42» e non «42.0»: `String(42.0)` in JavaScript dà la prima forma, ed è
+    quella che l'utente ha visto nell'interfaccia da sempre.
+
+⚠ **Il contesto resta strutturato.** Sito, sala e rack sono tre campi separati fino a chi
+li mostra, e nessuno costruisce più la stringa `«sito / sala / rack»`. Era il difetto delle
+voci 11 e 12 del registro: un id con uno `/` veniva troncato e ogni pezzo dopo di lui
+scalava di un posto.
+
+⚠ Una conseguenza da dichiarare: **il testo degli avvisi cambia**. La catena preferisce il
+nome al codice, quindi un sito con codice `pomezia-g0` e nome «Pomezia — G0» compare nel
+digest col nome. Per un'email a una persona è la forma giusta, e l'API continua a
+restituire `code`, `name` e `label` separati, così un client che vuole il codice lo ha.
+
+Il test che pretendeva «None» è stato **rovesciato, non cancellato**: la forma vecchia
+resta scritta accanto, così chi legge vede che cosa è cambiato e perché. E il test dello
+`/` ha dovuto cambiare appoggio: si basava sul fatto che il codice comparisse
+nell'etichetta, e con il nome che vince non poteva più accorgersi di un troncamento —
+passerebbe anche con l'implementazione rotta. Il corpus porta ora un rack e un sito con lo
+`/` nel codice **e senza nome**, che è l'unico caso in cui un troncamento tornerebbe
+visibile, più una controprova che riproduce il vecchio impacchettamento e verifica che
+dia un risultato diverso.
+
+#### 8.50.10 Migrazione, versione della mappa, e il punto cieco che si allarga
+
+**Migrazione 0013.** Due colonne su `inventory_devices`, di due specie diverse:
+
+  - `presenza text` — colonna **tipizzata**, con una chiave nel documento. Torna nel
+    documento come `stato`. **Nessun `CHECK`** sul vocabolario: l'inventario reale arriva
+    da fogli di calcolo e contiene sempre qualche valore fuori elenco, e un vincolo qui
+    farebbe RIFIUTARE alla proiezione un documento che la fase 1 accetta — cioè
+    cambierebbe il comportamento del prodotto di straforo. `validate_model` lo segnala
+    come avviso, e il messaggio dice la conseguenza operativa: la capacità lo conterà come
+    PRESENTE, perché solo «rimosso» libera lo slot. **Nessun indice**: la domanda è «quali
+    NON sono rimossi», vera per la quasi totalità delle righe;
+  - `ip_addr inet` — colonna **derivata**, come `garanzia_date`. Indice parziale
+    (`WHERE ip_addr IS NOT NULL`).
+
+⚠ Perché `inet` va bene adesso e nella 2E era stato escluso. La 2E lo scartò per una
+ragione buona: `inet` ha una grammatica PROPRIA — accetta `10.1` come `10.0.0.1` e
+`10.0.0.0/8` come indirizzo — e usarla avrebbe aggiunto semantica che il prodotto non ha,
+in un solo posto dei tre. Quell'obiezione riguardava l'idea di far interpretare a
+PostgreSQL il testo dell'utente, **e resta valida**.
+
+Qui non succede: la colonna la scrive `domain.parse_address`, e in `ip_addr` arriva solo
+una forma già canonica. PostgreSQL riceve indirizzi normalizzati e li **confronta**, che è
+quello che sa fare meglio di qualunque espressione. Sostituisce l'espressione della 2E —
+nove `btrim` e otto `split_part` per riga, valutata a ogni ricerca — con due confronti su
+una colonna indicizzata.
+
+**`MAPPER_VERSION` 1 → 2.** È il caso per cui quel numero esiste. Le righe scritte dalla
+mappa vecchia riassemblerebbero lo STESSO documento — quindi lo stesso digest — mentre
+`presenza` starebbe in `extra` e `ip_addr` sarebbe vuota: la vista Capacità non troverebbe
+la presenza e la ricerca non troverebbe l'indirizzo. Il digest non può accorgersene
+(§8.44), la versione della mappa sì.
+
+Conseguenza operativa: **dopo la migrazione la proiezione si dichiara NON attuale** finché
+non gira `project.py --rebuild`. Le rotte di lettura rispondono 503 con
+`projection_not_current`, che è un errore **con un rimedio** — servire righe in cui la
+presenza non esiste sarebbe la risposta sbagliata. Non è una migrazione di dati: le due
+colonne nascono NULL e le riempie la ricostruzione. Nessun `UPDATE` di massa, nessuna
+riscrittura del documento. Un controllo statico lo pretende dalla migrazione.
+
+⚠ **Il punto cieco delle derivate si allarga, e va detto.** La 2F l'ha chiuso per il
+worker: `validate_model` dentro lo stesso snapshot, una volta al giorno (§8.47.4). Le tre
+interrogazioni interattive **non** possono pagare quel costo a ogni richiesta, e adesso
+c'è una derivata in più: una `ip_addr` corrotta a mano darebbe ricerche sbagliate senza
+che niente lo dica, perché il digest è cieco alle derivate per costruzione. La rete di
+sicurezza resta `project.py --verify`, ed è dichiarata nel docstring del modulo invece di
+essere scoperta.
+
+#### 8.50.11 Prestazioni misurate
+
+Mediana di 15 esecuzioni, seed di produzione con date, indirizzi e presenze
+iniettati in modo deterministico. Le scale si ottengono moltiplicando i DISPOSITIVI, con
+le date distanziate: senza, una finestra di 90 giorni conterrebbe una frazione costante
+delle righe e il piano resterebbe sequenziale per selettività invece che per scala —
+misurerei la cosa sbagliata.
+
+| misura | produzione (86) | ×10 (860) | ×30 (2 580) |
+|---|---|---|---|
+| ricerca testuale | 5,2 ms | 13,6 ms | 18,9 ms |
+| ricerca indirizzo esatto | 3,0 ms | 1,9 ms | 2,9 ms |
+| ricerca CIDR IPv4 /16 | 4,9 ms | 13,9 ms | 19,7 ms |
+| ricerca CIDR IPv6 /32 | 2,1 ms | 6,3 ms | 12,4 ms |
+| capacità | 4,7 ms | 5,5 ms | 8,5 ms |
+| scadenze | 5,4 ms | 13,8 ms | 15,8 ms |
+| scadenze filtrate | 3,0 ms | 3,6 ms | 6,3 ms |
+
+⚠ **Che cosa dicono e che cosa non dicono.** A questa scala i tempi sono dominati dal
+costo FISSO di una risposta — la revisione, l'apertura dello snapshot, la costruzione dei
+dizionari in Python — non dal lavoro sul database. Si vede da due cose: la ricerca per
+indirizzo esatto NON cresce (3,0 → 1,9 → 2,9 ms: la variazione è rumore), e la capacità
+cresce di quattro millisecondi mentre le righe si moltiplicano per trenta. Sono numeri
+che dicono «va bene», non «va bene perché la query è veloce».
+
+Il numero che dice qualcosa sul lavoro fatto è la CLAUSOLA, isolata dal resto:
+
+| | produzione | ×10 | ×30 |
+|---|---|---|---|
+| confronto `inet` su colonna (2G) | **0,4 ms** | **0,5 ms** | **0,7 ms** |
+| espressione `btrim`/`split_part` (2E) | 1,0 ms | 4,4 ms | 11,5 ms |
+
+⚠ La differenza non è «più veloce del 16×»: è **piatta contro lineare**. L'espressione
+della 2E si valutava su ogni riga — nove `btrim` e otto `split_part` — quindi il costo
+seguiva il numero di dispositivi; il confronto fra due `inet` su una colonna indicizzata
+non lo fa. A 2 580 dispositivi sono 11 millisecondi risparmiati su una query che ne
+impiega venti, cioè non un problema che qualcuno aveva; a 100× sarebbe la differenza fra
+una ricerca e un'attesa.
+
+⚠ **E l'indice si usa dove serve, non sempre.** Il piano dipende dalla selettività, ed è
+giusto che dipenda:
+
+    CIDR /16 — 1 950 righe su 2 580 (75%)
+      Seq Scan on inventory_devices  (actual time=0.014..0.651 rows=1950)
+        Filter: ((ip_addr >= '10.0.0.0') AND (ip_addr <= '10.0.255.255'))
+      Execution Time: 0.800 ms
+
+    indirizzo ESATTO — 1 riga su 2 580
+      Bitmap Heap Scan  (actual time=0.020..0.020 rows=1)
+        -> Bitmap Index Scan on ix_device_ip_addr  (actual time=0.015..0.015 rows=1)
+      Execution Time: 0.060 ms
+
+Su un predicato che combacia col 75% delle righe un indice è **più lento** della
+scansione, e il pianificatore ha ragione a ignorarlo. La domanda per cui l'indice esiste
+è l'indirizzo esatto — quella che la 2G ha aggiunto — e là lo usa, con 3 buffer letti
+invece di 58. Misurare solo il CIDR avrebbe portato alla conclusione sbagliata: «l'indice
+non serve».
+
+**Il worker.** Il percorso del worker non è cambiato nella sua parte costosa: la
+validazione del modello resta il termine dominante e superlineare misurato in §8.47.6
+(305,9 ms a ×30). La 2G aggiunge il filtro sui dismessi — che RIDUCE le righe lette — e
+una colonna derivata in più da verificare, il cui costo è lineare e sotto il rumore.
+
+**Il frontend.** `rackCapacity` sostituisce due `SUM(h)` e un vettore di occupazione. Il
+vettore era `new Array(rk.u + 1)` per rack, cioè un'allocazione proporzionale
+all'ALTEZZA; la fusione di intervalli è proporzionale ai DISPOSITIVI. Sul seed reale
+(102 rack, 86 dispositivi) la differenza non è osservabile; sul corpus
+`oversized-integers` la versione vecchia esauriva la memoria della scheda e questa no,
+che è una differenza di specie e non di grado.
+
+#### 8.50.12 Come è verificato
+
+**Suite e conteggi.**
+
+| | prima (2F) | dopo (2G) |
+|---|---|---|
+| test Python | 2 619 | **3 055** |
+| controlli statici | 313 | **337** |
+| controlli del contratto (JavaScript) | — | **541** |
+| test di identità (JavaScript) | 120 | 120 |
+
+Tutte verdi, zero salti. I 436 test in più sono, in ordine di peso:
+`test_domain_contract.py` (il contratto in Python), `test_domain_sql_pg.py` (il
+contratto in SQL), più i corpora estesi di `test_worker_sql_pg.py` e le riscritture di
+`test_queries_pg.py`.
+
+⚠ **Una lezione sul metodo di misura, e vale la pena scriverla.** Due volte, durante
+questa fase, ho letto «suite verde» da un comando della forma
+`pytest … | grep -E "^FAILED" | head`, e due volte era falso: la pipeline mascherava il
+codice di uscita di pytest e l'output non arrivava. La suite aveva **63 fallimenti**. Il
+modo affidabile è catturare dentro il container e leggere il file:
+
+    python -m pytest -q > /tmp/out.txt 2>&1; echo "EXIT=$?"; grep -c '^FAILED' /tmp/out.txt
+
+È il genere di errore che rende inutile tutto il resto: un rapporto che dice «verde»
+sulla base di una misura rotta è peggio di nessun rapporto.
+
+**Il contratto, e come si accorge di una divergenza.** `fixtures/domain/*.json` è
+eseguito da tre suite indipendenti. Ha trovato, durante la fase, difetti che nessuna
+rilettura avrebbe trovato:
+
+| trovato dove | che cos'era |
+|---|---|
+| corpus differenziale degli indirizzi | i gruppi IPv6 renderizzati **alla rovescia** in JavaScript (`::1` → `1::`); i valori numerici combaciavano, solo il testo lo mostrava |
+| corpus differenziale | `1.2.3.4::` accettato in JavaScript, rifiutato da `ipaddress` |
+| corpus differenziale | forma puntata usata anche per gli IPv4-*compatible* invece dei soli *mapped* |
+| fuzzing (4 567 forme) | zeri iniziali nell'IPv4 **incorporato** in un IPv6: accettati di qua, rifiutati di là |
+| corpus delle date | `\d` in Python combacia con le cifre Unicode: `２０２７-０３-１５` era una data per il backend e non per il frontend — **difetto preesistente** |
+| corpus delle date | l'anno `0000`: valido in JavaScript, non rappresentabile da `datetime.date` |
+| corpus di capacità | quattro mie attese sbagliate a mano (`largestFreeRun` calcolato male in tre casi) e un caso che **non distingueva** `SUM(h)` dagli slot distinti |
+| `test_domain_sql_pg.py` | `inet_out` stampa la maschera (`10.0.0.1/32`): serve `host()`, non `::text` |
+| `test_domain_sql_pg.py` | PostgreSQL scrive `::10.0.0.1` dove Python scrive `::a00:1` — stesso indirizzo, scrittura diversa |
+
+Le ultime due riguardano solo il testo e non il comportamento del prodotto: il confronto
+avviene fra valori `inet` e la rilettura passa da `psycopg`. Sono FISSATE in un test
+invece di essere attenuate, così se un giorno qualcuno mettesse `host(ip_addr)` in una
+risposta scoprirebbe da lì che non è la forma canonica di Python.
+
+**I test che possono diventare rossi se il difetto torna** (§13 del requisito). Un test
+che verifica il comportamento giusto non basta: deve poter fallire quando il vecchio
+comportamento ritorna. Per ognuno degli otto difetti dell'elenco:
+
+| difetto | come il test se ne accorge |
+|---|---|
+| falso positivo dell'IP esatto | `test_an_exact_ip_no_longer_matches_its_own_prefix` pretende che `10.0.0.1` NON trovi `10.0.0.100`, **e** la controprova che come sottostringa combaciava |
+| ramo vuoto dei dismessi in capacità | le fixture di presenza incrociano stato e presenza; un test pretende che per ogni stato esistano entrambe le presenze |
+| `SUM(h)` contro gli slot distinti | le fixture riportano `sumH` dove differisce, e un test pretende `sumH != usedU` su ognuna: un corpus in cui coincidono non protegge |
+| sentinella `—` | `test_lo_sql_separa_la_fila_non_impostata_da_quella_che_vale_trattino` pretende TRE gruppi, di cui due con la stessa etichetta |
+| rollover di `new Date` | il test JavaScript verifica che `new Date("2027-02-30")` **scorra davvero** al 2 marzo, e che il contratto la rifiuti |
+| contesto impacchettato su `/` | il corpus porta un rack e un sito con lo `/` nel codice **e senza nome** — l'unico caso in cui un troncamento tornerebbe visibile — più una controprova che riproduce l'impacchettamento |
+| arrotondamento diverso | `test_la_percentuale_non_usa_l_arrotondamento_di_python` pretende che `round()` dia un risultato DIVERSO su almeno un caso |
+| hardware rimosso che occupa | fixture `RIMOSSO` e `dismesso + rimosso`, con `sumH` dichiarato per mostrare la differenza |
+
+**Sul campo, sullo stack vero.** Stack completo in Compose, seed di produzione,
+migrazioni e `--rebuild`, 24 controlli sulla semantica della 2G più le suite esistenti.
+
+    project.py --verify
+      mappa        versione 2
+      fedeltà      OK: le tabelle riassemblano la versione che dichiarano
+      attualità    OK: rispecchia la testa, con una mappa supportata
+
+⚠ **La dimostrazione che vale più delle altre.** Due dispositivi nello STESSO rack, con
+la STESSA data di scadenza, nello stesso giorno — uno `attivo`, uno
+`dismesso + presente`:
+
+    WORKER (azionabili):
+      fw-01        garanzia  2026-08-30   10gg  [Pomezia — G0 / Backend / Rack R01 — Core]
+
+    VISTA Scadenze (ispettiva):
+      fw-01        garanzia  2026-08-30   10gg  stato=attivo    presenza=presente  notifiable=True
+      sw-core-01   garanzia  2026-08-30   10gg  stato=dismesso  presenza=presente  notifiable=False
+
+    totali della vista: {expired: 0, warning: 2, future: 0, notifiable: 1}
+
+Le due domande danno risposte diverse sugli stessi dati, e la risposta della vista
+**dice** perché. Si legge anche la conseguenza di §9: il contesto è
+«Pomezia — G0 / Backend / Rack R01 — Core», cioè i NOMI, e l'em dash dentro un nome
+arriva intatto — nessuna stringa impacchettata e nessuno spezzamento.
+
+E la presenza fisica, su un rack reale del seed:
+
+| | prima | dopo |
+|---|---|---|
+| `R01` | 5/45 U, 5 dispositivi, 0 rimossi | **4/45 U**, 5 dispositivi, **1 rimosso** |
+
+Un apparato marcato `rimosso` ha liberato la sua unità **senza essere cancellato**: il
+conteggio dei dispositivi non cambia, `removedCount` sale a 1. È esattamente ciò che §8
+chiede — l'hardware portato via resta nell'inventario per il riscontro incrociato, e
+smette di occupare spazio.
+
+Verificato inoltre sullo stack: `10.0.0.1` trova esattamente chi ha quell'indirizzo e
+nessun prefisso; il CIDR `/24` è un sovrainsieme; nessun rack in modalità indirizzo; la
+ricerca per `presenza` e per `stato` trova il dispositivo marcato; `?stato=dismessi` al
+plurale è 422; tutte le percentuali coincidono con l'aritmetica intera HALF-UP; il rack
+`CS-Q01` la cui fila **è** «—» esce come gruppo `assigned: true` distinto.
+
+⚠ Un passo dimenticato che vale la pena scrivere: `handoff/domain.js` non era
+nell'allowlist di nginx né nella `COPY` del `Dockerfile` del web. Il modulo sarebbe
+stato 404 nel browser — l'applicazione non è servita da un bundler, ma da un elenco di
+file esplicito (§6), e un file nuovo va aggiunto a mano in tre posti. Trovato provando
+sullo stack, non da un test: nessuna suite Python può accorgersene.
+
+**Suite esistenti, tutte verdi sullo stack:** `smoke-test.py`,
+`proxy-security-test.py`, `browser-e2e-test.py` (23 controlli, compreso «nessun errore
+JavaScript non gestito», che è ciò che dimostra che `domain.js` si carica e i percorsi
+di rendering funzionano).
 
 
 ## 9. Ordine di lavoro proposto

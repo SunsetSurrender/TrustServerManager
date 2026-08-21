@@ -637,7 +637,7 @@ def _write_state(conn: Connection, model: RelationalModel, *, version: int,
 def read_model(conn: Connection) -> RelationalModel:
     """Ricostruisce il modello **da SQL**. È il passo che rende il confronto una prova.
 
-    ⚠ Due conversioni obbligatorie, e nessuna delle due è cosmetica:
+    ⚠ Tre conversioni obbligatorie, e nessuna è cosmetica:
 
       - `uuid` → stringa. Una colonna `uuid` letta con `text()` torna come oggetto
         `uuid.UUID`: `assemble` lo metterebbe nel campo `_uid`, dove non è
@@ -645,6 +645,17 @@ def read_model(conn: Connection) -> RelationalModel:
         corrispondere. Il sintomo sarebbe «il digest non torna», che non fa pensare
         a un tipo.
       - `numeric` → int o float, secondo la scala (`from_column_number`).
+      - `inet` → stringa (fase 2G). `psycopg` restituisce un `ipaddress.IPv4Address`,
+        e la mappa scrive il TESTO canonico: senza questa conversione il confronto
+        «rilegge come è stata scritta» falliva su ogni dispositivo con un indirizzo —
+        29 nel seed — e il messaggio era «la proiezione non rilegge come è stata
+        scritta», che non fa pensare a un tipo nemmeno lui. È lo stesso inciampo di
+        `uuid`, sulla colonna aggiunta cinque fasi dopo.
+
+        Il testo di PostgreSQL e quello di `domain.parse_address` combaciano perché
+        entrambi producono la forma canonica RFC 5952 — minuscola, `::` sulla
+        sequenza di zeri più lunga, quartetto puntato per gli IPv4-mapped. Non si
+        assume: un test lo pretende dal database su un corpus di indirizzi.
     """
     state = conn.execute(text(
         f"SELECT schema_version, has_manual, root_extra FROM {STATE_TABLE}"
@@ -665,7 +676,8 @@ def read_model(conn: Connection) -> RelationalModel:
             values = {}
             for column in columns:
                 value = row[column]
-                if column in ("uid", parent) or (kind, column) == ("rack", "photo_id"):
+                if column in ("uid", parent)                         or (kind, column) in (("rack", "photo_id"),
+                                              ("device", "ip_addr")):
                     value = None if value is None else str(value)
                 elif (kind, column) in _NUMERIC:
                     value = from_column_number(value)

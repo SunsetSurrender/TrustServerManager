@@ -12,28 +12,41 @@ sa niente di promemoria: risponde a una domanda sola, «quali scadenze del dispo
 possono interessare a questo giro?», ed è la stessa domanda a cui rispondeva
 `due_items` leggendo il documento.
 
-⚠ NON È L'ENDPOINT `/api/inventory/expiries`
---------------------------------------------
-Quell'endpoint riproduce di proposito la **vista Scadenze** del frontend, e la vista
-Scadenze e il worker non sono d'accordo (§8.48). Le due differenze che contano:
+⚠ NON È L'ENDPOINT `/api/inventory/expiries`, e dalla 2G la ragione è più netta
+------------------------------------------------------------------------------
+Le due domande sono diverse, e la fase 2G le ha rese diverse **di proposito** invece
+di lasciarle divergere per caso (§7 del requisito, §8.50):
 
-  - la vista **salta i dispositivi dismessi**; il worker **no** — `due_items` scorre
-    `walk(doc)` e non guarda `stato`, quindi una macchina dismessa con la garanzia in
-    scadenza produce un promemoria oggi e deve continuare a produrlo;
-  - la vista elenca **anche gli scaduti** e i futuri fuori finestra; il worker manda
-    solo `0 <= giorni <= soglia più larga`.
+    vista Scadenze   «quali informazioni di scadenza può ispezionare un operatore?»
+                     → tutte quelle valide: scadute, di oggi, future. **Compresi i
+                       dismessi**, che restano ispezionabili e cercabili.
+    questo modulo    «quale scadenza ATTUALMENTE AZIONABILE richiede un'email?»
+                     → `0 <= giorni <= finestra più larga`, e **non i dismessi**.
 
-Usare l'endpoint come sorgente avrebbe cambiato entrambe le cose in silenzio,
-travestendo una modifica di prodotto da migrazione tecnica. Da qui la scelta di NON
-importare niente da `app/inventory/queries.py`: quel modulo ha semantica propria e
-condividerne un pezzo — anche solo le JOIN — è l'inizio di condividerne il resto.
+⚠ Il filtro sui dismessi è NUOVO nella 2G, e cambia il comportamento del worker.
+
+Fino alla 2F lo scanner non guardava `stato`: una macchina dismessa con la garanzia in
+scadenza produceva un promemoria. La 2F l'ha conservato di proposito — era il
+comportamento misurato, e correggerlo durante una migrazione tecnica avrebbe mescolato
+due cose. La 2G lo decide: nessuno deve rinnovare la garanzia di un apparato che non
+tornerà in servizio. `attivo`, `manutenzione` e `dismissione` restano idonei, perché
+«in dismissione» significa che la decisione non è ancora conclusa.
+
+⚠ La PRESENZA FISICA non c'entra con l'idoneità. Un apparato portato in un altro sito
+ha la garanzia che scade comunque, e chi la rinnova ha bisogno di saperlo. La presenza
+decide l'occupazione dello spazio (la vista Capacità), non gli avvisi.
+
+Resta la scelta di NON importare niente da `app/inventory/queries.py`: quel modulo
+risponde all'altra domanda, e condividerne un pezzo — anche solo le JOIN — è l'inizio
+di condividerne il resto. Ciò che i due condividono è `app/domain.py`, cioè le
+DECISIONI, non le query.
 
 Le date le legge chi le ha scritte
 ----------------------------------
 Si usano le colonne DERIVATE `garanzia_date` / `supporto_date`. Non è una comodità:
-quelle colonne le ha calcolate `parse_expiry`, cioè **questo stesso parser** (§8.44,
-`relational.DERIVED`). Interpretare qui il testo grezzo significherebbe avere due idee
-di «data valida» nello stesso processo, e due idee divergono sui casi limite — che sono
+quelle colonne le ha calcolate `domain.parse_expiry`, l'unico interprete di date del
+prodotto (§8.50). Interpretare qui il testo grezzo significherebbe avere due idee di
+«data valida» nello stesso processo, e due idee divergono sui casi limite — che sono
 esattamente i casi che un inventario compilato a mano produce.
 
 Il testo grezzo `garanzia` / `supporto` resta il dato autorevole e non si tocca: la
@@ -52,14 +65,9 @@ from typing import Any, Sequence
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app import domain
 from app.inventory import projection
 from app.notifications.expiry import EXPIRY_KINDS, DueItem
-
-#: Nome dato dallo scanner a un dispositivo senza nome e senza id. Sta qui perché è
-#: parte della semantica riprodotta, non una stringa di comodo: `due_items` scrive
-#: `entity.obj.get("name") or entity.obj.get("id") or "(senza nome)"`.
-NO_NAME = "(senza nome)"
-
 
 @dataclass(frozen=True)
 class Candidates:
@@ -83,7 +91,7 @@ class Candidates:
 
 
 # ==================================================================
-# etichette: le stesse stringhe che componeva `walk`, ricavate dalle colonne
+# etichette: quelle del contratto, ricavate dalle colonne
 # ==================================================================
 
 def _value(column: Any, extra: Any) -> Any:
@@ -92,8 +100,8 @@ def _value(column: Any, extra: Any) -> Any:
     La mappa relazionale mette ogni chiave in ESATTAMENTE uno dei due (§8.44,
     `relational._split`): nella colonna se il tipo ci sta, in `extra` altrimenti. Un
     `name: 42` non è una stringa, quindi la colonna è NULL e il 42 sta in `extra` — e
-    per lo scanner quel dispositivo si chiamava «42», perché in Python `42 or …` è
-    `42`.
+    per l'utente quel dispositivo si chiama «42», perché è così che l'interfaccia lo
+    mostra.
 
     Guardare solo la colonna avrebbe fatto sparire quel nome e mostrato l'id al suo
     posto: una divergenza silenziosa, invisibile in ogni inventario ben formato e
@@ -101,50 +109,34 @@ def _value(column: Any, extra: Any) -> Any:
 
     ⚠ `extra -> 'chiave'` restituisce `None` sia per «chiave assente» sia per
     «chiave presente con valore JSON null». Le due cose sono diverse nel documento e
-    identiche per lo scanner (`.get()` dà `None` in entrambi i casi), quindi qui la
-    coincidenza è corretta e non va «sistemata».
+    identiche per il contratto (`domain.label_candidate` scarta entrambe), quindi qui
+    la coincidenza è corretta e non va «sistemata».
     """
     return column if column is not None else extra
 
 
-def device_label(name: Any, name_extra: Any, code: Any, code_extra: Any) -> str:
-    """`obj.get("name") or obj.get("id") or "(senza nome)"`, poi `str()`.
+def _label(*pairs: tuple) -> str:
+    """`domain.label` sulle coppie (colonna, extra).
 
-    Riprodotto alla lettera, con la falsità di Python che è quella che lo scanner ha
-    sempre applicato: `None`, `""`, `0`, `False`, `[]`, `{}` fanno passare al
-    candidato successivo. Una stringa vuota NON diventa il nome, e un `name: 0`
-    nemmeno — sono gli stessi due casi in cui il documento canonico non riempie
-    niente, perché `name` e `id` non hanno un valore predefinito (§8.14).
+    ⚠ È qui che la fase 2G chiude le voci 11 e 12 del registro (§8.48).
+
+    Fino alla 2F il contesto veniva dal PERCORSO impacchettato di `walk` — la stringa
+    «sito / sala / rack / dispositivo» — rispezzata sugli `/`. Da qui due difetti: un
+    id che contiene uno `/` veniva troncato (`10.0.0.0/24` diventava `10.0.0.0`) e ogni
+    pezzo dopo di lui scalava di un posto; un id ASSENTE arrivava nel digest come la
+    stringa **«None»**, perché il percorso era una f-string.
+
+    La 2F aveva già risolto il primo — le JOIN restituiscono il valore intero — e
+    conservato il secondo di proposito, perché correggerlo avrebbe cambiato il testo di
+    un avviso reale senza che nessuno l'avesse chiesto. Adesso l'ha chiesto (§9): «None»
+    in un'email a un cliente non è un dato, è un difetto che si legge.
+
+    ⚠ E cambia l'ORDINE dei candidati: `_label` preferisce il nome mostrabile al
+    codice, quindi un sito che si chiama «Pomezia G0» con codice `pomezia-g0` ordina
+    sotto P e non sotto p. L'ordinamento resta TOTALE e deterministico, che è ciò che
+    il digest richiede; cambia il testo del messaggio, e cambia in meglio.
     """
-    for candidate in (_value(name, name_extra), _value(code, code_extra)):
-        if candidate:
-            return str(candidate)
-    return NO_NAME
-
-
-def path_label(code: Any, code_extra: Any) -> str:
-    """L'`id` di sito/sala/rack come lo scriveva il percorso di `walk`.
-
-    `walk` compone `f"{L['id']} / {R['id']} / {K['id']} / {V['id']}"` e `_context` lo
-    rispezza sugli `/`: il valore che arrivava nel digest era quindi `str(id)`, **con
-    `str(None)` che vale `"None"`** quando l'id manca. Non è un difetto da correggere
-    qui: `id` non è obbligatorio nello schema del documento, e un sito senza id
-    mostrava «None» nell'avviso. Riprodurlo costa una riga e mantiene la parità
-    esatta; «correggerlo» in questo commit cambierebbe il testo di un avviso reale
-    senza che nessuno l'abbia chiesto.
-
-    ⚠ L'UNICA divergenza voluta della fase 2F sta qui, e riguarda gli id che
-    contengono `/`. Il percorso era una stringa sola e `_context` la spezzava su ogni
-    `/`: un rack di codice `10.0.0.0/24` arrivava nel digest come `10.0.0.0`, e un
-    **sito** con uno `/` nel codice spostava di un posto sito, sala e rack. La JOIN ha
-    il valore intero e lo restituisce intero (§7 della fase 2F: il contesto si ottiene
-    dalle JOIN). Riprodurre il troncamento vorrebbe dire scrivere codice nuovo il cui
-    unico scopo è corrompere un valore che il database ha già giusto. La differenza è
-    misurata in `test_worker_sql_pg.py` — che fissa ENTRAMBI i valori — e registrata
-    in §8.48; non cambia MAI quali scadenze sono dovute, solo come si legge la
-    posizione nel corpo del messaggio.
-    """
-    return str(_value(code, code_extra))
+    return domain.label(*(_value(col, extra) for col, extra in pairs))
 
 
 # ==================================================================
@@ -158,8 +150,11 @@ def path_label(code: Any, code_extra: Any) -> str:
 _LABEL_COLUMNS = """
        d.name AS dev_name,  d.extra -> 'name' AS dev_name_extra,
        d.code AS dev_code,  d.extra -> 'id'   AS dev_code_extra,
+       k.name AS rack_name, k.extra -> 'name' AS rack_name_extra,
        k.code AS rack_code, k.extra -> 'id'   AS rack_code_extra,
+       r.nome AS room_nome, r.extra -> 'nome' AS room_nome_extra,
        r.code AS room_code, r.extra -> 'id'   AS room_code_extra,
+       l.nome AS loc_nome,  l.extra -> 'nome' AS loc_nome_extra,
        l.code AS loc_code,  l.extra -> 'id'   AS loc_code_extra
 """
 
@@ -184,20 +179,36 @@ _TREE = """
 #: una riga per (dispositivo, tipo) — che è esattamente ciò che
 #: `devices_with_expiries` restituiva con il suo ciclo su `EXPIRY_KINDS`.
 #:
-#: ⚠ NESSUN filtro su `stato`. È la differenza con l'endpoint (§8.48): lo scanner non
-#: ha mai guardato `stato`, e un dispositivo dismesso con la garanzia in scadenza ha
-#: sempre prodotto un promemoria. Aggiungere qui il filtro della vista Scadenze
-#: sarebbe una modifica di prodotto mascherata da migrazione.
+#: ⚠ Il filtro sui DISMESSI, e dove sta scritto perché.
+#:
+#: `NOT IN ('dismesso')` con il default applicato: un dispositivo senza `stato` è
+#: `attivo`, e senza `nullif` una stringa vuota resterebbe vuota — diversa da
+#: `'dismesso'`, quindi per caso la risposta giusta, e per il motivo sbagliato.
+#:
+#: La condizione la decide `domain.NOTIFY_INELIGIBLE_STATES`, non questa stringa: un
+#: test pretende che l'elenco in SQL e quello del contratto combacino, così aggiungere
+#: uno stato inidoneo al contratto e dimenticarlo qui diventa rosso.
+#:
+#: ⚠ NESSUN filtro sulla PRESENZA, e non è una dimenticanza. Un apparato `rimosso` ha
+#: la garanzia che scade comunque: è a magazzino, è stato spostato in un altro sito,
+#: o è in riparazione — e chi rinnova il contratto ha bisogno di saperlo. La presenza
+#: decide l'occupazione fisica dello spazio, che è la domanda della vista Capacità.
+_NOT_DISMESSO = ("coalesce(nullif(d.stato, ''), '{}') NOT IN ({})".format(
+    domain.DEFAULT_STATO,
+    ", ".join(f"'{s}'" for s in domain.NOTIFY_INELIGIBLE_STATES)))
+
 _CANDIDATE_BRANCH = """
     SELECT '{kind}'::text AS kind, d.uid AS uid, d.{kind}_date AS expiry,
 {labels}
     {tree}
      WHERE d.{kind}_date >= CAST(:today AS date)
        AND d.{kind}_date <= CAST(:until AS date)
+       AND {eligible}
 """
 
 _CANDIDATES_SQL = " UNION ALL ".join(
-    _CANDIDATE_BRANCH.format(kind=kind, labels=_LABEL_COLUMNS, tree=_TREE)
+    _CANDIDATE_BRANCH.format(kind=kind, labels=_LABEL_COLUMNS, tree=_TREE,
+                             eligible=_NOT_DISMESSO)
     for kind in EXPIRY_KINDS)
 
 
@@ -220,11 +231,14 @@ def _item(row: Any, *, today: date) -> DueItem:
         kind=row.kind,
         expiry=row.expiry,
         days_remaining=(row.expiry - today).days,
-        device=device_label(row.dev_name, row.dev_name_extra,
-                            row.dev_code, row.dev_code_extra),
-        rack=path_label(row.rack_code, row.rack_code_extra),
-        room=path_label(row.room_code, row.room_code_extra),
-        location=path_label(row.loc_code, row.loc_code_extra))
+        device=_label((row.dev_name, row.dev_name_extra),
+                      (row.dev_code, row.dev_code_extra)),
+        rack=_label((row.rack_name, row.rack_name_extra),
+                    (row.rack_code, row.rack_code_extra)),
+        room=_label((row.room_nome, row.room_nome_extra),
+                    (row.room_code, row.room_code_extra)),
+        location=_label((row.loc_nome, row.loc_nome_extra),
+                        (row.loc_code, row.loc_code_extra)))
 
 
 def due_items_from_projection(conn: Connection, *, today: date,
@@ -245,9 +259,15 @@ def due_items_from_projection(conn: Connection, *, today: date,
     si leggerebbero in cinque istanti diversi, e un `PUT` che committa nel mezzo
     darebbe candidati di due versioni con la revisione di una terza.
 
-    La FINESTRA è quella dello scanner: `0 <= giorni <= max(warning_days)`. Si
-    interroga solo quell'intervallo invece di leggere tutte le date e scartarle in
-    Python — che è ciò che faceva la scansione del documento.
+    La FINESTRA è quella del contratto: `0 <= giorni <= max(warning_days)`
+    (`domain.notification_due`). Si interroga solo quell'intervallo invece di leggere
+    tutte le date e scartarle in Python — che è ciò che faceva la scansione del
+    documento.
+
+    L'IDONEITÀ per stato la applica la query (`_NOT_DISMESSO`), non un filtro in
+    Python dopo: un dispositivo dismesso non deve nemmeno arrivare qui, e farlo
+    arrivare per poi scartarlo significherebbe leggere righe che non servono e avere
+    due posti in cui la regola è scritta.
     """
     # ⚠ VALIDAZIONE DEL MODELLO, e non solo attualità. `require_valid_model` fa i
     # quattro passi: testa, dichiarazione della proiezione, lettura del modello,
@@ -301,6 +321,7 @@ _CONTEXT_SQL = f"""
 {_LABEL_COLUMNS}
     {_TREE}
      WHERE d.uid = ANY(CAST(:uids AS uuid[]))
+       AND {_NOT_DISMESSO}
 """
 
 
@@ -319,6 +340,13 @@ def context_by_key(conn: Connection, uids: Sequence[str]) -> dict:
     sbagliate sotto un `Message-ID` già usato, e uno che leggesse da un modello
     incoerente potrebbe non trovare la chiave e chiudere la consegna dichiarando
     inviati promemoria che nessuno ha ricevuto.
+
+    ⚠ Dalla 2G si applica anche l'IDONEITÀ, non solo l'esistenza della data. Se un
+    dispositivo è stato messo `dismesso` fra la creazione del promemoria e il
+    ritentativo, la sua voce esce dal digest — come esce quella di chi ha corretto la
+    garanzia. È la stessa regola: non si manda un avviso su qualcosa che nel frattempo
+    ha smesso di richiederlo. Se il digest resta vuoto, `_attempt_delivery` chiude la
+    consegna senza inviare, che è la conclusione giusta.
     """
     projection.require_valid_model(conn)
     if not uids:
@@ -327,11 +355,14 @@ def context_by_key(conn: Connection, uids: Sequence[str]) -> dict:
     out: dict = {}
     rows = conn.execute(text(_CONTEXT_SQL), {"uids": list(uids)}).all()
     for row in rows:
-        label = (device_label(row.dev_name, row.dev_name_extra,
-                              row.dev_code, row.dev_code_extra),
-                 path_label(row.rack_code, row.rack_code_extra),
-                 path_label(row.room_code, row.room_code_extra),
-                 path_label(row.loc_code, row.loc_code_extra))
+        label = (_label((row.dev_name, row.dev_name_extra),
+                        (row.dev_code, row.dev_code_extra)),
+                 _label((row.rack_name, row.rack_name_extra),
+                        (row.rack_code, row.rack_code_extra)),
+                 _label((row.room_nome, row.room_nome_extra),
+                        (row.room_code, row.room_code_extra)),
+                 _label((row.loc_nome, row.loc_nome_extra),
+                        (row.loc_code, row.loc_code_extra)))
         for kind in EXPIRY_KINDS:
             expiry = getattr(row, f"{kind}_date")
             if expiry is not None:

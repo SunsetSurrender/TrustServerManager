@@ -71,8 +71,12 @@ export const ENTITY_DEFAULTS = {
   location: { sale: [] },
   room: { racks: [], vani: [], area: '', dim: '', segnaposto: false },
   rack: { devices: [], seriali: [], u: 45, name: '', row: '' },
-  device: { stato: 'attivo', h: 1, type: 'altro', model: '', ip: '', serial: '',
-            owner: '', garanzia: '', supporto: '', note: '' },
+  // ⚠ `presenza` aggiunta dalla fase 2G: presenza FISICA, indipendente dallo stato
+  // operativo. L'assenza canonicalizza a `presente` — l'inventario di prima non
+  // registrava le rimozioni, quindi di quelle macchine si sa solo che nessuno ha
+  // detto che sono state portate via. Vedi handoff/domain.js e BACKEND-PLAN.md §8.50.
+  device: { stato: 'attivo', presenza: 'presente', h: 1, type: 'altro', model: '',
+            ip: '', serial: '', owner: '', garanzia: '', supporto: '', note: '' },
   manual: { titolo: '', blocchi: [] },
 };
 
@@ -476,6 +480,9 @@ export const HEADER_ALIASES = {
   'uid': '_uid', 'id univoco': '_uid', 'identita': '_uid',
   'scadenza garanzia': 'garanzia', 'scadenza supporto': 'supporto',
   'stato del dispositivo': 'stato', 'tipo dispositivo': 'tipo',
+  // fase 2G: presenza fisica. Gli alias coprono l'intestazione dell'export
+  // formattato ("Presenza") e i modi in cui una persona la scrive a mano.
+  'presenza fisica': 'presenza', 'presente': 'presenza', 'in rack': 'presenza',
 };
 
 /** Intestazioni normalizzate: minuscole, spazi compattati, alias risolti. */
@@ -488,6 +495,10 @@ export function normalizeHeaders(headers) {
 
 export const TIPI = ['server', 'rete', 'storage', 'firewall', 'alimentazione', 'altro'];
 export const STATI = ['attivo', 'manutenzione', 'dismissione', 'dismesso'];
+
+/** Presenza FISICA (fase 2G). Vocabolario separato da `STATI`, perché le due
+ *  domande sono indipendenti: vedi handoff/domain.js. */
+export const PRESENZE = ['presente', 'rimosso'];
 
 /** Etichette visualizzate → chiave. Le etichette degli stati NON coincidono con
  *  le chiavi ("In manutenzione" → manutenzione), quindi senza questa mappa un
@@ -509,6 +520,27 @@ export function parseTipo(v, fallback = 'altro') {
   const k = String(v == null ? '' : v).trim().toLowerCase();
   if (!k) return fallback;
   return TIPI.includes(k) ? k : fallback;
+}
+
+/** Etichette della presenza → chiave, per l'import da foglio.
+ *
+ *  ⚠ Comprende le forme che una persona scrive davvero in una colonna «presenza»:
+ *  «sì»/«no», «in rack», «rimosso il 3/2». La regola è la stessa di `parseStato` —
+ *  un valore che non si riconosce NON diventa il default in silenzio se il campo
+ *  era valorizzato: diventa il fallback passato dal chiamante, che per una riga
+ *  esistente è la presenza che il dispositivo ha già. Perdere una rimozione
+ *  registrata a mano per una parola scritta male sarebbe peggio che non importarla. */
+const PRESENZA_LABELS = {
+  'presente': 'presente', 'si': 'presente', 'sì': 'presente', 'yes': 'presente',
+  'in rack': 'presente', 'installato': 'presente',
+  'rimosso': 'rimosso', 'no': 'rimosso', 'rimossa': 'rimosso',
+  'asportato': 'rimosso', 'non presente': 'rimosso',
+};
+
+export function parsePresenza(v, fallback = 'presente') {
+  const k = String(v == null ? '' : v).trim().toLowerCase();
+  if (!k) return fallback;
+  return PRESENZA_LABELS[k] || (PRESENZE.includes(k) ? k : fallback);
 }
 
 // --------------------------------------------------------------------- note

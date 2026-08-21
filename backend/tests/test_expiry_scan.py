@@ -146,11 +146,28 @@ def test_same_business_id_different_uid_are_two_items():
 
 
 def test_context_comes_from_the_document_tree():
+    """⚠ Le ETICHETTE, non i codici, dalla fase 2G (§9 del requisito, §8.50.9).
+
+    La catena è nome mostrabile → codice → «(senza nome)», quindi il sito `pomezia`
+    che si chiama «Pomezia G0» compare col nome. Per un'email a una persona è la forma
+    giusta; il codice resta disponibile a chi legge l'API, che restituisce `code`,
+    `name` e `label` separati.
+
+    Il rack `R01` ha `name: "R01"` — nome e codice coincidono — quindi il valore non
+    cambia. È un caso in cui la differenza non si vede, e per questo il test fissa
+    anche i due dove si vede.
+    """
     got = by_device(scan())
-    assert got["srv-7"].location == "pomezia"
-    assert got["srv-7"].room == "sala-1"
-    assert got["srv-7"].rack == "R01"
-    assert got["srv-scaduto" if False else "dup-a"].rack == "R02"
+    assert got["srv-7"].location == "Pomezia G0"   # prima: «pomezia» (il codice)
+    assert got["srv-7"].room == "Sala 1"           # prima: «sala-1»
+    assert got["srv-7"].rack == "R01"              # nome == codice: invariato
+    assert got["dup-a"].rack == "R02"
+
+    # ⚠ E la proprietà che regge tutto: sono TRE VALORI separati, non una stringa
+    # spezzata dopo. Nessuno dei tre contiene il separatore che il vecchio percorso
+    # impacchettato usava.
+    voce = got["srv-7"]
+    assert " / " not in voce.location + voce.room + voce.rack
 
 
 def test_ordering_is_deterministic():
@@ -276,7 +293,8 @@ def test_digest_contains_only_safe_fields():
     """Nome, posizione, data e giorni. NON le note: sono testo libero che può
     contenere qualunque cosa e nessuno ha chiesto di spedirlo."""
     body = digest_of(scan()).get_content()
-    assert "srv-7" in body and "R01" in body and "sala-1" in body
+    # Etichette dalla 2G: il sito e la sala compaiono col nome (§8.50.9).
+    assert "srv-7" in body and "R01" in body and "Sala 1" in body
     assert "note" not in body.lower()
     assert "serial" not in body.lower() and "ip" not in body.lower().split()
 

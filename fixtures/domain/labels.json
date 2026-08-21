@@ -1,0 +1,275 @@
+{
+ "_nota": "nome mostrabile → codice di business → «(senza nome)». MAI None, undefined, null. Il contesto strutturale resta in campi SEPARATI: mai una stringa unica spezzata dopo.",
+ "device": [
+  {
+   "device": {
+    "name": "Nodo Alfa",
+    "id": "srv-01"
+   },
+   "label": "Nodo Alfa"
+  },
+  {
+   "device": {
+    "name": "",
+    "id": "srv-01"
+   },
+   "label": "srv-01"
+  },
+  {
+   "device": {
+    "name": null,
+    "id": "srv-01"
+   },
+   "label": "srv-01"
+  },
+  {
+   "device": {
+    "id": "srv-01"
+   },
+   "label": "srv-01"
+  },
+  {
+   "device": {
+    "name": "",
+    "id": ""
+   },
+   "label": "(senza nome)"
+  },
+  {
+   "device": {},
+   "label": "(senza nome)"
+  },
+  {
+   "device": {
+    "name": null,
+    "id": null
+   },
+   "label": "(senza nome)",
+   "_meta": "MAI «None»: era il comportamento della 2F, conservato allora di proposito e risolto adesso"
+  },
+  {
+   "device": {
+    "name": 42
+   },
+   "label": "42"
+  },
+  {
+   "device": {
+    "name": 0,
+    "id": "srv-01"
+   },
+   "label": "srv-01",
+   "_meta": "zero non e un'etichetta"
+  },
+  {
+   "device": {
+    "name": 42
+   },
+   "label": "42",
+   "_meta": "String(42.0) e «42» in JavaScript e «42.0» con str() in Python: si sceglie la forma che l'utente ha sempre visto"
+  },
+  {
+   "device": {
+    "name": 1.5
+   },
+   "label": "1.5"
+  },
+  {
+   "device": {
+    "name": false,
+    "id": "srv-01"
+   },
+   "label": "srv-01"
+  },
+  {
+   "device": {
+    "name": [],
+    "id": "srv-01"
+   },
+   "label": "srv-01",
+   "_meta": "String([]) e «» in JavaScript e «[]» con str() in Python: nessuno dei due e un'etichetta, si passa al candidato dopo"
+  },
+  {
+   "device": {
+    "name": {},
+    "id": "srv-01"
+   },
+   "label": "srv-01"
+  },
+  {
+   "device": {
+    "name": " "
+   },
+   "label": " ",
+   "_meta": "soli spazi: e cio che l'utente ha scritto"
+  },
+  {
+   "device": {
+    "name": "Nodo — primario"
+   },
+   "label": "Nodo — primario"
+  },
+  {
+   "device": {
+    "name": "Sala Ø"
+   },
+   "label": "Sala Ø"
+  },
+  {
+   "device": {
+    "name": "a/b"
+   },
+   "label": "a/b",
+   "_meta": "la barra non si spezza"
+  }
+ ],
+ "rack": [
+  {
+   "rack": {
+    "name": "Armadio rete",
+    "id": "K1"
+   },
+   "label": "Armadio rete"
+  },
+  {
+   "rack": {
+    "name": "",
+    "id": "K1"
+   },
+   "label": "K1"
+  },
+  {
+   "rack": {
+    "id": "10.0.0.0/24"
+   },
+   "label": "10.0.0.0/24",
+   "_meta": "IL caso della 2F: il percorso impacchettato lo troncava a 10.0.0.0"
+  },
+  {
+   "rack": {},
+   "label": "(senza nome)"
+  }
+ ],
+ "room": [
+  {
+   "room": {
+    "nome": "Sala Backend",
+    "id": "backend"
+   },
+   "label": "Sala Backend"
+  },
+  {
+   "room": {
+    "nome": "",
+    "id": "backend"
+   },
+   "label": "backend"
+  },
+  {
+   "room": {},
+   "label": "(senza nome)"
+  }
+ ],
+ "location": [
+  {
+   "location": {
+    "nome": "Pomezia G0",
+    "id": "pomezia-g0"
+   },
+   "label": "Pomezia G0"
+  },
+  {
+   "location": {
+    "nome": null,
+    "id": "pomezia-g0"
+   },
+   "label": "pomezia-g0"
+  },
+  {
+   "location": {},
+   "label": "(senza nome)"
+  }
+ ],
+ "context": {
+  "_nota": "Il contesto e STRUTTURATO: tre campi, mai una stringa unica da spezzare. Il corpus porta i valori che il vecchio impacchettamento corrompeva.",
+  "cases": [
+   {
+    "location": {
+     "id": "pomezia-g0",
+     "nome": "Pomezia G0"
+    },
+    "room": {
+     "id": "backend",
+     "nome": "Sala Backend"
+    },
+    "rack": {
+     "id": "10.0.0.0/24"
+    },
+    "labels": {
+     "location": "Pomezia G0",
+     "room": "Sala Backend",
+     "rack": "10.0.0.0/24"
+    }
+   },
+   {
+    "location": {
+     "id": "a/b"
+    },
+    "room": {
+     "id": "c/d"
+    },
+    "rack": {
+     "id": "e/f"
+    },
+    "labels": {
+     "location": "a/b",
+     "room": "c/d",
+     "rack": "e/f"
+    },
+    "_meta": "tre barre: con l'impacchettamento su / diventavano sei pezzi e tutto scalava"
+   },
+   {
+    "location": {},
+    "room": {},
+    "rack": {},
+    "labels": {
+     "location": "(senza nome)",
+     "room": "(senza nome)",
+     "rack": "(senza nome)"
+    }
+   },
+   {
+    "location": {
+     "nome": "Sito —"
+    },
+    "room": {
+     "nome": "—"
+    },
+    "rack": {
+     "id": "—"
+    },
+    "labels": {
+     "location": "Sito —",
+     "room": "—",
+     "rack": "—"
+    }
+   },
+   {
+    "location": {
+     "nome": "Ø"
+    },
+    "room": {
+     "nome": "Ærø"
+    },
+    "rack": {
+     "id": "✓"
+    },
+    "labels": {
+     "location": "Ø",
+     "room": "Ærø",
+     "rack": "✓"
+    }
+   }
+  ]
+ }
+}

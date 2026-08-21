@@ -1,9 +1,29 @@
-"""Fase 2E: le query SQL rispondono come l'implementazione ESISTENTE. PostgreSQL vero.
+"""Il DELTA fra la semantica misurata (2E) e quella decisa (2G). PostgreSQL vero.
 
-Questo file è quasi tutto PARITÀ. Non confronta lo SQL con righe scritte a mano da me
-— quello dimostrerebbe che lo SQL corrisponde alla mia lettura del frontend — ma con le
-attese calcolate facendo girare **il JavaScript che gira oggi nel browser**, copiato
-alla lettera in `tools/make-query-fixtures.mjs`.
+⚠ Questo file era la suite di PARITÀ della fase 2E: confrontava lo SQL con le attese
+calcolate facendo girare il JavaScript del prototipo, copiato alla lettera in
+`tools/make-query-fixtures.mjs`. La fase 2G ha CAMBIATO quella semantica di proposito
+(§8.48, §8.50), quindi una parte di quei confronti deve fallire — e cancellarli sarebbe
+il modo peggiore di prenderne atto.
+
+Da qui la riscrittura: le fixture della 2E restano, e diventano il **termine di
+paragone storico**. Ogni confronto è ora di una delle due specie:
+
+  - **invariato**: la 2G non ha toccato quel comportamento, e la parità deve reggere
+    ancora. Sono la maggior parte, e sono ciò che dimostra che la 2G ha cambiato SOLO
+    quello che dichiara;
+  - **delta dichiarato**: la 2G ha deciso diversamente, e il test pretende che la
+    differenza sia ESATTAMENTE quella dichiarata — non «diversa», ma diversa in quel
+    modo e in nessun altro.
+
+La seconda specie è la ragione per cui questo file vale più di prima. Un test
+cancellato dice «qui non guardiamo più»; un test che fissa il delta dice «qui è
+cambiato questo, e nient'altro» — ed è l'unica forma che si accorge se domani cambiasse
+anche qualcos'altro.
+
+Le fixture del CONTRATTO della 2G stanno altrove (`fixtures/domain/`, eseguite da
+`test_domain_contract.py` e `test_domain_sql_pg.py`): là si verifica la conformità a
+ciò che si è deciso, qui la distanza da ciò che c'era.
 
     fixtures/query/*.json    documento + attese del legacy, per 29 corpora
     tools/make-query-fixtures.mjs   il generatore, con gli algoritmi verbatim
@@ -183,31 +203,94 @@ def snapshot(engine):
 # 1. parità della RICERCA
 # ==================================================================
 
-@pytest.mark.parametrize("name", SEARCHABLE, ids=SEARCHABLE)
-def test_search_matches_the_frontend(engine, name):
-    """Ogni query di ogni corpus dà lo STESSO insieme, nello STESSO ordine.
+def _identita(results: list) -> list:
+    """L'insieme dei risultati per IDENTITÀ, in ordine.
 
-    L'ordine conta: il frontend elenca in ordine di documento — sito, sala, rack, e per
-    ogni rack prima il rack e poi i suoi dispositivi. Un insieme giusto in ordine
-    diverso è un elenco che si legge diversamente, e per un utente che scorre dodici
-    risultati è una risposta diversa.
+    Si confrontano gli `uid` e non i dizionari interi: la 2G ha aggiunto campi alle
+    voci (`label`, `presenza`) e un confronto strutturale fallirebbe per l'aggiunta di
+    un campo invece che per un risultato diverso. Ciò che va confrontato con le
+    fixture della 2E è QUALI entità la ricerca trova, e in quale ordine.
     """
+    return [(r["kind"], (r["device"]["uid"] if r["kind"] == "device"
+                         else r["rack"]["uid"])) for r in results]
+
+
+def _identita_legacy(results: list) -> list:
+    return [(r["kind"], (r["device"]["uid"] if r["kind"] == "device"
+                         else r["rack"]["uid"])) for r in results]
+
+
+@pytest.mark.parametrize("name", SEARCHABLE, ids=SEARCHABLE)
+def test_search_is_a_superset_of_the_frontend_and_only_by_the_new_fields(engine, name):
+    """⚠ DELTA DICHIARATO: la ricerca trova di più, e solo per i motivi dichiarati.
+
+    La 2G ha aggiunto quattro campi (`id`, `tipo`, `stato`, `presenza`) e la
+    partecipazione di `extra` (§8.50.6). Quindi l'insieme dei risultati testuali è un
+    **sovrainsieme** di quello della 2E, e ogni voce in più deve essere spiegata da uno
+    di quei motivi.
+
+    Il test non si accontenta di «è cambiato»: per ogni risultato nuovo verifica che
+    combaci su un campo che PRIMA non si cercava. Se comparisse per un motivo che non è
+    nell'elenco — un `LIKE` scappato, una tokenizzazione, un `OR` sbagliato — il test
+    lo dice invece di accettarlo.
+
+    ⚠ Le query di INDIRIZZO sono escluse da questo confronto e hanno il loro test: là
+    la 2G non aggiunge, **cambia** — `10.0.0.1` passa dalla modalità testo alla
+    modalità indirizzo, quindi l'insieme può rimpicciolire.
+    """
+    from app import domain
+
     corpus = load(engine, name)
+    nuovi_campi = ("id", "tipo", "stato", "presenza")
     with snapshot(engine) as conn:
         with conn.begin():
             for case in corpus["search"]:
                 if case.get("legacyThrows"):
-                    continue                       # ha un test proprio, più sotto
+                    continue
+                # Le forme che la 2G riconosce come indirizzo cambiano modalità.
+                if domain.parse_address_query(case["q"].strip()) is not None:
+                    continue
                 page = q.search(conn, q=case["q"], limit=q.SEARCH_MAX_LIMIT)
-                atteso = case["results"]
-                assert page.results == atteso, (
-                    f"{name} q={case['q']!r}: {len(page.results)} risultati SQL "
-                    f"contro {len(atteso)} del frontend\n"
-                    f"  SQL     {_brief(page.results)}\n"
-                    f"  legacy  {_brief(atteso)}")
-                atteso_range = case.get("ipRange")
-                assert (list(page.ip_range) if page.ip_range else None) \
-                    == atteso_range, f"{name} q={case['q']!r}: intervallo IP diverso"
+                mio = _identita(page.results)
+                legacy = _identita_legacy(case["results"])
+
+                assert set(legacy) <= set(mio), (
+                    f"{name} q={case['q']!r}: la 2G ha PERSO risultati, e non doveva "
+                    f"perderne nessuno sui campi testuali\n"
+                    f"  mancanti {sorted(set(legacy) - set(mio))}")
+                # L'ordine dei risultati comuni non cambia: è l'ordine di documento.
+                assert [x for x in mio if x in set(legacy)] == legacy, (
+                    f"{name} q={case['q']!r}: l'ordine dei risultati comuni è cambiato")
+
+                needle = case["q"].strip().lower()
+                for kind, uid in set(mio) - set(legacy):
+                    obj = _entita(corpus["doc"], kind, uid)
+                    assert obj is not None, (kind, uid)
+                    if kind == "rack":
+                        # I rack hanno gli stessi tre campi di prima: l'unica novità è
+                        # `extra`, cioè i `seriali` non rappresentabili in colonna.
+                        assert domain.rack_matches(obj, needle), (
+                            f"{name} q={case['q']!r}: rack {uid} in più senza un "
+                            f"campo che combaci")
+                        continue
+                    motivi = [f for f in nuovi_campi
+                              if domain.contains(domain.device_search_value(obj, f),
+                                                 needle)]
+                    assert motivi, (
+                        f"{name} q={case['q']!r}: dispositivo {uid} in più, e nessuno "
+                        f"dei campi NUOVI combacia: non è il delta dichiarato")
+
+
+def _entita(doc: dict, kind: str, uid: str):
+    for L in doc.get("locations") or []:
+        for R in L.get("sale") or []:
+            for K in R.get("racks") or []:
+                if kind == "rack" and K.get("_uid") == uid:
+                    return K
+                for V in K.get("devices") or []:
+                    if kind == "device" and V.get("_uid") == uid:
+                        return V
+    return None
 
 
 def _brief(results: list) -> list:
@@ -285,55 +368,111 @@ def test_search_treats_percent_and_underscore_as_plain_characters(engine):
             assert q.search(conn, q="srv", limit=200).results != []
 
 
-def test_an_ip_query_matches_no_racks_even_when_a_rack_is_named_like_an_ip(engine):
-    """In modalità intervallo IP i rack NON partecipano.
+def test_an_address_query_matches_no_racks_even_when_a_rack_is_named_like_an_ip(engine):
+    """In modalità INDIRIZZO i rack non partecipano — invariato, e confermato (§8.48 v.3).
 
-    Il frontend scrive `if (!ipRange && (rk.id...))`: quando la query è una rete, i
-    rack sono esclusi per costruzione. Il corpus ha un rack che si chiama `10.0.0.1`
-    proprio per rendere il caso osservabile — se lo SQL cercasse anche i rack, quel
-    rack comparirebbe e il test lo vedrebbe.
+    Il corpus ha un rack che si chiama `10.0.0.1` proprio per rendere il caso
+    osservabile. Un rack con quel nome non è una macchina con quell'indirizzo, e
+    restituirlo a chi cerca un host è un falso positivo che *sembra* una risposta.
     """
     load(engine, "search-ip")
     with snapshot(engine) as conn:
         with conn.begin():
-            page = q.search(conn, q="10.0.0.0/24", limit=200)
-            assert page.ip_range is not None
-            assert all(r["kind"] == "device" for r in page.results)
-            # ⚠ E un IP ESATTO non è una forma di intervallo: `parseIpQuery` gestisce
-            # CIDR, intervallo e jolly, e per `10.0.0.1` restituisce `null`. Quindi un
-            # indirizzo scritto per intero si cerca come TESTO — e come sottostringa,
-            # per cui `10.0.0.1` trova anche `10.0.0.100`. Sembra un difetto e forse lo
-            # è; è il comportamento attuale, ed è anche il motivo per cui il rack che
-            # si chiama «10.0.0.1» in quel caso ricompare.
-            esatto = q.search(conn, q="10.0.0.1", limit=200)
-            assert esatto.ip_range is None,                 "un IP esatto non passa dalla modalità intervallo"
-            assert any(r["kind"] == "rack" for r in esatto.results)
-            ip_trovati = {r["device"]["code"] for r in esatto.results
-                          if r["kind"] == "device"}
-            assert {"d-10-0-0-1", "d-10-0-0-100", "d-doppio"} <= ip_trovati,                 "la ricerca di un IP esatto è una sottostringa, non un confronto"
-
-            # Mentre una forma di INTERVALLO che copre lo stesso indirizzo esclude
-            # `10.0.0.100`, perché lì il confronto è numerico.
-            rete = q.search(conn, q="10.0.0.1-10.0.0.1", limit=200)
-            assert rete.ip_range == (167772161, 167772161)
-            assert {r["device"]["code"] for r in rete.results}                 == {"d-10-0-0-1", "d-doppio"}
+            for query in ("10.0.0.0/24", "10.0.0.1", "10.0.0.1-10.0.0.9", "10.0.*"):
+                page = q.search(conn, q=query, limit=200)
+                assert page.address is not None, f"{query} non riconosciuto"
+                assert all(r["kind"] == "device" for r in page.results), (
+                    f"{query}: un rack è entrato in modalità indirizzo")
 
 
-def test_ipv6_is_not_matched_by_a_range_query(engine):
-    """`ipToNum` è IPv4. Un dispositivo IPv6 non si trova per intervallo.
+def test_an_exact_ip_no_longer_matches_its_own_prefix(engine):
+    """⚠ DELTA DICHIARATO, e il più visibile di tutta la fase (§8.48 voce 1).
 
-    PostgreSQL con `inet` lo troverebbe, e sarebbe un comportamento NUOVO: oggi
-    l'utente che cerca una rete non vede i dispositivi IPv6, e questo commit non
-    decide di cambiarlo. Si trova invece per TESTO, come qualunque altra stringa.
+    Prima: `10.0.0.1` non era una forma riconosciuta, quindi finiva nella ricerca
+    TESTUALE — e come sottostringa combaciava con `10.0.0.100` e col rack che si
+    chiama «10.0.0.1». Chi cercava una macchina precisa riceveva la sua vicina di
+    sottorete.
+
+    Adesso: `10.0.0.1` significa quell'indirizzo.
+
+    ⚠ Il test fissa ENTRAMBI i comportamenti, il vecchio e il nuovo. Il vecchio non è
+    più raggiungibile dall'endpoint, quindi lo si riproduce con la sottostringa nuda —
+    che è ciò che il prototipo faceva — e si constata che DAREBBE una risposta diversa.
+    Senza quella metà, il test direbbe soltanto «trova una cosa», non «ha smesso di
+    trovarne tre».
+    """
+    from app import domain
+
+    load(engine, "search-ip")
+    with snapshot(engine) as conn:
+        with conn.begin():
+            page = q.search(conn, q="10.0.0.1", limit=200)
+            assert page.address is not None
+            assert page.address.kind == "exact"
+            assert (page.address.lo, page.address.hi) == ("10.0.0.1", "10.0.0.1")
+            trovati = {r["device"]["code"] for r in page.results}
+            assert trovati == {"d-10-0-0-1", "d-doppio"}, trovati
+            assert "d-10-0-0-100" not in trovati, (
+                "il falso positivo da sottostringa è tornato")
+            assert not any(r["kind"] == "rack" for r in page.results)
+
+    # La controprova: come TESTO quella query combaciava davvero con tre dispositivi.
+    # Se questa metà smettesse di reggere, il corpus non conterrebbe più il caso e il
+    # test sopra passerebbe senza dimostrare niente.
+    assert domain.contains("10.0.0.100", "10.0.0.1")
+    assert domain.contains("10.0.0.1", "10.0.0.1")
+
+
+def test_ipv6_is_now_searchable_by_address_and_by_network(engine):
+    """⚠ DELTA DICHIARATO (§8.48 voce 2): l'IPv6 si trova per indirizzo e per CIDR.
+
+    Prima `ipToNum` era IPv4 e un dispositivo IPv6 era raggiungibile solo per testo.
+    Adesso per indirizzo esatto, per CIDR, e ancora per testo.
+
+    ⚠ E le FAMIGLIE non si mescolano: un CIDR IPv6 che copre tutto (`::/0`) non trova
+    nessun IPv4, e viceversa. È una proprietà del tipo `inet` — che ordina per famiglia
+    e poi per indirizzo — e il test la pretende DAL DATABASE invece di fidarsi della
+    documentazione.
     """
     load(engine, "search-ip")
     with snapshot(engine) as conn:
         with conn.begin():
-            assert q.search(conn, q="2001:db8::1", limit=200).ip_range is None
-            trovati = [r["device"]["code"]
-                       for r in q.search(conn, q="2001:db8", limit=200).results
-                       if r["kind"] == "device"]
-            assert trovati == ["d-ipv6"], "l'IPv6 deve restare cercabile come testo"
+            esatto = q.search(conn, q="2001:db8::1", limit=200)
+            assert esatto.address is not None and esatto.address.family == 6
+            assert {r["device"]["code"] for r in esatto.results} == {"d-ipv6"}
+
+            rete = q.search(conn, q="2001:db8::/32", limit=200)
+            assert {r["device"]["code"] for r in rete.results} == {"d-ipv6"}
+
+            # Tutto IPv6 non contiene nessun IPv4...
+            tutto_v6 = q.search(conn, q="::/0", limit=200)
+            assert {r["device"]["code"] for r in tutto_v6.results} == {"d-ipv6"}
+            # ...e tutto IPv4 non contiene nessun IPv6.
+            tutto_v4 = q.search(conn, q="0.0.0.0/0", limit=200)
+            assert "d-ipv6" not in {r["device"]["code"] for r in tutto_v4.results}
+            assert tutto_v4.results, "il corpus non ha nessun IPv4: test vacuo"
+
+            # E resta cercabile come testo, che è la strada che aveva prima.
+            testo = q.search(conn, q="2001:db8", limit=200)
+            assert "d-ipv6" in {r["device"]["code"] for r in testo.results
+                                if r["kind"] == "device"}
+
+
+def test_half_an_address_is_still_a_text_search(engine):
+    """`10.0.0` non è un indirizzo, ed è giusto che sia testo — invariato.
+
+    Non è un'incoerenza con il test sopra: mezzo indirizzo è un prefisso, e chi lo
+    scrive sta cercando una sottorete a mano. La differenza fra le due modalità è che
+    la prima esiste solo per le forme che hanno un significato di rete preciso.
+    """
+    load(engine, "search-ip")
+    with snapshot(engine) as conn:
+        with conn.begin():
+            page = q.search(conn, q="10.0.0", limit=200)
+            assert page.address is None
+            trovati = {r["device"]["code"] for r in page.results
+                       if r["kind"] == "device"}
+            assert {"d-10-0-0-1", "d-10-0-0-100"} <= trovati
 
 
 def test_an_empty_query_returns_nothing(engine):
@@ -348,7 +487,7 @@ def test_an_empty_query_returns_nothing(engine):
             for vuota in ("", "   ", "\t"):
                 page = q.search(conn, q=vuota, limit=200)
                 assert page.results == []
-                assert page.ip_range is None
+                assert page.address is None
                 # ma la revisione c'è: la risposta descrive comunque una revisione
                 assert page.revision.version >= 1
 
@@ -391,11 +530,26 @@ def test_capacity_matches_the_frontend(engine, name):
             assert vista["bestRack"]["code"] == atteso["bestRackCode"], \
                 f"{name}/{uid}: rack del miglior slot"
 
-        # file: si confrontano come mappa, non come elenco — l'ordine di
-        # `Object.entries` è quello di inserimento e non porta informazione
-        assert {(b["row"], b["totalU"], b["usedU"]) for b in vista["rows"]} \
-            == {(b["row"], b["totalU"], b["usedU"]) for b in atteso["rows"]}, \
-            f"{name}/{uid}: raggruppamento per fila"
+        # ⚠ DELTA DICHIARATO sulle FILE (§8.48 voce 7). Il prototipo raggruppava per
+        # `rk.row || '—'`, quindi «fila non impostata» e «fila il cui valore è —»
+        # finivano nello stesso gruppo. La 2G li separa.
+        #
+        # Il confronto è quindi sulle ETICHETTE aggregate, non sui gruppi: la somma di
+        # `totalU` per etichetta deve reggere ancora — nessuna unità è comparsa o
+        # sparita — mentre il NUMERO di gruppi può essere maggiore. È la forma più
+        # stretta che si può pretendere senza rifiutare il cambiamento.
+        def _per_etichetta(righe, chiave="rowLabel"):
+            out = {}
+            for b in righe:
+                e = b.get(chiave, b.get("row"))
+                tot, usa = out.get(e, (0, 0))
+                out[e] = (tot + b["totalU"], usa + b["usedU"])
+            return out
+
+        assert _per_etichetta(vista["rows"]) == _per_etichetta(atteso["rows"], "row"), \
+            f"{name}/{uid}: le unità per ETICHETTA di fila non tornano"
+        assert len(vista["rows"]) >= len(atteso["rows"]), \
+            f"{name}/{uid}: la 2G separa i gruppi, non li fonde"
 
         per_rack = {r["uid"]: r for r in vista["racks"]}
         for rack_atteso in atteso["racks"]:
@@ -423,12 +577,14 @@ def test_used_u_is_not_the_sum_of_heights(engine):
       pieno         un rack da 4 U con due dispositivi da 2 U è pieno: 4, e non «4 per
                     caso perché la somma torna»
 
-    ⚠ E i DISMESSI occupano, perché nel frontend il ramo che dovrebbe escluderli è un
-    blocco vuoto: `if ((d.stato || 'attivo') === 'dismesso') {}`. È quasi certamente
-    un difetto, ma è il comportamento attuale, e la vista Scadenze — che invece li
-    salta davvero — dimostra che l'incoerenza è del frontend e non della lettura che
-    ne ho fatto. Correggerlo qui sarebbe cambiare un numero mostrato agli utenti da un
-    commit che dichiara di non cambiare comportamento.
+    ⚠ Sui DISMESSI la 2G ha cambiato la DOMANDA, non la risposta (§8.48 voce 6). Il
+    prototipo aveva un ramo vuoto — `if ((d.stato || 'attivo') === 'dismesso') {}` —
+    che *non* li escludeva, quindi occupavano; ma lo stato operativo non è ciò che
+    decide se un apparato occupa uno slot. Adesso decide la PRESENZA FISICA, e i
+    corpora della 2E non hanno `presenza`, quindi canonicalizzano a `presente` e
+    occupano ancora: i numeri qui sotto sono gli stessi, per una ragione diversa e
+    dichiarata. Il caso `rimosso` è coperto dalle fixture del contratto e da
+    `test_domain_sql_pg.py`.
     """
     load(engine, "capacity")
     with snapshot(engine) as conn:
@@ -529,15 +685,33 @@ def test_expiries_match_the_frontend(engine, name):
     # La marcatura `isoStrict` viene dal generatore, e un test separato dimostra che
     # concorda con `parse_expiry` vero su ogni valore di ogni corpus: senza quella
     # prova, filtrare qui vorrebbe dire confrontare lo SQL con sé stesso.
+    # ⚠ DELTA DICHIARATO: le fixture della 2E riproducevano il `continue` del
+    # prototipo, che SALTAVA i dispositivi dismessi. La 2G li include, perché la vista
+    # è ispettiva (§8.48 voce 8). Quindi il confronto si fa a dismessi esclusi — quello
+    # è il sottoinsieme in cui la parità deve reggere — e le voci dei dismessi si
+    # verificano a parte, qui sotto.
+    dismessi = {i["device"]["uid"] for i in page.items
+                if i["device"]["stato"] == "dismesso"}
+    voci = [i for i in page.items if i["device"]["uid"] not in dismessi]
+
     atteso = [i for i in corpus["expiries"] if i["isoStrict"]]
     scartate = [i["raw"] for i in corpus["expiries"] if not i["isoStrict"]]
-    assert len(page.items) == len(atteso), (
-        f"{name}: {len(page.items)} scadenze SQL contro {len(atteso)} del frontend\n"
-        f"  SQL     {[(i['kind'], i['raw']) for i in page.items]}\n"
+    assert len(voci) == len(atteso), (
+        f"{name}: {len(voci)} scadenze SQL (dismessi esclusi) contro "
+        f"{len(atteso)} del frontend\n"
+        f"  SQL     {[(i['kind'], i['raw']) for i in voci]}\n"
         f"  legacy  {[(i['kind'], i['raw']) for i in atteso]}\n"
         f"  scartate perché il backend non le interpreta: {scartate}")
 
-    for sql_item, js_item in zip(page.items, atteso):
+    # E le voci dei dismessi: compaiono, e portano `notifiable: false`. Se
+    # comparissero con `notifiable: true` il worker e la vista sarebbero di nuovo in
+    # disaccordo, questa volta al contrario.
+    for voce in page.items:
+        if voce["device"]["uid"] in dismessi:
+            assert voce["notifiable"] is False, (
+                f"{name}: un dismesso dichiarato azionabile")
+
+    for sql_item, js_item in zip(voci, atteso):
         assert sql_item["device"]["uid"] == js_item["device"]["uid"], \
             f"{name}: ordine diverso"
         assert sql_item["kind"] == js_item["kind"]
@@ -551,24 +725,41 @@ def test_expiries_match_the_frontend(engine, name):
         assert sql_item["location"]["uid"] == js_item["location"]["uid"]
 
 
-def test_expiries_skip_decommissioned_devices(engine):
-    """I dismessi si saltano — qui il `continue` del frontend è vero.
+def test_expiries_now_include_decommissioned_devices_and_say_so(engine):
+    """⚠ ROVESCIATO dalla 2G (§8.48 voce 8, §7 del requisito).
 
-    E il contrasto con la capacità è il punto: la stessa applicazione esclude i
-    dismessi dalle scadenze e li include nella capacità. Riprodurre entrambe le cose
-    è l'unico modo di non cambiare comportamento; sceglierne una sarebbe decidere al
-    posto del prodotto.
+    Prima: la vista SALTAVA i dismessi e la capacità li includeva — la stessa
+    applicazione, due significati per lo stesso stato, e nessuno l'aveva deciso.
+
+    Adesso: la vista è ISPETTIVA e li mostra, perché un apparato dismesso ha un
+    contratto che scade e chi fa l'inventario dei contratti deve poterlo vedere. Il
+    worker non gli manda avvisi, e la risposta lo DICE con `notifiable`.
+
+    ⚠ Il test pretende tutte e tre le cose: che compaiano, che siano marcati non
+    azionabili, e che il filtro sappia isolarli. Solo la prima sarebbe un test che
+    passa anche se `notifiable` fosse costante.
     """
     corpus = load(engine, "expiries")
     today = date.fromisoformat(corpus["refDate"])
     with snapshot(engine) as conn:
         with conn.begin():
             page = q.expiries(conn, today=today, limit=500)
+            solo = q.expiries(conn, today=today, limit=500, stato="dismesso")
 
     nomi = {i["device"]["name"] for i in page.items}
-    assert "dismesso" not in nomi, "un dispositivo dismesso è entrato nelle scadenze"
-    assert "in dismissione" in nomi, \
-        "`dismissione` non è `dismesso`: va incluso"
+    assert "dismesso" in nomi, "un dispositivo dismesso deve essere ispezionabile"
+    assert "in dismissione" in nomi
+
+    per_nome = {i["device"]["name"]: i for i in page.items}
+    assert per_nome["dismesso"]["notifiable"] is False
+    # `in dismissione` non è un valore del vocabolario (`dismissione` lo è): resta
+    # idoneo, perché uno stato fuori elenco non si esclude a naso.
+    assert per_nome["in dismissione"]["notifiable"] is True
+
+    assert {i["device"]["name"] for i in solo.items} == {"dismesso"}
+    # ⚠ E i totali distinguono «in finestra» da «azionabile»: se `notifiable`
+    # coincidesse sempre con `warning`, il campo non direbbe niente.
+    assert page.totals["notifiable"] < page.totals["warning"] + page.totals["expired"]
 
 
 def test_expiries_ignore_unparseable_and_empty_values(engine):
@@ -1331,16 +1522,28 @@ def test_out_of_range_parameters_are_refused_by_the_contract(engine, as_role):
         assert c.get("/api/inventory/expiries?warningDays=99999").status_code == 422
 
 
-def test_the_search_route_carries_the_ip_range_when_it_recognises_one(engine, as_role):
-    """`ipRange` nella risposta: il client deve poter dire all'utente che ha cercato
-    una rete e non un testo — è la distinzione che il frontend rende visibile
-    illuminando i rack sulla pianta."""
+def test_the_search_route_says_which_address_form_it_recognised(engine, as_role):
+    """`address` nella risposta: forma, famiglia ed estremi.
+
+    ⚠ Sostituisce `ipRange`, che era una coppia di interi a 32 bit — una forma che
+    l'IPv6 non ci sta dentro, e che non diceva QUALE forma era stata riconosciuta. Il
+    client deve poter dire all'utente che ha cercato una rete e non un testo, e con
+    l'indirizzo esatto (§8.50.6) la distinzione conta di più: `10.0.0.1` adesso ha un
+    significato preciso, e chi lo scrive deve poter vedere quale.
+    """
     load(engine, "search-ip")
     with as_role("view") as c:
         rete = c.get("/api/inventory/search?q=10.0.0.0/24").json()
+        esatto = c.get("/api/inventory/search?q=10.0.0.1").json()
+        sei = c.get("/api/inventory/search?q=2001:db8::/32").json()
         testo = c.get("/api/inventory/search?q=DHCP").json()
-    assert rete["ipRange"] == [167772160, 167772415]
-    assert testo["ipRange"] is None
+
+    assert rete["address"] == {"family": 4, "kind": "cidr",
+                              "lo": "10.0.0.0", "hi": "10.0.0.255"}
+    assert esatto["address"] == {"family": 4, "kind": "exact",
+                                 "lo": "10.0.0.1", "hi": "10.0.0.1"}
+    assert sei["address"]["family"] == 6 and sei["address"]["kind"] == "cidr"
+    assert testo["address"] is None
 
 
 def test_the_expiries_route_reports_the_date_it_used(engine, as_role):
@@ -1351,7 +1554,10 @@ def test_the_expiries_route_reports_the_date_it_used(engine, as_role):
         body = c.get("/api/inventory/expiries").json()
     assert date.fromisoformat(body["today"])
     assert body["warningDays"] == q.DEFAULT_WARNING_DAYS
-    assert set(body["totals"]) == {"expired", "warning", "future"}
+    # `notifiable` dalla 2G: quante delle voci in finestra genererebbero davvero
+    # un'email. È il numero che spiega la differenza fra questa vista e il worker.
+    assert set(body["totals"]) == {"expired", "warning", "future", "notifiable"}
+    assert body["filters"] == {"stato": None, "presenza": None}
 
 
 def test_there_is_no_endpoint_that_executes_an_arbitrary_query(engine):
@@ -1388,7 +1594,12 @@ def test_there_is_no_endpoint_that_executes_an_arbitrary_query(engine):
     attesi = {
         "/api/inventory/search": {"q", "limit", "cursor"},
         "/api/inventory/capacity": set(),
-        "/api/inventory/expiries": {"warningDays", "limit", "cursor"},
+        # `stato` e `presenza` dalla 2G: filtri a VOCABOLARIO, non espressioni.
+        # Sono la differenza fra «restringi la domanda» e «esegui questa query», ed è
+        # la ragione per cui il controllo sui nomi vietati qui sopra li lascia passare
+        # e non li confonde con `filter`.
+        "/api/inventory/expiries": {"warningDays", "stato", "presenza",
+                                    "limit", "cursor"},
     }
     for percorso, nomi_attesi in attesi.items():
         nomi = {p["name"]
@@ -1504,8 +1715,13 @@ def test_no_query_index_was_added_by_this_phase(engine):
     commit, e servirebbero a un confronto per uguaglianza che un giorno potrebbe
     esistere — ma va scritto che non stanno sostenendo la ricerca che c'è.
 
-    Se un giorno l'inventario crescesse, l'indice da aggiungere PRIMO è quello
-    sull'espressione IP, e l'espressione da indicizzare è `queries.ipnum_sql('ip')`.
+    ⚠ La 2G ne aggiunge UNO, e la ragione è cambiata insieme all'implementazione:
+    l'espressione IP non esiste più — c'è una COLONNA `ip_addr inet` scritta dal parser
+    del dominio (§8.50.10) — e una colonna si indicizza. L'indice è PARZIALE
+    (`WHERE ip_addr IS NOT NULL`) perché una parte dei dispositivi non ha un indirizzo
+    interpretabile, e indicizzarne i NULL sarebbe indice sprecato.
+    `presenza` NON è indicizzata: la domanda è «quali NON sono rimossi», vera per la
+    quasi totalità delle righe.
     """
     attesi_devices = {
         "inventory_devices_pkey", "uq_device_ordinal",
@@ -1513,6 +1729,8 @@ def test_no_query_index_was_added_by_this_phase(engine):
         "ix_device_rack", "ix_device_code", "ix_device_ip", "ix_device_serial",
         # dalla 0011: le date derivate, parziali
         "ix_device_garanzia_date", "ix_device_supporto_date",
+        # dalla 0013: l'indirizzo interpretato, parziale
+        "ix_device_ip_addr",
     }
     trovati = set(indici(engine, "inventory_devices"))
     assert trovati == attesi_devices, (
@@ -1523,25 +1741,37 @@ def test_no_query_index_was_added_by_this_phase(engine):
         "perché sembrava utile.")
 
 
-def test_the_ip_expression_is_indexable_if_it_ever_becomes_necessary(engine):
-    """L'espressione IP è deterministica, quindi indicizzabile per espressione.
+def test_the_address_column_replaces_the_expression_and_is_ordered_by_family(engine):
+    """⚠ ROVESCIATO dalla 2G: non «indicizzabile se un giorno servisse», ma indicizzato.
 
-    Non si aggiunge l'indice, ma si verifica che si POSSA: se l'espressione contenesse
-    qualcosa di non immutabile PostgreSQL rifiuterebbe di indicizzarla, e la via
-    d'uscita documentata in `ipnum_sql` non esisterebbe. Scoprirlo il giorno in cui
-    serve, sotto carico, sarebbe il momento sbagliato.
+    Il test vecchio creava e distruggeva un indice sull'espressione `ipnum_sql` per
+    dimostrare che si POTEVA. L'espressione non esiste più: c'è una colonna `inet`
+    scritta dal parser del dominio, e l'indice è nella migrazione 0013.
 
-    L'indice si crea e si distrugge dentro il test: non resta niente.
+    ⚠ Quello che questo test verifica adesso è la proprietà su cui poggia la
+    separazione delle famiglie: `inet` ordina prima per FAMIGLIA e poi per indirizzo.
+    È la ragione per cui un intervallo IPv4 non può contenere un IPv6, e la si pretende
+    DAL DATABASE — la documentazione di PostgreSQL lo dice, ma una proprietà su cui si
+    appoggia una regola di prodotto va misurata, non citata.
     """
     load(engine, "search-ip")
-    espressione = q.ipnum_sql("ip").replace("\n", " ")
     with engine.begin() as c:
-        c.execute(text(f"CREATE INDEX ix_prova_ipnum "
-                       f"ON inventory_devices (({espressione}))"))
-        usato = c.execute(text(
-            "SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_prova_ipnum'"
-        )).scalar_one()
-        c.execute(text("DROP INDEX ix_prova_ipnum"))
-    assert "btrim" in usato and "split_part" in usato
-    # E l'insieme degli indici è tornato quello di prima.
-    assert "ix_prova_ipnum" not in indici(engine, "inventory_devices")
+        ordinati = [r[0] for r in c.execute(text(
+            "SELECT ip_addr::text FROM inventory_devices "
+            " WHERE ip_addr IS NOT NULL ORDER BY ip_addr")).all()]
+        # Ogni IPv4 precede ogni IPv6, qualunque sia il valore numerico.
+        famiglie = [r[0] for r in c.execute(text(
+            "SELECT family(ip_addr) FROM inventory_devices "
+            " WHERE ip_addr IS NOT NULL ORDER BY ip_addr")).all()]
+        # E il confronto fra famiglie diverse è deciso dalla famiglia, non dai bit.
+        misto = c.execute(text(
+            "SELECT '255.255.255.255'::inet < '::'::inet")).scalar_one()
+
+    assert ordinati, "il corpus non ha indirizzi interpretabili: test vacuo"
+    assert famiglie == sorted(famiglie), (
+        f"`inet` non ordina per famiglia: {list(zip(famiglie, ordinati))}")
+    assert set(famiglie) == {4, 6}, (
+        f"il corpus non contiene entrambe le famiglie: {set(famiglie)}")
+    assert misto is True, (
+        "l'IPv4 più alto possibile deve precedere l'IPv6 più basso: è la proprietà su "
+        "cui poggia la separazione delle famiglie nella ricerca")

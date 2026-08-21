@@ -652,10 +652,27 @@ check("la rilettura converte gli uuid in stringhe",
       "un `uuid` letto con una query testuale torna come oggetto, e il sintomo "
       "sarebbe «il digest non torna» — che non fa pensare a un tipo")
 
-check("le colonne data derivate usano il parser dello scanner delle scadenze",
-      "from app.notifications.expiry import parse_expiry" in rel,
+# ⚠ ROVESCIATO nella 2G: era «usano il parser dello SCANNER». Il parser si è spostato
+# in `app/domain.py`, che è la sede unica della semantica di business, e da lì lo
+# prendono tutti e tre i chiamanti — lo scanner, la colonna derivata, il frontend.
+check("le colonne data derivate usano il parser del DOMINIO",
+      "domain.parse_expiry(value)" in rel
+      and "from app.notifications.expiry import parse_expiry" not in rel,
       "un secondo parser sarebbe una seconda idea di «data valida», e divergerebbe "
       "sui casi limite — che sono i valori che l'inventario reale contiene")
+check("lo scanner delle scadenze RIESPORTA il parser invece di averne uno proprio",
+      "from app.domain import" in code_only(ROOT / "backend" / "app"
+                                            / "notifications" / "expiry.py")
+      and "_ISO_DATE" not in code_only(ROOT / "backend" / "app" / "notifications"
+                                       / "expiry.py"),
+      "finché la definizione stava qui, il frontend ne aveva una seconda e sette "
+      "forme di data erano visibili nella vista Scadenze e invisibili al worker")
+check("la classe di cifre del parser è ASCII, non Unicode",
+      "[0-9]{4}" in code_only(ROOT / "backend" / "app" / "domain.py")
+      and "\\d{4}" not in code_only(ROOT / "backend" / "app" / "domain.py"),
+      "in Python `\\d` combacia con OGNI cifra decimale Unicode: `２０２７-０３-１５` era "
+      "una data per il backend e non per il frontend. Difetto reale, trovato dal "
+      "confronto fra le due implementazioni")
 check("la mappa dichiara i limiti delle colonne intere",
       "INT32_MIN" in rel and "2147483647" in rel,
       "`u: 3000000000` non è un caso teorico: è un INSERT che fallisce a metà del "
@@ -1538,6 +1555,48 @@ QUERIES = ROOT / "backend" / "app" / "inventory" / "queries.py"
 QUERY_ROUTES = ROOT / "backend" / "app" / "api" / "queries.py"
 queries_src = code_only(QUERIES)
 query_routes_src = code_only(QUERY_ROUTES)
+DOMAIN = ROOT / "backend" / "app" / "domain.py"
+
+
+def _assign_literal(path, name):
+    """Il valore di un'assegnazione letterale a livello di modulo, letto con `ast`.
+
+    ⚠ Serve perché questo strumento NON importa l'applicazione: gira senza database,
+    senza dipendenze e prima di qualunque cosa. Leggere l'elenco dei campi con una
+    regex avrebbe funzionato finché nessuno lo riformatta; `ast` legge il VALORE.
+    """
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
+        for t in targets:
+            if isinstance(t, ast.Name) and t.id == name and node.value is not None:
+                return ast.literal_eval(node.value)
+    return None
+
+
+def _domain_fields():
+    """I campi cercabili dichiarati dal CONTRATTO."""
+    return sorted(_assign_literal(DOMAIN, "DEVICE_SEARCH_FIELDS") or ())
+
+
+def _sql_search_fields():
+    """I campi che la traduzione SQL sa tradurre.
+
+    ⚠ Si confrontano i due INSIEMI, e non si elencano i nomi qui: un elenco copiato in
+    questo file sarebbe un terzo elenco, e la fase 2G esiste per non averne due.
+    """
+    import ast
+
+    tree = ast.parse(QUERIES.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "_DEVICE_SEARCH_SQL"
+                for t in node.targets):
+            return [k.value for k in node.value.keys]
+    return []
 
 check("esistono le tre interrogazioni, e sono tre",
       all(f"def {nome}(" in queries_src
@@ -1547,8 +1606,12 @@ check("esistono le tre interrogazioni, e sono tre",
 # --- la semantica della ricerca ---
 search_fn = function_source(QUERIES, "search")
 rows_fn = function_source(QUERIES, "_search_rows")
+# ⚠ Su `queries_src` e non su `rows_fn`: dalla 2G il confronto è in `_text_match`,
+# che è una funzione di supporto. Cercarlo nel corpo di `_search_rows` lo dichiarava
+# assente — un controllo rosso perché il codice è stato riordinato, non perché è
+# sbagliato, è un controllo che qualcuno finisce per cancellare.
 check("la ricerca testuale usa `strpos`, non `LIKE`",
-      "strpos(lower(" in rows_fn and "LIKE" not in rows_fn,
+      "strpos(lower(" in queries_src and "LIKE" not in queries_src,
       "`LIKE` attribuisce un significato a `%` e `_`, che in una casella di ricerca "
       "sono caratteri normali: una query contenente `%` troverebbe tutto")
 check("la ricerca NON è tokenizzata",
@@ -1556,14 +1619,37 @@ check("la ricerca NON è tokenizzata",
                                          "plainto_", "websearch_", "@@")),
       "la ricerca a testo pieno di PostgreSQL non trova `SRV-Web-01` cercando `web`: "
       "sarebbe una ricerca «migliore» che perde risultati")
-check("i campi cercati sui dispositivi sono i CINQUE del frontend",
-      all(f"d.{c}" in rows_fn for c in ("name", "model", "ip", "serial", "owner"))
-      and "d.note" not in rows_fn and "d.type" not in rows_fn.split("dev_type")[0],
-      "`id`, `type`, `stato` e `note` NON sono cercati dalla barra globale. Sembra una "
-      "dimenticanza del frontend, ma aggiungerli qui darebbe più risultati sul server "
-      "che nel browser — due prodotti diversi")
+# ⚠ ROVESCIATO nella 2G: erano CINQUE, e la voce 4 del registro diceva che `id`,
+# `type` e `stato` non si cercavano «e nessuna interfaccia lo dice». Adesso sono NOVE.
+# Le `note` restano fuori PER DECISIONE: testo libero e lungo, che renderebbe qualunque
+# parola comune un risultato di massa.
+#
+# Il controllo non elenca i nomi: li prende dal CONTRATTO. Un elenco copiato qui
+# sarebbe un secondo elenco, e questa fase esiste per non averne due.
+check("i campi cercati sui dispositivi sono quelli del contratto",
+      _domain_fields() == sorted(_sql_search_fields()),
+      f"il contratto dichiara {_domain_fields()} e la traduzione SQL copre "
+      f"{sorted(_sql_search_fields())}: un campo dichiarato e non tradotto non si "
+      f"cerca, e nessuno se ne accorge finché un utente non lo prova")
+check("le note NON sono fra i campi cercabili",
+      "note" not in _domain_fields() and "d.note" not in rows_fn,
+      "decisione della 2G: sono testo libero e lungo, e includerle renderebbe "
+      "qualunque parola comune un risultato di massa")
+check("stato, presenza e tipo si cercano PASSANDO DAL DEFAULT",
+      "_falsy_sql(" in queries_src
+      and all(f'"d.{c}"' in queries_src or f"'d.{c}'" in queries_src
+              for c in ("stato", "presenza", "type")),
+      "un dispositivo senza `stato` è `attivo` e va trovato cercando «attivo»: senza "
+      "il default lo troverebbe solo chi ha scritto la parola nel documento, cioè una "
+      "parte arbitraria dell'inventario")
 check("i rack si cercano su codice, nome e seriali",
-      "k.code" in rows_fn and "k.name" in rows_fn and "k.seriali" in rows_fn)
+      "k.code" in queries_src and "k.name" in queries_src
+      and "k.seriali" in queries_src)
+check("i seriali si cercano anche quando sono finiti in `extra`",
+      "jsonb_array_elements" in queries_src and "extra -> 'seriali'" in queries_src,
+      "un rack i cui `seriali` contengono un numero porta l'intero array in `extra`, e "
+      "nella 2E quei seriali non si trovavano — mentre l'utente li vedeva sullo "
+      "schermo. Una risposta sbagliata, non una stranezza")
 # Senza virgolette esterne: `ast.unparse` normalizza i letterali (la trappola
 # documentata in `code_only`, e ci sono ricascato).
 check("in modalità intervallo IP i rack non partecipano",
@@ -1572,22 +1658,49 @@ check("in modalità intervallo IP i rack non partecipano",
       "rack sono esclusi per costruzione")
 
 # --- nessun `inet`, che è la scorciatoia più tentatrice ---
-check("l'IP si confronta con l'aritmetica di `ipToNum`, non con `inet`",
-      "split_part" in queries_src
-      and all(t not in queries_src for t in ("::inet", "<<=", "inet_", "::cidr")),
-      "`inet` accetterebbe anche IPv6 e le forme abbreviate, cioè aggiungerebbe "
-      "semantica che il prodotto non ha: oggi un dispositivo con `2001:db8::1` non si "
-      "trova per intervallo, e trovarlo sarebbe un comportamento nuovo")
-check("non è stata aggiunta nessuna colonna derivata per l'IP",
-      "ip_inet" not in code_only(ROOT / "backend" / "app" / "inventory"
-                                / "relational.py"),
-      "una colonna derivata nuova cambia la distribuzione dei dati fra colonne, quindi "
-      "obbligherebbe ad alzare `MAPPER_VERSION` e a un `--rebuild` in manutenzione")
-check("la versione della mappa NON è stata alzata",
-      "MAPPER_VERSION = 1" in code_only(ROOT / "backend" / "app" / "inventory"
-                                        / "relational.py"),
-      "la fase 2E non cambia la proiezione: solo la interroga. Alzarla costringerebbe "
-      "a una ricostruzione per una funzione di sola lettura")
+# ⚠ ROVESCIATI nella 2G, tutti tre, e vale la pena dire perché il divieto era giusto
+# allora e sbagliato adesso.
+#
+# La 2E vietava `inet` perché ha una GRAMMATICA PROPRIA — accetta `10.1` come
+# `10.0.0.1` e `10.0.0.0/8` come indirizzo — e usarla avrebbe aggiunto semantica in un
+# solo posto dei tre. Quell'obiezione riguardava l'idea di far interpretare a
+# PostgreSQL il testo dell'utente, e resta valida.
+#
+# Nella 2G non succede: la colonna `ip_addr` la scrive `domain.parse_address`, l'unico
+# interprete del prodotto, e in PostgreSQL arriva solo la forma canonica. Il database
+# CONFRONTA indirizzi già normalizzati, che è quello che sa fare meglio di qualunque
+# espressione — e con `>=`/`<=` su `inet` le famiglie non si mescolano per costruzione.
+# ⚠ Apostrofi e non virgolette: `code_only` passa da `ast.unparse`, che NORMALIZZA i
+# letterali di stringa. È la trappola documentata in `code_only`, e ci sono ricascato
+# una terza volta.
+check("la colonna dell'indirizzo è DERIVATA dal parser del dominio",
+      "('ip_addr', 'ip', _parse_address)" in rel
+      and "domain.parse_address(value)" in rel,
+      "PostgreSQL non deve mai interpretare il testo dell'utente: riceve la forma "
+      "canonica che il parser unico ha prodotto")
+check("la ricerca per indirizzo confronta `inet`, non ricostruisce l'aritmetica",
+      "CAST(:lo AS inet)" in rows_fn
+      and "split_part" not in queries_src,
+      "l'espressione della 2E — nove `btrim` e otto `split_part` per riga, valutata a "
+      "ogni ricerca — è sostituita da due confronti su una colonna indicizzata")
+check("un indirizzo ESATTO è una forma riconosciuta",
+      "exact" in code_only(ROOT / "backend" / "app" / "domain.py"),
+      "era IL difetto: `10.0.0.1` non era una forma di rete, finiva nella ricerca "
+      "testuale, e `10.0.0.1` è una sottostringa di `10.0.0.100`")
+check("IPv6 è supportato, e senza inventare jolly o intervalli",
+      "IPv6Address" in code_only(ROOT / "backend" / "app" / "domain.py")
+      and "_RE_V4_WILDCARD" in code_only(ROOT / "backend" / "app" / "domain.py")
+      and "_RE_V6_WILDCARD" not in code_only(ROOT / "backend" / "app" / "domain.py"),
+      "`2001:db8::*` dovrebbe voler dire «un gruppo qualsiasi» o «il resto "
+      "dell'indirizzo»? Ogni risposta è una grammatica nuova che nessuno ha chiesto")
+check("la versione della mappa È stata alzata, con la sua migrazione",
+      "MAPPER_VERSION = 2" in code_only(ROOT / "backend" / "app" / "inventory"
+                                        / "relational.py")
+      and (ROOT / "backend" / "migrations" / "versions" / "0013_domain.py").is_file(),
+      "`presenza` passa da `extra` a una colonna tipizzata e `ip_addr` è nuova: le "
+      "righe vecchie riassemblerebbero lo stesso documento — quindi lo stesso digest — "
+      "mentre la capacità non troverebbe la presenza e la ricerca non troverebbe "
+      "l'indirizzo. È il caso per cui quel numero esiste (§8.44)")
 
 # --- la semantica della capacità ---
 capacity_fn = function_source(QUERIES, "capacity")
@@ -1603,17 +1716,35 @@ check("la capacità non enumera gli slot",
 check("la capacità unisce gli intervalli con funzioni finestra",
       all(t in queries_src for t in ("OVER (PARTITION BY", "lag(", "lead(")),
       "il costo cresce col numero di DISPOSITIVI, non con l'altezza dichiarata del rack")
-check("la sentinella del raggruppamento per fila è quella del frontend",
-      "ROW_SENTINEL" in queries_src,
-      "il frontend raggruppa per `rk.row || '—'`, e nel seed reale esiste un rack la "
-      "cui fila È «—»: la sentinella collide col dato, e i due finiscono nello stesso "
-      "gruppo. Rimapparla darebbe due gruppi dove l'utente ne vede uno")
+# ⚠ ROVESCIATO nella 2G. Il controllo pretendeva la SENTINELLA — `rk.row || '—'` —
+# perché la 2E riproduceva il frontend e il frontend collideva col dato: nel seed reale
+# esiste un rack la cui fila È «—» (CS-Q01), e finiva nel gruppo «senza fila».
+check("il raggruppamento per fila NON usa una sentinella",
+      "ROW_SENTINEL" not in queries_src and "domain.row_group(" in queries_src,
+      "una sentinella stampabile collide col dato: `domain.row_group` tiene separata "
+      "la CHIAVE del gruppo dall'ETICHETTA mostrata, e la chiave contiene un byte NUL "
+      "che nessun valore di documento può contenere")
+check("la chiave del gruppo è impossibile da imitare con un valore del documento",
+      "\\x00" in code_only(ROOT / "backend" / "app" / "domain.py"),
+      "con un separatore stampabile un rack la cui fila valesse esattamente quel "
+      "separatore ricreerebbe il difetto: la stessa storia, con un carattere diverso")
+check("la percentuale è HALF-UP intera, in un posto solo",
+      "domain.percent(" in queries_src
+      and "(u * 200 + t) // (t * 2)" in code_only(ROOT / "backend" / "app"
+                                                  / "domain.py"),
+      "Math.round di JavaScript, round() di Python e round() di SQL non sono "
+      "d'accordo sulla metà esatta: un rack da 8 U con 1 occupata è 13 per il "
+      "frontend e 12 per Python. L'aritmetica intera li fa combaciare per costruzione")
 
 # --- la semantica delle scadenze ---
 expiries_fn = function_source(QUERIES, "expiries")
-check("le scadenze leggono le colonne DERIVATE",
-      "garanzia_date" in queries_src and "supporto_date" in queries_src,
-      "sono la sorgente interrogabile, e le ha scritte `parse_expiry`")
+# ⚠ I nomi delle colonne non sono più letterali: `_expiry_sql` li compone da
+# `domain.EXPIRY_KINDS` (`d.{kind}_date`), che è ciò che impedisce a questo modulo e al
+# contratto di avere due elenchi di tipi di scadenza. Il controllo segue quel cambio.
+check("le scadenze leggono le colonne DERIVATE, e i tipi vengono dal contratto",
+      "_date AS expiry" in queries_src
+      and "domain.EXPIRY_KINDS" in queries_src,
+      "sono la sorgente interrogabile, e le ha scritte `domain.parse_expiry`")
 # ⚠ `to_date(` con la parentesi: senza, il frammento combacia con `suppor·to_date`,
 # cioè con il nome di una colonna che DEVE esserci. Un controllo che fallisce perché ha
 # trovato la cosa giusta è un controllo scritto male.
@@ -1622,10 +1753,38 @@ check("le scadenze non reinterpretano il testo",
           for t in ("to_date(", "to_timestamp(", "date_parse", "::date)")),
       "un secondo interprete di date divergerebbe dal primo, e divergerebbe sui casi "
       "limite — che sono l'unico posto dove la differenza si vede")
-check("i dispositivi dismessi si escludono come nel frontend",
-      "nullif(d.stato, '')" in queries_src and "dismesso" in queries_src,
-      "il frontend scrive `(d.stato || 'attivo')`, e in JavaScript la stringa vuota è "
-      "falsa: `stato: \"\"` significa «attivo»")
+# ⚠ ROVESCIATO nella 2G, e nei DUE versi. La vista Scadenze saltava i dismessi e il
+# worker no; adesso la vista li MOSTRA (è ispettiva) e il worker NON manda loro avvisi
+# (§7). Le due domande restano diverse, ma non sono più in disaccordo: prima ognuna
+# faceva l'opposto dell'altra senza che nessuno l'avesse deciso.
+check("la vista Scadenze NON esclude i dismessi",
+      "<> 'dismesso'" not in expiries_fn
+      and "NOT IN ('dismesso')" not in expiries_fn,
+      "un apparato dismesso ha un contratto che scade, e chi fa l'inventario dei "
+      "contratti deve poterlo vedere (§8): resta ispezionabile, cercabile e nello "
+      "storico. Non riceve avvisi — quella è l'altra domanda")
+check("la vista Scadenze ha i filtri per stato e presenza",
+      "stato" in expiries_fn and "presenza" in expiries_fn
+      and "_reject_unknown" in queries_src,
+      "`?stato=dismesso&presenza=rimosso` è l'elenco dei contratti di ciò che è stato "
+      "portato via: il riscontro incrociato per cui i dismessi si conservano")
+check("un filtro fuori vocabolario è un RIFIUTO, non un elenco vuoto",
+      "QueryRejected" in function_source(QUERIES, "_reject_unknown"),
+      "`?stato=dismessi` al plurale darebbe zero righe, e chi le legge concluderebbe "
+      "che non ci sono apparati dismessi: plausibile e falsa")
+check("il worker ESCLUDE i dismessi, e dal vocabolario del contratto",
+      "NOTIFY_INELIGIBLE_STATES" in code_only(ROOT / "backend" / "app"
+                                              / "notifications" / "candidates.py"),
+      "l'elenco degli stati inidonei sta nel contratto: copiarlo in SQL darebbe due "
+      "elenchi, e il giorno in cui divergessero il worker manderebbe avvisi che la "
+      "vista dichiara non azionabili")
+check("il worker NON guarda la presenza fisica",
+      "presenza" not in function_source(
+          ROOT / "backend" / "app" / "notifications" / "candidates.py",
+          "due_items_from_projection"),
+      "un apparato portato in un altro sito ha la garanzia che scade comunque, e chi "
+      "la rinnova ha bisogno di saperlo: la presenza decide l'occupazione dello "
+      "spazio, non gli avvisi")
 check("«oggi» viene dal fuso configurato, con il codice del worker",
       "local_today" in query_routes_src,
       "così «scaduto» significa la stessa cosa in un promemoria via posta e in questa "
@@ -1696,53 +1855,175 @@ check("i corpora di parità sono committati",
       len(corpora) >= 25,
       f"sono il contratto fra il JavaScript che gira e lo SQL nuovo: {len(corpora)}")
 
-#: Le righe che il generatore dichiara copiate ALLA LETTERA dal frontend. Se una non si
-#: trova più identica nell'HTML, il riferimento semantico si è spostato e le fixture
-#: vanno rigenerate — che è l'unico modo di accorgersene.
-VERBATIM = [
-    "const m = String(ip || '').trim().match(/^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/);",
-    "if (p.some(x => x > 255)) return null;",
-    "return ((p[0] * 256 + p[1]) * 256 + p[2]) * 256 + p[3];",
-    "const size = Math.pow(2, 32 - bits);",
-    "const start = Math.floor(base / size) * size;",
-    "return [Math.min(a, b), Math.max(a, b)];",
-    "while (lo.length < 4) { lo.push(0); hi.push(255); }",
-    "return [d.name, d.model, d.ip, d.serial, d.owner].some(v => (v || '').toLowerCase().includes(q));",
-    "const occ = new Array(rk.u + 1).fill(false);",
-    "for (let k = 1; k <= rk.u; k++) { if (occ[k]) { rkUsed++; run = 0; } else { run++; if (run > maxRun) maxRun = run; } }",
-    "if (maxRun > bestFree) { bestFree = maxRun; bestRack = rk.id; }",
-    "const rw = rk.row || '—';",
-    "const pct = tot ? used / tot : 0;",
-    "if ((d.stato || 'attivo') === 'dismesso') continue;",
-    "const lv = giorni < 0 ? 2 : (giorni <= 90 ? 1 : 0);",
-    "entries.sort((a, b) => a.dt - b.dt);",
-]
+# ⚠ IL MECCANISMO È CAMBIATO NELLA 2G, ed è il cambio più importante di questo file.
+#
+# Fino alla 2F qui c'era un elenco `VERBATIM`: righe di JavaScript copiate ALLA LETTERA
+# dal frontend nel generatore delle fixture, e un controllo che verificava che esistessero
+# ancora identiche nell'HTML. Aveva senso finché ciò che andava dimostrato era la PARITÀ
+# con il comportamento che girava: il frontend era il riferimento semantico, e se una di
+# quelle righe cambiava, le fixture andavano rigenerate.
+#
+# La 2G rovescia la direzione. Il comportamento del prototipo non è più il contratto —
+# è ciò che la 2G sostituisce — e il riferimento sono `fixtures/domain/*.json`, con le
+# attese scritte a mano da una decisione di prodotto. Le righe copiate non esistono più
+# perché non c'è più niente da copiare: il frontend CHIAMA il modello di dominio invece
+# di contenerne una versione.
+#
+# Quindi i controlli qui sotto non cercano più frammenti identici. Cercano che le tre
+# implementazioni PARTANO dallo stesso posto, e che nessuna se ne sia fatta una propria.
+def js_code_only(text: str) -> str:
+    """Il sorgente JavaScript SENZA commenti.
 
-#: Il sorgente dell'APPLICAZIONE, che sta nell'HTML a file unico e non nei `.js`.
-#:
-#: ⚠ `handoff` concatena soltanto `handoff/**/*.js` — dati del seed, modulo identità,
-#: client dell'API — e la logica di ricerca, capacità e scadenze non è là: è dentro
-#: `Sala Server v2.dc.html`. Cercare i frammenti in `handoff` li dichiarava tutti
-#: assenti, che è il modo in cui questo controllo sarebbe potuto passare per sbaglio se
-#: l'avessi scritto al negativo.
+    ⚠ Esiste perché ci sono ricascato due volte, e la seconda in questa stessa fase.
+    I controlli qui sotto cercano frammenti che NON devono esistere — `rk.row || '—'`,
+    `=== 'dismesso') {}` — e quei frammenti compaiono nei COMMENTI che spiegano perché
+    sono stati rimossi. Un controllo che trova la propria spiegazione è un controllo
+    che dichiara un difetto dove c'è la sua descrizione.
+
+    Nella 2F la soluzione fu `ast` su Python. Qui non c'è un parser JavaScript a
+    disposizione, quindi si scandisce a mano tenendo conto di stringhe, apici,
+    template literal e classi di caratteri di una regex: dentro una stringa un `//`
+    non apre un commento, e `https://` non deve cancellare mezza riga.
+
+    Se questo scanner sbaglia, sbaglia togliendo TROPPO — e un controllo che cerca
+    l'assenza di un frammento diventa più debole, non falso.
+    """
+    out = []
+    i, n = 0, len(text)
+    quote = None          # ' " ` oppure None
+    while i < n:
+        c = text[i]
+        if quote:
+            out.append(c)
+            if c == "\\":
+                if i + 1 < n:
+                    out.append(text[i + 1])
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c in "'\"`":
+            quote = c
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != chr(10):
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            fine = text.find("*/", i + 2)
+            i = n if fine < 0 else fine + 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 FRONTEND_APP = ROOT / "handoff" / "Sala Server v2.dc.html"
 check("il sorgente dell'applicazione frontend è dove ci si aspetta",
       FRONTEND_APP.is_file(),
-      "è il riferimento semantico della fase 2E: senza, la parità non ha un termine "
-      "di confronto")
+      "senza, non c'è niente da confrontare con il contratto")
 frontend_app = FRONTEND_APP.read_text(encoding="utf-8") if FRONTEND_APP.is_file() else ""
+def html_script_code(text: str) -> str:
+    """Il solo JAVASCRIPT di un file HTML, senza commenti di nessuna delle due specie.
 
-mancanti_html = [frammento for frammento in VERBATIM
-                 if frammento not in frontend_app]
-check("gli algoritmi copiati nel generatore esistono ancora nel frontend",
-      not mancanti_html,
-      f"il riferimento semantico si è spostato: rigenerare le fixture. Non trovati: "
-      f"{[f[:60] for f in mancanti_html]}")
-mancanti_gen = [frammento for frammento in VERBATIM if frammento not in generator]
-check("il generatore contiene davvero quegli algoritmi",
-      not mancanti_gen,
-      f"un frammento nell'elenco ma non nel generatore rende il controllo vacuo: "
-      f"{[f[:60] for f in mancanti_gen]}")
+    ⚠ Non basta passare l'HTML intero a `js_code_only`, e il perché è istruttivo: quel
+    lettore tiene traccia delle stringhe, e in un HTML italiano gli apostrofi del testo
+    («l'app», «un'entità») sono apici singoli FUORI da qualunque stringa. Il primo
+    apostrofo apre uno stato di stringa che non si chiude più dove dovrebbe, il lettore
+    si disallinea e i commenti smettono di essere riconosciuti — che è esattamente il
+    modo in cui questo controllo trovava la propria spiegazione e la dichiarava un
+    difetto.
+    """
+    import re
+
+    senza_commenti_html = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    blocchi = re.findall(r"<script[^>]*>(.*?)</script>", senza_commenti_html,
+                         flags=re.S | re.I)
+    return js_code_only(chr(10).join(blocchi))
+
+
+#: Il solo JavaScript, senza commenti: è su questo che si cercano i frammenti VIETATI.
+frontend_code = html_script_code(frontend_app)
+
+DOMAIN_JS = ROOT / "handoff" / "domain.js"
+check("esiste il gemello JavaScript del modello di dominio", DOMAIN_JS.is_file())
+domain_js = DOMAIN_JS.read_text(encoding="utf-8") if DOMAIN_JS.is_file() else ""
+domain_js_code = js_code_only(domain_js)
+
+CONTRACT = ROOT / "fixtures" / "domain"
+corpora_dominio = sorted(x.name for x in CONTRACT.glob("*.json")) \
+    if CONTRACT.is_dir() else []
+check("i corpora del contratto di dominio sono committati",
+      len(corpora_dominio) >= 9,
+      f"sono il riferimento delle tre implementazioni: {corpora_dominio}")
+check("il contratto copre tutte le aree del requisito",
+      all(f"{nome}.json" in corpora_dominio for nome in
+          ("presence", "capacity", "percent", "rows", "expiries", "notifications",
+           "addresses", "search", "labels")),
+      f"un'area senza corpus è un'area in cui le due implementazioni possono "
+      f"divergere senza che niente diventi rosso: {corpora_dominio}")
+check("esiste il generatore del contratto, e le attese sono a mano",
+      (ROOT / "tools" / "make-domain-fixtures.mjs").is_file(),
+      "calcolare le attese da una delle due implementazioni renderebbe il contratto "
+      "vacuo: se sbagliassero entrambe allo stesso modo, nessun test diventerebbe rosso")
+check("esistono le due suite che eseguono il contratto",
+      (ROOT / "tools" / "domain-contract-tests.mjs").is_file()
+      and (ROOT / "backend" / "tests" / "test_domain_contract.py").is_file(),
+      "una sola suite dimostrerebbe che una implementazione soddisfa il contratto, non "
+      "che le due sono d'accordo")
+
+# --- il frontend NON contiene più una semantica propria ---
+#
+# ⚠ Questi sono i controlli che sostituiscono `VERBATIM`, e sono scritti al NEGATIVO
+# di proposito: elencano le espressioni che ERANO la semantica duplicata. Se una torna,
+# qualcuno ha ricominciato a decidere nel frontend.
+SEMANTICA_DUPLICATA = [
+    ("new Array(rk.u + 1)", "il vettore di occupazione: era la definizione di «U "
+                            "occupate», ed era una di tre"),
+    ("reduce((a, d) => a + (d.h || 1), 0)", "SUM(h) nel pannello del rack"),
+    ("reduce((t, d) => t + (d.h || 1), 0)", "SUM(h) nell'export XLSX"),
+    ("static ipToNum", "la seconda grammatica degli indirizzi"),
+    ("static parseIpQuery", "la seconda grammatica delle query di rete"),
+    ("rk.row || '—'", "la sentinella che collideva col dato"),
+    ("=== 'dismesso') {}", "il ramo vuoto che non escludeva i dismessi"),
+    ("=== 'dismesso') continue", "il filtro che li faceva sparire dalle Scadenze"),
+]
+tornate = [(f, perche) for f, perche in SEMANTICA_DUPLICATA if f in frontend_code]
+check("il frontend non contiene più una semantica di dominio propria",
+      not tornate,
+      f"queste espressioni ERANO la duplicazione che la 2G ha rimosso, e sono "
+      f"tornate: {[(f[:40], p) for f, p in tornate]}")
+check("il frontend CHIAMA il modello di dominio",
+    "import('./domain.js')" in frontend_app
+      and frontend_app.count("DOM.") >= 20,
+      "se non lo chiamasse, la semantica sarebbe tornata da qualche parte: il "
+      "contratto sarebbe soddisfatto dal solo backend")
+
+# --- e nemmeno domain.js decide da sé ---
+check("il gemello JavaScript non usa `new Date` per interpretare una data",
+      "new Date(v" not in domain_js_code and "Date.parse" not in domain_js_code,
+      "`new Date` accetta sette forme che il backend rifiuta, e su `2027-02-30` non "
+      "rifiuta: la fa SCORRERE al 2 marzo. Una data inesistente diventava esistente")
+check("il gemello JavaScript non usa Math.round per le percentuali",
+      "Math.round((u" not in domain_js_code
+      and "Math.round(used" not in domain_js_code
+      and "(u * 200 + t) / (t * 2)" in domain_js_code,
+      "Math.round e round() di Python non sono d'accordo sulla metà esatta: "
+      "l'aritmetica intera li fa combaciare per costruzione, non per fortuna")
+check("il gemello JavaScript non conta i giorni con una divisione di millisecondi",
+      "86400000" not in domain_js_code and "daysFromCivil" in domain_js_code,
+      "`(dt - Date.now()) / 86400000` dipende dall'ora del giorno: nella notte del "
+      "cambio dell'ora 23 o 25 ore si arrotondavano a un giorno per caso")
+check("il vecchio generatore di parità non copia più il frontend",
+      not (ROOT / "tools" / "make-query-fixtures.mjs").is_file()
+      or "VERBATIM" in (ROOT / "tools" / "make-query-fixtures.mjs")
+      .read_text(encoding="utf-8"),
+      "resta come riferimento storico della 2E: le sue fixture misurano il "
+      "comportamento del prototipo, che è cio che la 2G ha sostituito")
 
 # --- ciò che la fase 2E NON fa ---
 # ⚠ ROVESCIATO nella fase 2F: era «il worker delle notifiche non è passato a SQL»,
@@ -1755,16 +2036,35 @@ check("il worker non usa le interrogazioni interattive come sorgente",
                     "urllib")),
       "l'endpoint riproduce la vista Scadenze, che sui dismessi e sugli scaduti non è "
       "d'accordo con lo scanner: usarlo cambierebbe la semantica degli avvisi (§8.48)")
+# ⚠ Questo controllo resta, e la 2G lo rende PIÙ importante, non meno.
+#
+# Il frontend adesso condivide la SEMANTICA col backend, e la tentazione naturale è
+# fare il passo successivo — chiamare le rotte — nello stesso commit. Sono due cose
+# diverse: la 2G garantisce che i due calcoli DIANO LA STESSA RISPOSTA, e quella
+# garanzia è precisamente ciò che rende la migrazione successiva noiosa e sicura. Se
+# avvenissero insieme, un numero diverso sullo schermo non si saprebbe più attribuire.
+# ⚠ Su `frontend_code`, non sul testo grezzo: il commento che SPIEGA che il frontend
+# non chiama quelle rotte le nomina, e cercarle nel testo grezzo trovava la propria
+# spiegazione. Terza volta in questa fase che ci ricasco, e la terza volta la
+# soluzione è la stessa — guardare il codice, non la prosa.
 check("il frontend non è stato ricablato alle rotte nuove",
-      all(t not in handoff + frontend_app
+      all(t not in js_code_only(handoff) + frontend_code
           for t in ("/api/inventory/search", "/api/inventory/capacity",
                     "/api/inventory/expiries")),
-      "la 2E prova prima le implementazioni sul server (§18); la sostituzione dei "
-      "calcoli lato client è un commit successivo e delimitato")
-check("il frontend continua a calcolare da sé",
-      "parseIpQuery" in frontend_app and "new Array(rk.u + 1)" in frontend_app,
-      "se questi fossero spariti il frontend sarebbe già stato migrato, e la parità "
-      "non avrebbe più un riferimento")
+      "la 2G unifica la semantica; il passaggio alle rotte è la fase successiva. "
+      "Farli insieme renderebbe impossibile attribuire un cambiamento a uno dei due")
+# ⚠ ROVESCIATO nella 2G: il controllo pretendeva `parseIpQuery` e
+# `new Array(rk.u + 1)` nel frontend, cioè la presenza della semantica duplicata,
+# «altrimenti il frontend sarebbe già stato migrato e la parità non avrebbe più un
+# riferimento». Il riferimento adesso è il CONTRATTO, non il codice del prototipo:
+# quelle due espressioni devono essere sparite, e il frontend deve continuare a
+# calcolare in locale CHIAMANDO il dominio.
+check("il frontend continua a calcolare in locale, ma con la semantica condivisa",
+      "DOM.rackCapacity(" in frontend_code
+      and "DOM.parseAddressQuery(" in frontend_code
+      and "await import('./domain.js')" not in frontend_code.replace("\n", " "),
+      "calcola ancora da sé — nessuna rotta chiamata — ma le regole vengono da "
+      "handoff/domain.js, che è il gemello di app/domain.py")
 check("nessuna migrazione nuova per la fase 2E",
       not (ROOT / "backend" / "migrations" / "versions" / "0013_query_indexes.py")
       .is_file(),
@@ -1888,11 +2188,30 @@ check("il worker usa lo snapshot condiviso e non un giro suo",
 
 # --- privilegi: nessuna concessione nuova ---
 _migrazioni = sorted((ROOT / "backend" / "migrations" / "versions").glob("*.py"))
-check("nessuna migrazione nuova per la fase 2F",
-      not any(m.name.startswith("0013") for m in _migrazioni),
-      "il ruolo del worker aveva gia' tutte le `SELECT` che gli servono (0009 per la "
-      "testa e le versioni, 0010 per le tabelle, 0011 per lo stato, 0012 ribadite): "
-      "la 2F verifica quel fatto con una matrice di privilegi, non lo cambia")
+# ⚠ ROVESCIATO nella 2G: la 2F non aggiungeva migrazioni, la 2G sì. E la migrazione
+# NON concede privilegi nuovi: aggiunge due colonne a una tabella esistente, che
+# ereditano i privilegi di tabella. Il worker resta in sola lettura.
+check("la fase 2G ha la sua migrazione, e non tocca i privilegi",
+      any(m.name == "0013_domain.py" for m in _migrazioni)
+      and all(t not in (ROOT / "backend" / "migrations" / "versions"
+                        / "0013_domain.py").read_text(encoding="utf-8")
+              for t in ("GRANT INSERT", "GRANT UPDATE", "GRANT DELETE")),
+      "`presenza` e `ip_addr` sono colonne di una tabella che esiste: ereditano i "
+      "privilegi, e non c'è niente da concedere. Il ruolo del worker resta in sola "
+      "lettura su tutto lo schema dell'inventario (§8.47.7)")
+check("la migrazione non fa una migrazione di DATI",
+      all(t not in (ROOT / "backend" / "migrations" / "versions"
+                    / "0013_domain.py").read_text(encoding="utf-8")
+          for t in ("UPDATE inventory", "INSERT INTO inventory")),
+      "le due colonne nascono NULL e le riempie `project.py --rebuild`: un `UPDATE` di "
+      "massa in una migrazione è una riscrittura dei dati di produzione che nessuno ha "
+      "chiesto")
+check("la migrazione non mette un CHECK sul vocabolario della presenza",
+      "presenza IN (" not in (ROOT / "backend" / "migrations" / "versions"
+                              / "0013_domain.py").read_text(encoding="utf-8"),
+      "l'inventario reale arriva da fogli di calcolo e contiene sempre qualche valore "
+      "fuori elenco: un vincolo qui farebbe RIFIUTARE alla proiezione un documento che "
+      "la fase 1 accetta. `validate_model` lo segnala come avviso, che è la cosa giusta")
 check("le REVOKE che tengono il worker in sola lettura sono ancora scritte",
       all(t in (ROOT / "backend" / "migrations" / "versions" /
                 "0012_dual_write.py").read_text(encoding="utf-8")
@@ -1901,22 +2220,56 @@ check("le REVOKE che tengono il worker in sola lettura sono ancora scritte",
       "sta leggendo, e quelle righe sono cio' che un diff mostra accanto a chi provasse")
 
 # --- l'endpoint e lo scanner restano due cose ---
-check("l'endpoint delle scadenze non e' stato piegato alla semantica del worker",
-      "dismesso" in queries_src and "expired" in queries_src,
-      "la vista Scadenze salta i dismessi ed elenca gli scaduti; il worker fa il "
-      "contrario. Riconciliarli e' una decisione di prodotto, non di questo commit")
+# ⚠ ROVESCIATO nella 2G. Il controllo pretendeva che le due semantiche restassero
+# DIVERSE per caso — «riconciliarli è una decisione di prodotto, non di questo commit».
+# La decisione è stata presa (§7): restano diverse PER SCELTA, e ognuna fa ciò che
+# serve alla sua domanda.
+#
+#   vista Scadenze   ispettiva: mostra tutto, dismessi compresi, scaduti compresi
+#   worker           azionabile: 0 <= giorni <= finestra, e non i dismessi
+#
+# Il controllo pretende adesso che ognuna abbia la SUA regola, e che non se le siano
+# scambiate.
+check("le due domande sulle scadenze sono decise, e sono ancora due",
+      "expired" in queries_src                       # la vista ha i livelli
+      and "notifiable" in queries_src                # e sa dire cosa e azionabile
+      and "NOTIFY_INELIGIBLE_STATES" in candidates_src   # il worker ha l'idoneita
+      and "expired" not in candidates_src,               # e non ha i livelli
+      "la vista mostra e spiega; il worker decide e manda. Se una prendesse la regola "
+      "dell'altra, gli avvisi cambierebbero senza che nessuno l'avesse deciso")
 check("il registro del debito semantico esiste ed e' separato",
       "8.48" in (ROOT / "BACKEND-PLAN.md").read_text(encoding="utf-8"),
       "le incoerenze scoperte nella 2E vanno risolte di proposito prima di migrare il "
       "frontend, non scoperte una seconda volta da chi lo migra (§15 della fase 2F)")
 
 # --- cio' che la fase 2F NON fa ---
-check("il frontend non e' stato ricablato dalla 2F",
-      all(t not in handoff + frontend_app
-          for t in ("/api/inventory/search", "/api/inventory/capacity",
-                    "/api/inventory/expiries")),
-      "la migrazione del frontend e' un commit suo, e va fatta dopo aver risolto le "
-      "incoerenze del registro")
+def _voci_registro():
+    """Le righe del registro del debito semantico (§8.48) numerate da 1 a 9.
+
+    Sono le voci che il requisito della 2G dichiara da risolvere prima del rilascio.
+    Si leggono dal documento invece di elencarle qui: un elenco copiato in questo file
+    diventerebbe la seconda versione del registro, e la prima a essere dimenticata.
+    """
+    import re
+
+    testo = (ROOT / "BACKEND-PLAN.md").read_text(encoding="utf-8")
+    inizio = testo.find("### 8.48 Registro del debito semantico")
+    fine = testo.find("### 8.49", inizio)
+    if inizio < 0:
+        return []
+    sezione = testo[inizio:fine if fine > 0 else len(testo)]
+    return [riga for riga in sezione.splitlines()
+            if re.match("^[|]\\s*[1-9]\\s*[|]", riga)]
+
+
+# ⚠ ROVESCIATO nella 2G: il rimando era «dopo aver risolto le incoerenze del
+# registro», e la 2G le risolve. Ciò che resta da sorvegliare non è più il registro: è
+# che la RISOLUZIONE sia arrivata in tutte le implementazioni, non solo nel backend.
+check("il registro dichiara risolte le incoerenze che la 2G risolve",
+      all(f"RISOLTA" in riga or "RISOLTO" in riga
+          for riga in _voci_registro() if riga),
+      "una voce lasciata aperta dopo la 2G è un blocco al rilascio (§14 del "
+      "requisito): il posto dove si scopre è questo, non un cliente")
 check("la readiness non guarda lo stato del worker",
       all(t not in code_only(ROOT / "backend" / "app" / "api" / "health.py")
           for t in ("scheduler_runs", "worker_heartbeat", "reminder_deliveries")),

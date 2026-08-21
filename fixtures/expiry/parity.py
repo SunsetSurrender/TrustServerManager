@@ -161,6 +161,30 @@ def corpora(reference: date) -> dict[str, dict]:
              stato="in dismissione", garanzia=d(7)),
         _dev(5, id="ignoto", name="ignoto", stato="qualcosa-altro",
              garanzia=d(7)),
+        # ⚠ Fase 2G: i quattro stati del vocabolario e le due presenze, incrociati.
+        #
+        # Il corpus di prima aveva `stato="in dismissione"` — con lo spazio — che NON
+        # è il valore del vocabolario (`dismissione`). Andava bene finché lo scanner
+        # non guardava `stato`: qualunque stringa dava lo stesso esito. Dalla 2G lo
+        # stato decide l'idoneità, e un corpus che non contiene i valori veri non
+        # verifica la regola vera.
+        _dev(6, id="manutenzione", name="manutenzione", stato="manutenzione",
+             garanzia=d(7)),
+        _dev(7, id="dismissione", name="dismissione", stato="dismissione",
+             garanzia=d(7)),
+        # Le due dimensioni si incrociano: un dismesso RIMOSSO non avvisa (per lo
+        # stato) e un attivo RIMOSSO avvisa (perché la presenza non c'entra con gli
+        # avvisi). Senza queste due righe nessun test potrebbe distinguere «guardo lo
+        # stato» da «guardo la presenza».
+        _dev(8, id="dismesso-rimosso", name="dismesso-rimosso", stato="dismesso",
+             presenza="rimosso", garanzia=d(7)),
+        _dev(9, id="attivo-rimosso", name="attivo-rimosso", stato="attivo",
+             presenza="rimosso", garanzia=d(7)),
+        # In DISMISSIONE e già portato via: resta idoneo, perché la decisione non è
+        # conclusa e il contratto vale ancora. È la coppia che si confonde più
+        # facilmente con quella sopra, e per questo c'è.
+        _dev(10, id="dismissione-rimosso", name="dismissione-rimosso",
+             stato="dismissione", presenza="rimosso", garanzia=d(7)),
     ], id="R01", name="R01")], id="sala-1", nome="Sala 1")], id="sito-1",
         nome="Sito 1")])
 
@@ -227,10 +251,24 @@ def corpora(reference: date) -> dict[str, dict]:
 
     # ---------------------------------------------------- il contesto strutturale
     #
-    # Sito, sala e rack nel digest sono gli **id**, non i nomi: `walk` compone il
-    # percorso con `f"{L['id']} / {R['id']} / {K['id']} / {V['id']}"` e `_context` lo
-    # rispezza. Da qui i due casi limite: l'id assente, che diventava la stringa
-    # «None», e l'id che contiene uno `/`, che il rispezzamento troncava.
+    # ⚠ RISCRITTO nella fase 2G. Fino alla 2F sito, sala e rack nel digest erano gli
+    # **id**, perché `walk` componeva il percorso con
+    # `f"{L['id']} / {R['id']} / {K['id']} / {V['id']}"` e `_context` lo rispezzava.
+    # Da qui i due difetti del registro (§8.48 voci 11 e 12): l'id assente diventava
+    # la stringa «None», e un id che contiene uno `/` veniva troncato.
+    #
+    # La 2G decide la catena una volta per tutte (§9): **nome mostrabile → codice di
+    # business → «(senza nome)»**. Le conseguenze da coprire diventano quindi tre, e
+    # il corpus le copre tutte:
+    #
+    #   1. dove esiste un nome, è il nome a comparire (e non più il codice);
+    #   2. dove il nome manca, compare il CODICE, intero — barre comprese;
+    #   3. dove mancano entrambi, compare «(senza nome)», mai «None».
+    #
+    # Il caso 2 è quello che protegge dal ritorno del troncamento, e per questo il
+    # corpus porta un rack e un sito con lo `/` nel codice e SENZA nome: se avessero
+    # un nome, il codice non arriverebbe nell'etichetta e il test non potrebbe più
+    # accorgersi di niente.
     out["context"] = _doc([
         _loc(1, [_room(1, [_rack(1, [
             _dev(1, id="normale", name="normale", garanzia=d(7)),
@@ -256,6 +294,16 @@ def corpora(reference: date) -> dict[str, dict]:
             _dev(5, id="sito-con-slash", name="sito-con-slash", garanzia=d(7)),
         ], id="R05", name="R05")], id="sala-5", nome="Sala 5")],
             id="a/b", nome="Sito 5"),
+        # ⚠ Fase 2G: lo `/` nel CODICE, e nessun nome che lo copra. È il caso in cui
+        # l'etichetta È il codice, quindi l'unico in cui un troncamento tornerebbe
+        # visibile. Rack senza `name`, sala senza `nome`, sito senza `nome`.
+        _loc(6, [_room(6, [_rack(6, [
+            _dev(6, id="slash-nudo", name="slash-nudo", garanzia=d(7)),
+        ], id="10.1.1.0/24")], id="sala/6")], id="c/d"),
+        # Nome E codice assenti a ogni livello: «(senza nome)» tre volte, e mai «None».
+        _loc(7, [_room(7, [_rack(7, [
+            _dev(7, id="tutto-anonimo", name="tutto-anonimo", garanzia=d(7)),
+        ])])]),
     ])
 
     # ------------------------------------------------------------ id duplicati

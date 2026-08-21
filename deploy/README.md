@@ -509,11 +509,17 @@ salvataggio era rimasto indietro di più di ventiquattro ore).
 
 ### 3.8 La proiezione relazionale: è lo stato corrente, e ora è ciò che si legge
 
-Le migrazioni `0010_normalised`, `0011_projection` e `0012_dual_write` creano le
-tabelle dello stato operativo (`inventory_locations`, `inventory_rooms`,
-`inventory_racks`, `inventory_devices`, `inventory_manual_entries`,
-`inventory_projection_state`) e, dalla fase 2C, danno all'API i privilegi per
-mantenerle.
+Le migrazioni `0010_normalised`, `0011_projection`, `0012_dual_write` e
+`0013_domain` creano le tabelle dello stato operativo (`inventory_locations`,
+`inventory_rooms`, `inventory_racks`, `inventory_devices`,
+`inventory_manual_entries`, `inventory_projection_state`) e, dalla fase 2C, danno
+all'API i privilegi per mantenerle.
+
+⚠ **La `0013_domain` richiede una RICOSTRUZIONE, e va letta prima di aggiornare.**
+Vedi §3.8.1 qui sotto: dopo quella migrazione le rotte di lettura rispondono 503
+finché non gira `project.py --rebuild`. È previsto, ha un rimedio di un comando, e
+NON è una migrazione di dati — ma se l'aggiornamento avviene in orario di lavoro senza
+saperlo, per qualche minuto l'applicazione non serve l'inventario.
 
 **Fase 2C (§8.44) — la scrittura.** Ogni `PUT` che cambia qualcosa mantiene la
 proiezione **nella stessa transazione** dell'istantanea JSON: dopo un salvataggio
@@ -715,6 +721,80 @@ fedele, e una `INSERT` scritta a mano la salta. L'API ha `INSERT/UPDATE/DELETE` 
 il suo codice le mantiene, ma **non** `TRUNCATE`; il worker resta in sola lettura; e
 `inventory_versions` resta senza `UPDATE` e senza `DELETE` per chiunque, perché è il
 riferimento contro cui la proiezione si verifica.
+
+---
+
+### 3.8.1 Aggiornare alla fase 2G: una ricostruzione obbligatoria
+
+La migrazione `0013_domain` aggiunge due colonne a `inventory_devices` e **alza la
+versione della mappa da 1 a 2**:
+
+| colonna | che cos'è |
+|---|---|
+| `presenza` | presenza FISICA dell'apparato nel rack: `presente` / `rimosso`. Valore dell'utente, torna nel documento |
+| `ip_addr` | l'indirizzo IP **interpretato**, tipo `inet`. Derivata, non torna nel documento |
+
+⚠ **Perché la ricostruzione non è opzionale.** Le righe scritte dalla mappa versione 1
+riassemblerebbero lo **stesso** documento, quindi lo stesso digest: il confronto dei
+digest non può accorgersi di niente. Ma `presenza` starebbe in `extra` e `ip_addr`
+sarebbe vuota, quindi la vista Capacità non troverebbe la presenza e la ricerca non
+troverebbe gli indirizzi. È esattamente il caso per cui la versione della mappa esiste.
+
+Il codice se ne accorge e **rifiuta di servire**, invece di rispondere con dati che non
+corrispondono:
+
+```text
+$ curl -sk https://localhost/api/inventory | head -c 200
+{"error":{"code":"projection_not_current", ...
+```
+
+Sequenza dell'aggiornamento, **fuori orario di lavoro**:
+
+```bash
+# 1. dove siamo, prima di toccare niente
+docker compose run --rm --no-TTY migrate python scripts/project.py --status
+
+# 2. le migrazioni (la 0013 non tocca nessun dato: aggiunge due colonne NULL)
+docker compose run --rm --no-TTY migrate python scripts/migrate.py
+
+# 3. da qui l'applicazione risponde 503: la proiezione si dichiara non attuale
+docker compose run --rm --no-TTY migrate python scripts/project.py --status
+#    → mappa   versione 1   (attesa: 2)
+
+# 4. la ricostruzione. Legge la testa da `inventory_versions` e riscrive le tabelle
+docker compose run --rm --no-TTY migrate python scripts/project.py --rebuild
+
+# 5. la verifica: riassembla e confronta il digest
+docker compose run --rm --no-TTY migrate python scripts/project.py --verify
+```
+
+⚠ Il passo 5 non è decorativo, ed è l'unico che guarda le colonne DERIVATE. Il digest
+è cieco a `garanzia_date`, `supporto_date` e ora `ip_addr` — non tornano nel documento
+per costruzione — quindi `--verify` è la sola rete di sicurezza per loro, e va eseguito
+**dopo** ogni ricostruzione invece che quando qualcosa sembra strano.
+
+**Che cosa cambia per chi usa l'applicazione**, e va detto a chi risponde al telefono:
+
+| | prima | dopo |
+|---|---|---|
+| ricerca `10.0.0.1` | trovava anche `10.0.0.100` | trova **solo** quell'indirizzo |
+| ricerca IPv6 | solo per testo | per indirizzo e per rete |
+| campi cercati | 5 | 9 (aggiunti id, tipo, stato, presenza) |
+| U occupate | tre numeri diversi in tre viste | uno |
+| vista Scadenze | saltava i dismessi | **li mostra**, con un filtro per isolarli |
+| avvisi via posta | anche per i dismessi | **non più** per i dismessi |
+| percentuali | il frontend e il backend potevano differire di 1 | uguali |
+
+I primi due cambiano il numero di risultati di una ricerca. È voluto (§8.50.6), ma è
+il genere di cosa per cui qualcuno apre un ticket dicendo «la ricerca non funziona
+più»: la risposta è che `10.0.0.1` adesso significa quell'indirizzo, e chi vuole il
+prefisso scrive `10.0.0` oppure `10.0.0.0/24`.
+
+⚠ **La presenza fisica non si deduce dallo stato.** Tutti i dispositivi esistenti
+diventano `presente`, compresi i dismessi: dell'inventario di prima si sa solo che
+nessuno ha detto che quegli apparati sono stati portati via. Chi conosce la sala deve
+marcare `rimosso` a mano ciò che non c'è più — e finché non lo fa, la capacità continua
+a contarli come occupati, che è il verso giusto in cui sbagliare.
 
 ---
 

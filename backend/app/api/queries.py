@@ -63,10 +63,17 @@ class RevisionOut(BaseModel):
 
 class SearchOut(RevisionOut):
     query: str
-    #: Presente solo quando la query è stata riconosciuta come forma IP. Serve al
+    #: Presente solo quando la query è stata riconosciuta come INDIRIZZO. Serve al
     #: client per spiegare all'utente che ha cercato una rete e non un testo — è la
     #: distinzione che il frontend rende visibile illuminando i rack sulla pianta.
-    ipRange: list[int] | None = None
+    #:
+    #: ⚠ Sostituisce `ipRange`, che era una coppia di interi a 32 bit: l'IPv6 non ci
+    #: sta dentro, e non diceva QUALE forma era stata riconosciuta. Con l'indirizzo
+    #: esatto (§8.50.6) la distinzione conta di più — `10.0.0.1` adesso ha un
+    #: significato preciso, e chi lo scrive deve poter vedere quale.
+    #:
+    #:     {"family": 4, "kind": "exact", "lo": "10.0.0.1", "hi": "10.0.0.1"}
+    address: dict | None = None
     results: list[dict]
     nextCursor: str | None = None
 
@@ -78,6 +85,10 @@ class CapacityOut(RevisionOut):
 class ExpiriesOut(RevisionOut):
     today: str
     warningDays: int
+    #: I filtri applicati, come li ha visti il server. Escono nella risposta perché un
+    #: elenco filtrato che non dice di essere filtrato è un elenco che si legge come
+    #: completo.
+    filters: dict
     totals: dict
     items: list[dict]
     nextCursor: str | None = None
@@ -92,8 +103,9 @@ class ExpiriesOut(RevisionOut):
 def search_inventory(
     response: Response,
     q_: str = Query(..., alias="q",
-                    description="testo, oppure una forma IP: 10.0.0.1, "
-                                "10.0.0.0/24, 10.0.0.1-10.0.0.99, 10.0.*",
+                    description="testo, oppure una forma di indirizzo: 10.0.0.1, "
+                                "2001:db8::1, 10.0.0.0/24, 2001:db8::/32, "
+                                "10.0.0.1-10.0.0.99, 10.0.*",
                     max_length=200),
     limit: int | None = Query(None, ge=1, le=q.SEARCH_MAX_LIMIT),
     cursor: str | None = Query(None, max_length=2048),
@@ -117,7 +129,7 @@ def search_inventory(
     return SearchOut(
         version=page.revision.version, sha256=page.revision.sha256,
         query=page.query,
-        ipRange=(None if page.ip_range is None else list(page.ip_range)),
+        address=(None if page.address is None else page.address.as_dict()),
         results=page.results, nextCursor=page.next_cursor,
     )
 
@@ -156,7 +168,17 @@ def expiries_inventory(
     warningDays: int = Query(q.DEFAULT_WARNING_DAYS, ge=0,
                              le=q.MAX_WARNING_DAYS,
                              description="soglia del livello «entro N giorni»; "
-                                         "90 è la costante del frontend"),
+                                         "90 è la costante della vista Scadenze"),
+    #: ⚠ Vocabolario, non testo libero, e la validazione la fa `queries.expiries` — non
+    #: un `Enum` di Pydantic. Il motivo: il vocabolario è dichiarato in `app/domain.py`,
+    #: e ripeterlo qui in una `Literal` darebbe due elenchi. Un valore fuori elenco è
+    #: 422 comunque, e con un messaggio che dice quali sono i valori noti.
+    stato: str | None = Query(None, max_length=40,
+                              description="filtra per stato operativo: attivo, "
+                                          "manutenzione, dismissione, dismesso"),
+    presenza: str | None = Query(None, max_length=40,
+                                 description="filtra per presenza fisica: presente, "
+                                             "rimosso"),
     limit: int | None = Query(None, ge=1, le=q.EXPIRY_MAX_LIMIT),
     cursor: str | None = Query(None, max_length=2048),
     actor: Actor = Depends(require_actor),
@@ -170,9 +192,15 @@ def expiries_inventory(
     e in questa risposta. La data usata esce nella risposta: un conteggio di giorni
     senza la data da cui è calcolato non è verificabile da chi lo legge.
 
-    ⚠ Questo endpoint NON è la sorgente del worker delle notifiche. Il worker continua
-    a leggere il documento (§19): il passaggio è un commit isolato, con queste stesse
-    fixture di parità.
+    ⚠ Questo endpoint NON è la sorgente del worker delle notifiche, e dalla 2G la
+    differenza è una DECISIONE e non un residuo (§8.50.8):
+
+        questa vista   ISPETTIVA — tutto ciò che è valido, dismessi compresi
+        il worker      AZIONABILE — `0 <= giorni <= finestra`, e non i dismessi
+
+    Ogni voce porta `notifiable`, che dice se genererebbe davvero un'email: è
+    l'informazione che spiega la differenza dentro la risposta, senza obbligare chi
+    legge a conoscerla.
     """
     response.headers.update(NO_STORE)
     try:
@@ -183,6 +211,7 @@ def expiries_inventory(
             # che ha prodotto le righe.
             today = _local_today(conn)
             page = q.expiries(conn, today=today, warning_days=warningDays,
+                              stato=stato, presenza=presenza,
                               limit=limit, cursor=cursor)
     except Exception as exc:
         raise http_error_for(exc) from None
@@ -190,7 +219,8 @@ def expiries_inventory(
     return ExpiriesOut(
         version=page.revision.version, sha256=page.revision.sha256,
         today=page.today.isoformat(), warningDays=page.warning_days,
-        totals=page.totals, items=page.items, nextCursor=page.next_cursor,
+        filters=page.filters, totals=page.totals, items=page.items,
+        nextCursor=page.next_cursor,
     )
 
 

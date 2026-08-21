@@ -1,0 +1,140 @@
+{
+ "_nota": "percent(used,total) = floor(used*100/total + 1/2), aritmetica intera. Le righe con _meta sono le meta esatte: e la dove Math.round, round() di Python e round() di SQL non sono d'accordo.",
+ "cases": [
+  {
+   "used": 1,
+   "total": 8,
+   "percent": 13,
+   "_meta": "esattamente 12.5 — JS 13, Python round() 12. Il contratto e 13."
+  },
+  {
+   "used": 3,
+   "total": 8,
+   "percent": 38,
+   "_meta": "esattamente 37.5 — JS 38, Python round() 38 (per caso: 37.5 -> 38 al pari)."
+  },
+  {
+   "used": 1,
+   "total": 200,
+   "percent": 1,
+   "_meta": "esattamente 0.5 — Python round() darebbe 0."
+  },
+  {
+   "used": 3,
+   "total": 200,
+   "percent": 2,
+   "_meta": "esattamente 1.5 — Python round() darebbe 2."
+  },
+  {
+   "used": 5,
+   "total": 200,
+   "percent": 3,
+   "_meta": "esattamente 2.5 — Python round() darebbe 2."
+  },
+  {
+   "used": 7,
+   "total": 200,
+   "percent": 4,
+   "_meta": "esattamente 3.5 — Python round() darebbe 4."
+  },
+  {
+   "used": 1,
+   "total": 40,
+   "percent": 3,
+   "_meta": "esattamente 2.5"
+  },
+  {
+   "used": 21,
+   "total": 40,
+   "percent": 53,
+   "_meta": "esattamente 52.5"
+  },
+  {
+   "used": 0,
+   "total": 45,
+   "percent": 0
+  },
+  {
+   "used": 45,
+   "total": 45,
+   "percent": 100
+  },
+  {
+   "used": 1,
+   "total": 45,
+   "percent": 2,
+   "_meta": "2.222 -> 2"
+  },
+  {
+   "used": 22,
+   "total": 45,
+   "percent": 49,
+   "_meta": "48.888 -> 49"
+  },
+  {
+   "used": 23,
+   "total": 45,
+   "percent": 51,
+   "_meta": "51.111 -> 51"
+  },
+  {
+   "used": 1,
+   "total": 3,
+   "percent": 33
+  },
+  {
+   "used": 2,
+   "total": 3,
+   "percent": 67,
+   "_meta": "66.666 -> 67"
+  },
+  {
+   "used": 0,
+   "total": 0,
+   "percent": 0,
+   "_meta": "nessuna unita: 0, non 100 e non una divisione per zero."
+  },
+  {
+   "used": 5,
+   "total": 0,
+   "percent": 0
+  },
+  {
+   "used": 5,
+   "total": -1,
+   "percent": 0
+  },
+  {
+   "used": -1,
+   "total": 10,
+   "percent": 0
+  },
+  {
+   "used": 15,
+   "total": 10,
+   "percent": 150,
+   "_meta": "oltre il 100%: non si taglia qui. Chi mostra una barra la limita da se; un numero limitato in silenzio nasconderebbe un inventario incoerente."
+  },
+  {
+   "used": 1,
+   "total": 3000000000,
+   "percent": 0
+  },
+  {
+   "used": 1500000000,
+   "total": 3000000000,
+   "percent": 50
+  },
+  {
+   "used": null,
+   "total": 45,
+   "percent": 0
+  },
+  {
+   "used": 1.5,
+   "total": 45,
+   "percent": 0,
+   "_meta": "non intero: non e un conteggio di slot."
+  }
+ ]
+}

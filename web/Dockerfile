@@ -27,6 +27,8 @@ COPY ["handoff/Sala Server v2.dc.html", "./index.html"]
 COPY ["handoff/support.js", "./support.js"]
 COPY ["handoff/xlsx.js", "./xlsx.js"]
 COPY ["handoff/identity.js", "./identity.js"]
+# Fase 2G: il modello semantico condiviso col backend (BACKEND-PLAN.md §8.50).
+COPY ["handoff/domain.js", "./domain.js"]
 COPY ["handoff/api.js", "./api.js"]
 COPY ["handoff/trust-logo.png", "./trust-logo.png"]
 COPY ["handoff/trust-logo-dark.png", "./trust-logo-dark.png"]

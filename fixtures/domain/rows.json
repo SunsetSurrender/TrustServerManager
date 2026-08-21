@@ -1,0 +1,89 @@
+{
+ "_nota": "La chiave del gruppo distingue «fila non impostata» da «fila il cui valore e letteralmente —». L'etichetta mostrata resta — in entrambi i casi. Il rack CS-Q01 del seed di produzione e il caso reale.",
+ "cases": [
+  {
+   "name": "fila ordinaria",
+   "row": "A",
+   "assigned": true,
+   "value": "A",
+   "label": "A"
+  },
+  {
+   "name": "fila non impostata (assente)",
+   "row": null,
+   "assigned": false,
+   "value": null,
+   "label": "—"
+  },
+  {
+   "name": "fila non impostata (stringa vuota, il default canonico)",
+   "row": "",
+   "assigned": false,
+   "value": null,
+   "label": "—"
+  },
+  {
+   "name": "fila il cui VALORE e —: gruppo proprio, non il residuo",
+   "row": "—",
+   "assigned": true,
+   "value": "—",
+   "label": "—"
+  },
+  {
+   "name": "fila numerica",
+   "row": 3,
+   "assigned": true,
+   "value": "3",
+   "label": "3"
+  },
+  {
+   "name": "fila di soli spazi: e un valore scritto, non un'assenza",
+   "row": " ",
+   "assigned": true,
+   "value": " ",
+   "label": " "
+  },
+  {
+   "name": "fila con un trattino ordinario, che non e la sentinella",
+   "row": "-",
+   "assigned": true,
+   "value": "-",
+   "label": "-"
+  },
+  {
+   "name": "fila unicode",
+   "row": "Fila Ø",
+   "assigned": true,
+   "value": "Fila Ø",
+   "label": "Fila Ø"
+  }
+ ],
+ "distinctGroups": {
+  "_nota": "Le due chiavi DEVONO differire: e il difetto §4, e un test che confronta solo le etichette non puo diventare rosso quando torna.",
+  "unset": null,
+  "literalDash": "—",
+  "mustDiffer": true
+ },
+ "ordering": {
+  "_nota": "I gruppi dichiarati in ordine, il residuo per ULTIMO: e il residuo, non una fila che si chiama —.",
+  "input": [
+   "B",
+   null,
+   "A",
+   "—",
+   ""
+  ],
+  "expectedLabels": [
+   "A",
+   "B",
+   "—",
+   "—"
+  ],
+  "expectedAssigned": [
+   true,
+   true,
+   true,
+   false
+  ]
+ }
+}

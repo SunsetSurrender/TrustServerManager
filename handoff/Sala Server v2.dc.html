@@ -442,15 +442,32 @@
           <div style="font-size:13px; font-weight:700">Scadenze garanzie e contratti di supporto</div>
           <div style="font-family:'Roboto Mono',monospace; font-size:11px; color:var(--d7c8794)">{{ scadSummary }}</div>
           <button onClick="{{ scadExportCsv }}" title="Esporta l'elenco scadenze" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent); border-color:var(--d2c4a45)">↓ CSV scadenze</button>
+          <!-- ⚠ Fase 2G: i dismessi COMPAIONO in questa vista (§7). La domanda a cui
+               risponde e «cosa posso ispezionare», e un apparato dismesso ha un
+               contratto che scade. I due filtri servono a fare la domanda ristretta —
+               `dismesso + rimosso` e l'elenco dei contratti di cio che e stato portato
+               via, che e il riscontro incrociato per cui i dismessi si conservano. -->
+          <select value="{{ scadFiltroStato }}" onChange="{{ onScadFiltroStato }}" title="Filtra per stato operativo" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:5px 8px; font-size:11.5px; font-family:inherit">
+            <option value="">tutti gli stati</option>
+            <option value="attivo">Attivo</option>
+            <option value="manutenzione">In manutenzione</option>
+            <option value="dismissione">In dismissione</option>
+            <option value="dismesso">Dismesso</option>
+          </select>
+          <select value="{{ scadFiltroPresenza }}" onChange="{{ onScadFiltroPresenza }}" title="Filtra per presenza fisica" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:5px 8px; font-size:11.5px; font-family:inherit">
+            <option value="">presente e rimosso</option>
+            <option value="presente">Presente in rack</option>
+            <option value="rimosso">Rimosso</option>
+          </select>
           <div style="font-size:11px; color:var(--d57626f); margin-left:auto">Clicca una riga per aprire il dispositivo</div>
         </div>
-        <div style="display:grid; grid-template-columns:1fr 0.8fr 0.9fr 1.6fr 1.2fr 1fr 0.7fr 1.1fr; border-bottom:1px solid var(--d2b333d)">
+        <div style="display:grid; grid-template-columns:1fr 0.8fr 0.9fr 1.6fr 1.2fr 1fr 0.7fr 1.1fr 0.9fr 0.9fr; border-bottom:1px solid var(--d2b333d)">
           <sc-for list="{{ scadCols }}" as="sc" hint-placeholder-count="8">
             <div style="font-size:11px; font-weight:700; letter-spacing:0.05em; color:var(--d8a94a2); padding:6px 10px 8px 0">{{ sc }}</div>
           </sc-for>
         </div>
         <sc-for list="{{ scadRows }}" as="row" hint-placeholder-count="6">
-          <div tabIndex="0" data-kb="1" onClick="{{ row.onClick }}" style="display:grid; grid-template-columns:1fr 0.8fr 0.9fr 1.6fr 1.2fr 1fr 0.7fr 1.1fr; cursor:pointer; border-bottom:1px solid var(--d1e252e)" style-hover="background:var(--d1c232c)">
+          <div tabIndex="0" data-kb="1" onClick="{{ row.onClick }}" style="display:grid; grid-template-columns:1fr 0.8fr 0.9fr 1.6fr 1.2fr 1fr 0.7fr 1.1fr 0.9fr 0.9fr; cursor:pointer; border-bottom:1px solid var(--d1e252e)" style-hover="background:var(--d1c232c)">
             <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="8">
               <div style="{{ cell.style }}">{{ cell.txt }}</div>
             </sc-for>
@@ -1087,11 +1104,20 @@
               </select>
             </label>
             <label style="font-size:11px; color:var(--d7c8794)">Stato
+              <!-- ⚠ Fase 2G: `presenza` è un campo PROPRIO, accanto allo stato e non
+                   dentro. Le due domande sono indipendenti: «è in servizio?» e
+                   «occupa ancora lo slot?». Vedi BACKEND-PLAN.md §8.50. -->
               <select name="stato" value="{{ draft.stato }}" onChange="{{ onDraftChange }}" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 6px; font-family:inherit; font-size:12px">
                 <option value="attivo">Attivo</option>
                 <option value="manutenzione">In manutenzione</option>
                 <option value="dismissione">In dismissione</option>
                 <option value="dismesso">Dismesso</option>
+              </select>
+            </label>
+            <label style="font-size:11px; color:var(--d7c8794)">Presenza fisica
+              <select name="presenza" value="{{ draft.presenza }}" onChange="{{ onDraftChange }}" title="Se l'hardware occupa ancora il suo slot nel rack. Indipendente dallo stato operativo: un apparato dismesso può essere ancora installato." style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 6px; font-family:inherit; font-size:12px">
+                <option value="presente">Presente in rack</option>
+                <option value="rimosso">Rimosso</option>
               </select>
             </label>
             <label style="font-size:11px; color:var(--d7c8794)">Modello
@@ -1246,13 +1272,13 @@
         </div>
         <div style="flex:1; min-width:0">
           <div style="font-size:10.5px; font-weight:700; letter-spacing:0.08em; color:#6b7280; margin-bottom:8px">{{ schedaOcc }}</div>
-          <div style="display:grid; grid-template-columns:0.55fr 1.6fr 1fr 1fr 1.5fr 1.2fr 1.1fr 1.1fr 1fr 1fr; border-bottom:1.5px solid #111827">
+          <div style="display:grid; grid-template-columns:0.55fr 1.6fr 1fr 1fr 1fr 1.5fr 1.2fr 1.1fr 1.1fr 1fr 1fr; border-bottom:1.5px solid #111827">
             <sc-for list="{{ schedaCols }}" as="hc" hint-placeholder-count="10">
               <div style="font-size:10px; font-weight:700; letter-spacing:0.05em; color:#374151; padding:4px 6px 6px 0">{{ hc }}</div>
             </sc-for>
           </div>
           <sc-for list="{{ schedaRows }}" as="row" hint-placeholder-count="4">
-            <div style="display:grid; grid-template-columns:0.55fr 1.6fr 1fr 1fr 1.5fr 1.2fr 1.1fr 1.1fr 1fr 1fr; border-bottom:1px solid #e5e7eb">
+            <div style="display:grid; grid-template-columns:0.55fr 1.6fr 1fr 1fr 1fr 1.5fr 1.2fr 1.1fr 1.1fr 1fr 1fr; border-bottom:1px solid #e5e7eb">
               <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="10">
                 <div style="font-family:'Roboto Mono',monospace; font-size:10px; color:#111827; padding:5px 6px 5px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">{{ cell }}</div>
               </sc-for>
@@ -1274,6 +1300,21 @@ let IDENT = null;
 // Client HTTP (handoff/api.js). URL sempre relative: l'app è servita dallo stesso
 // nginx che fa da proxy all'API (§8.33).
 let API = null;
+
+// Modello semantico del dominio (handoff/domain.js), caricato in _boot.
+//
+// ⚠ È la SEDE UNICA delle regole di business condivise col backend: capacità,
+// percentuali, file, indirizzi, date di scadenza, idoneità agli avvisi, etichette.
+// Fino alla fase 2G queste regole erano scritte qui dentro — alcune in tre copie che
+// non concordavano — e il backend le riproduceva. Adesso ce n'è una, e
+// fixtures/domain/*.json è il contratto che entrambe le implementazioni soddisfano.
+// Vedi BACKEND-PLAN.md §8.50.
+//
+// ⚠ Il frontend continua a CALCOLARE IN LOCALE: non chiama /api/inventory/search né
+// /capacity né /expiries. Il passaggio alle rotte è una fase a parte. Ciò che la 2G
+// garantisce è che le due risposte COINCIDANO, così quella migrazione non cambierà
+// nessun numero sullo schermo.
+let DOM = null;
 
 /** Identità per una entità nuova. Solleva se il modulo non è pronto: meglio un
  *  errore visibile che un'entità senza identità salvata di nascosto. */
@@ -1297,53 +1338,58 @@ class Component extends DCLogic {
             usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
-            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true, dashAllRooms: false, invColsVis: null, invColsOpen: false, invShowFilters: false, invDensity: 'comoda' };
 
-  static ipToNum(ip) {
-    const m = String(ip || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (!m) return null;
-    const p = [+m[1], +m[2], +m[3], +m[4]];
-    if (p.some(x => x > 255)) return null;
-    return ((p[0] * 256 + p[1]) * 256 + p[2]) * 256 + p[3];
-  }
-
-  // riconosce query IP: CIDR (10.0.2.0/24), intervallo (10.0.0.1-10.0.0.99), wildcard (10.0.2.*)
-  static parseIpQuery(q) {
-    q = String(q || '').trim();
-    let m = q.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/(\d{1,2})$/);
-    if (m) {
-      const base = Component.ipToNum(m[1]), bits = +m[2];
-      if (base === null || bits > 32) return null;
-      const size = Math.pow(2, 32 - bits);
-      const start = Math.floor(base / size) * size;
-      return [start, start + size - 1];
-    }
-    m = q.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s*-\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-    if (m) {
-      const a = Component.ipToNum(m[1]), b = Component.ipToNum(m[2]);
-      if (a === null || b === null) return null;
-      return [Math.min(a, b), Math.max(a, b)];
-    }
-    m = q.match(/^((?:\d{1,3}\.){1,3})\*$/);
-    if (m) {
-      const parts = m[1].split('.').filter(Boolean).map(Number);
-      if (parts.some(x => x > 255)) return null;
-      const lo = [...parts], hi = [...parts];
-      while (lo.length < 4) { lo.push(0); hi.push(255); }
-      return [Component.ipToNum(lo.join('.')), Component.ipToNum(hi.join('.'))];
-    }
-    return null;
-  }
+  // ⚠ `ipToNum` e `parseIpQuery` RIMOSSE dalla fase 2G.
+  //
+  // Erano la seconda grammatica di indirizzi del prodotto, e portavano due difetti
+  // veri (§8.48 voci 1 e 2):
+  //
+  //   - nessuna nozione di indirizzo ESATTO. `10.0.0.1` non era una forma
+  //     riconosciuta, quindi finiva nella ricerca testuale — e `10.0.0.1` è una
+  //     sottostringa di `10.0.0.100`. Chi cercava una macchina precisa riceveva la
+  //     sua vicina di sottorete;
+  //   - solo IPv4. Un dispositivo con `2001:db8::1` non si trovava per rete.
+  //
+  // La grammatica adesso è una: `DOM.parseAddressQuery` / `DOM.parseAddress`
+  // (handoff/domain.js), la stessa che il backend usa per scrivere la colonna
+  // `ip_addr` della proiezione. Sono state RIMOSSE e non lasciate qui inutilizzate:
+  // un secondo interprete che nessuno chiama è un secondo interprete che qualcuno
+  // chiamerà. Un controllo statico pretende che non tornino.
 
   // 0 = ok, 1 = scade entro 90 giorni, 2 = scaduta
+  //
+  // ⚠ Riscritta dalla fase 2G su DOM (§8.50). Prima usava `new Date(v)` e una
+  // divisione di millisecondi, e sbagliava in due modi indipendenti:
+  //
+  //   - `new Date` accetta sette forme che il backend rifiuta, e su `2027-02-30` non
+  //     rifiuta: la fa SCORRERE al 2 marzo. Una data inesistente diventava una data
+  //     esistente, e chi gestisce il contratto l'avrebbe scoperto il 2 marzo;
+  //   - `(dt - Date.now()) / 86400000` non è un conteggio di giorni: dipende dall'ora
+  //     del giorno, e nella notte del cambio dell'ora una differenza di 23 o 25 ore
+  //     si arrotondava a un giorno per caso.
+  //
+  // Adesso: parser stretto e differenza fra due DATE DI CALENDARIO, intera.
   static scadLevel(v) {
-    if (!v) return 0;
-    const dt = new Date(v);
-    if (isNaN(dt)) return 0;
-    const diff = (dt.getTime() - Date.now()) / 86400000;
-    if (diff < 0) return 2;
-    if (diff <= 90) return 1;
-    return 0;
+    if (!DOM) return 0;
+    const parsed = DOM.parseExpiry(v);
+    if (!parsed) return 0;
+    const giorni = DOM.daysBetween(parsed, DOM.todayLocal());
+    const livello = DOM.expiryLevel(giorni, 90);
+    return livello === 'expired' ? 2 : (livello === 'warning' ? 1 : 0);
+  }
+
+  /** Vocabolario della PRESENZA FISICA (fase 2G).
+   *
+   * ⚠ Separato dagli stati, e la separazione è la sostanza: `stato` dice se un
+   * apparato è in servizio, `presenza` se occupa ancora il suo slot nel rack. Un
+   * `dismesso + presente` è fuori servizio e occupa; un `attivo + rimosso` è in
+   * servizio altrove e non occupa. Vedi handoff/domain.js e BACKEND-PLAN.md §8.50. */
+  static presenze() {
+    return {
+      presente: { label: 'Presente in rack', color: '#3ddc84' },
+      rimosso:  { label: 'Rimosso',          color: '#57626f' }
+    };
   }
 
   static stati() {
@@ -1423,12 +1469,17 @@ class Component extends DCLogic {
   // server qualcosa che ci rifiuterà — e per un istante l'interfaccia
   // mostrerebbe una schermata vuota invece del login.
   async _boot() {
-    const [ident, api] = await Promise.all([
+    const [ident, api, dom] = await Promise.all([
       import('./identity.js'),
       import('./api.js'),
+      import('./domain.js'),
     ]);
     IDENT = ident;
     API = api;
+    // ⚠ Assegnato PRIMA di _refreshSession, quindi prima che `data` esista. Ogni uso
+    // di DOM in render() sta dentro un ramo che dipende da `data` o da una query
+    // digitata dall'utente: nessuno può girare con DOM ancora nullo.
+    DOM = dom;
     this._writer = new api.InventoryWriter({
       onSaved: (version, sha, changed) => this._onSaved(version, sha, changed),
       onConflict: (currentVersion) => this._onConflict(currentVersion),
@@ -2447,7 +2498,15 @@ class Component extends DCLogic {
     const showQuote = this.props.mostraQuote ?? true;
     const showLegenda = this.props.mostraLegenda ?? true;
     const TYPES = Component.types();
-    const q = (S.query || '').trim().toLowerCase();
+    // ⚠ Due forme della query, e servono entrambe.
+    //
+    // `q` minuscolo è la needle della ricerca testuale (sottostringa senza
+    // distinzione di maiuscole). `qRaw` è il testo ripulito, e va usato per
+    // riconoscere un indirizzo: `2001:DB8::1` e `2001:db8::1` sono lo stesso
+    // indirizzo, ma è il dominio a normalizzarlo, non `toLowerCase()`. Passargli il
+    // minuscolo funzionerebbe per caso.
+    const qRaw = (S.query || '').trim();
+    const q = qRaw.toLowerCase();
 
     const locations = data ? data.locations : [];
     const loc = locations.find(l => l.id === S.locId) || locations[0] || null;
@@ -2460,21 +2519,30 @@ class Component extends DCLogic {
     const canAdmin = S.role === 'admin';
 
     // --- ricerca globale (tutte le location, tutte le sale) ---
+    //
+    // ⚠ Tutta la semantica viene da DOM (§8.50). Qui resta soltanto la discesa
+    // dell'albero e la costruzione delle voci del menu: nessuna regola su quali campi
+    // si cercano, su cosa sia un indirizzo, o su come si confronta una sottostringa.
+    //
+    // Rispetto alla versione precedente cambiano tre cose, e sono decisioni:
+    //   - `10.0.0.1` è un indirizzo ESATTO e non trova più `10.0.0.100`;
+    //   - IPv6 si cerca, per indirizzo e per CIDR;
+    //   - i campi del dispositivo sono nove e comprendono id, tipo, stato e presenza
+    //     (le note NO).
     const results = [];
     const matchedRacks = new Set(); // "locId/roomId/rackId"
-    const ipRange = q ? Component.parseIpQuery(q) : null;
-    const devHit = (d) => {
-      if (ipRange) {
-        const n = Component.ipToNum(d.ip);
-        return n !== null && n >= ipRange[0] && n <= ipRange[1];
-      }
-      return [d.name, d.model, d.ip, d.serial, d.owner].some(v => (v || '').toLowerCase().includes(q));
-    };
+    const addrQuery = qRaw && DOM ? DOM.parseAddressQuery(qRaw) : null;
+    const devHit = (d) => (addrQuery
+      ? DOM.addressMatches(d.ip, addrQuery)
+      : DOM.deviceMatches(d, q));
     if (q) {
       for (const L of locations) for (const R of L.sale) for (const rk of R.racks) {
         const key = L.id + '/' + R.id + '/' + rk.id;
         const goRack = () => this.setState({ locId: L.id, roomId: R.id, selRack: rk.id, selDev: null, editing: false, highlightDev: null, query: '', dashOpen: false, invOpen: false, capOpen: false, scadOpen: false });
-        if (!ipRange && (rk.id.toLowerCase().includes(q) || (rk.name || '').toLowerCase().includes(q) || (rk.seriali || []).some(sn => String(sn).toLowerCase().includes(q)))) {
+        // In modalità indirizzo i rack NON partecipano (§5): un rack che si chiama
+        // «10.0.0.1» non è una macchina con quell'indirizzo, e restituirlo a chi
+        // cerca un host sarebbe un falso positivo che sembra una risposta.
+        if (!addrQuery && DOM.rackMatches(rk, q)) {
           matchedRacks.add(key);
           results.push({
             key: 'r-' + key, label: rk.id, sub: L.nome + ' · ' + R.nome + ' · ' + rk.devices.length + ' disp.',
@@ -2800,7 +2868,12 @@ class Component extends DCLogic {
       }
       const openDraft = (d) => () => {
         if (this._devClickSquelch) return;
-        if (canEdit) this.setState({ selDev: d.id, editing: true, highlightDev: null, draftError: '', draft: { ...d, room: room.id, rack: sel.id } });
+        // ⚠ `stato` e `presenza` materializzati: un documento legacy non ha
+        // `presenza`, e una `<select>` con `value={{ undefined }}` mostra la prima
+        // opzione senza che nessuno l'abbia scelta. Passando dal dominio la select
+        // mostra il valore EFFETTIVO — che per un legacy è «presente», ed è anche
+        // quello che il salvataggio scriverebbe.
+        if (canEdit) this.setState({ selDev: d.id, editing: true, highlightDev: null, draftError: '', draft: { ...d, stato: DOM.statoOf(d), presenza: DOM.presenzaOf(d), room: room.id, rack: sel.id } });
         else this.setState({ highlightDev: d.id });
       };
       elevDevices = sel.devices.map(d => {
@@ -2808,15 +2881,20 @@ class Component extends DCLogic {
         const hl = S.highlightDev === d.id;
         const dragging = S.devDrag && S.devDrag.id === d.id;
         const showU = dragging ? S.devDrag.u : d.u;
-        const stato = d.stato || 'attivo';
+        const stato = DOM.statoOf(d);
+        // ⚠ Un apparato RIMOSSO non è nel rack, e la capacità non lo conta: disegnarlo
+        // come gli altri sarebbe la contraddizione visibile peggiore — lo slot appare
+        // pieno e il totale dice che è libero. Tratteggiato e trasparente, con
+        // l'etichetta che lo dice.
+        const rimosso = !DOM.occupiesSpace(d);
         return {
-          label: (dragging ? 'U' + showU + ' · ' : '') + d.name + (stato === 'dismesso' ? ' · DISMESSO' : (stato === 'manutenzione' ? ' · MANUT.' : (stato === 'dismissione' ? ' · IN DISM.' : ''))),
+          label: (dragging ? 'U' + showU + ' · ' : '') + DOM.deviceLabel(d) + (rimosso ? ' · RIMOSSO' : '') + (stato === 'dismesso' ? ' · DISMESSO' : (stato === 'manutenzione' ? ' · MANUT.' : (stato === 'dismissione' ? ' · IN DISM.' : ''))),
           posStyle: {
             position: 'absolute', left: 30, right: 5, bottom: (showU - 1) * UPX + 1, height: (d.h || 1) * UPX - 2,
             background: c + (dragging ? '88' : (hl ? '55' : '26')),
-            border: stato === 'manutenzione' ? '1.5px dashed #ffb020' : (stato === 'dismissione' ? '1.5px dashed #ff8a3d' : ('1px solid ' + (dragging || hl ? accent : c))),
-            filter: stato === 'dismesso' ? 'grayscale(1)' : 'none',
-            opacity: (stato === 'dismesso' ? 0.45 : 1) * (!S.typeFilter || d.type === S.typeFilter ? 1 : 0.2),
+            border: rimosso ? '1.5px dotted var(--d57626f)' : (stato === 'manutenzione' ? '1.5px dashed #ffb020' : (stato === 'dismissione' ? '1.5px dashed #ff8a3d' : ('1px solid ' + (dragging || hl ? accent : c)))),
+            filter: (stato === 'dismesso' || rimosso) ? 'grayscale(1)' : 'none',
+            opacity: (rimosso ? 0.25 : (stato === 'dismesso' ? 0.45 : 1)) * (!S.typeFilter || d.type === S.typeFilter ? 1 : 0.2),
             boxShadow: dragging ? '0 0 16px ' + accent : (hl ? '0 0 12px ' + accent : 'none'),
             animation: hl && !dragging ? 'srpPulse 1.2s infinite' : 'none',
             zIndex: dragging ? 5 : 1,
@@ -2858,7 +2936,8 @@ class Component extends DCLogic {
       devRows = [...sel.devices].sort((a, b) => b.u - a.u).map(d => {
         const t = TYPES[d.type] || TYPES.altro;
         const hl = S.highlightDev === d.id;
-        const dism = (d.stato || 'attivo') === 'dismesso';
+        const dism = DOM.statoOf(d) === 'dismesso';
+        const via = !DOM.occupiesSpace(d);
         const wLevel = Math.max(Component.scadLevel(d.garanzia), Component.scadLevel(d.supporto));
         return {
           hasWarn: wLevel > 0 && !dism,
@@ -2870,9 +2949,9 @@ class Component extends DCLogic {
             borderRadius: 3, padding: '1px 5px'
           },
           name: d.name,
-          sub: [t.label, (d.stato || 'attivo') !== 'attivo' ? (STATI2[d.stato] || {}).label : '', d.model, d.ip, d.owner, d.garanzia ? 'gar. ' + d.garanzia : '', d.supporto ? 'supp. ' + d.supporto : '', d.note].filter(Boolean).join(' · '),
+          sub: [t.label, DOM.statoOf(d) !== 'attivo' ? (STATI2[DOM.statoOf(d)] || {}).label : '', via ? 'rimosso dal rack' : '', d.model, d.ip, d.owner, d.garanzia ? 'gar. ' + d.garanzia : '', d.supporto ? 'supp. ' + d.supporto : '', d.note].filter(Boolean).join(' · '),
           uLabel: 'U' + d.u + ((d.h || 1) > 1 ? '–' + (d.u + d.h - 1) : ''),
-          dotStyle: { width: 9, height: 9, borderRadius: '50%', background: dism ? 'var(--d57626f)' : t.color, flexShrink: 0, outline: (d.stato || 'attivo') === 'manutenzione' ? '2px solid #ffb020' : ((d.stato || 'attivo') === 'dismissione' ? '2px solid #ff8a3d' : 'none'), outlineOffset: 1 },
+          dotStyle: { width: 9, height: 9, borderRadius: '50%', background: (dism || via) ? 'var(--d57626f)' : t.color, flexShrink: 0, outline: DOM.statoOf(d) === 'manutenzione' ? '2px solid #ffb020' : (DOM.statoOf(d) === 'dismissione' ? '2px solid #ff8a3d' : 'none'), outlineOffset: 1 },
           rowStyle: {
             display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
             opacity: (dism ? 0.55 : 1) * (!S.typeFilter || d.type === S.typeFilter ? 1 : 0.35),
@@ -2886,8 +2965,15 @@ class Component extends DCLogic {
 
     // --- form ---
     const draft = S.draft || { name: '', type: 'server', model: '', ip: '', serial: '', owner: '', garanzia: '', note: '', room: '', rack: '', u: 1, h: 1 };
-    const usedU = sel ? sel.devices.reduce((a, d) => a + (d.h || 1), 0) : 0;
-    const occPct = sel ? Math.min(1, usedU / sel.u) : 0;
+    // ⚠ Era `SUM(h)` — una delle TRE definizioni di «U occupate» che non
+    // concordavano (§8.48 voce 5). Sbagliava su tre cose reali: due dispositivi
+    // sovrapposti contavano due volte lo stesso slot, uno che sporge contava unità che
+    // non esistono, e un apparato rimosso contava comunque. Un rack da 45 U poteva
+    // risultare occupato per 48.
+    const capSel = sel && DOM ? DOM.rackCapacity(sel.u, sel.devices)
+                              : { usedU: 0, totalU: 0 };
+    const usedU = capSel.usedU;
+    const occPct = capSel.totalU ? Math.min(1, usedU / capSel.totalU) : 0;
 
     const typeOptions = Object.entries(TYPES).map(([id, t]) => ({ id, label: t.label }));
     const roomOptions = rooms.map(r => ({ id: r.id, label: r.nome }));
@@ -2896,10 +2982,17 @@ class Component extends DCLogic {
 
     // --- inventario tabellare ---
     const STATI = Component.stati();
-    const COLS = [['name', 'Nome'], ['type', 'Tipo'], ['stato', 'Stato'], ['model', 'Modello'], ['ip', 'IP'], ['serial', 'Seriale'], ['owner', 'Referente'], ['locN', 'Location'], ['roomN', 'Sala'], ['rackId', 'Rack'], ['u', 'U'], ['garanzia', 'Garanzia'], ['supporto', 'Supporto'], ['note', 'Note']];
+    const COLS = [['name', 'Nome'], ['type', 'Tipo'], ['stato', 'Stato'], ['presenza', 'Presenza'], ['model', 'Modello'], ['ip', 'IP'], ['serial', 'Seriale'], ['owner', 'Referente'], ['locN', 'Location'], ['roomN', 'Sala'], ['rackId', 'Rack'], ['u', 'U'], ['garanzia', 'Garanzia'], ['supporto', 'Supporto'], ['note', 'Note']];
+    const PRESENZE = Component.presenze();
     const flat = [];
-    if (data) for (const L of locations) for (const R of L.sale) for (const rk of R.racks) for (const d of rk.devices) {
-      flat.push({ name: d.name, type: (TYPES[d.type] || TYPES.altro).label, stato: (STATI[d.stato] || STATI.attivo).label, model: d.model || '', ip: d.ip || '', serial: d.serial || '', owner: d.owner || '', locN: L.nome, roomN: R.nome, rackId: rk.id, u: d.u, garanzia: d.garanzia || '', supporto: d.supporto || '', note: d.note || '', _loc: L.id, _room: R.id, _rack: rk.id, _dev: d.id });
+    if (data && DOM) for (const L of locations) for (const R of L.sale) for (const rk of R.racks) for (const d of rk.devices) {
+      // ⚠ `_dev_obj` porta il dispositivo GREZZO accanto alla riga formattata.
+      //
+      // Le regole del dominio (`notifies`, `occupiesSpace`) vanno applicate ai valori
+      // del documento, non alle etichette tradotte: `STATI[...].label` di `dismesso`
+      // è «Dismesso», e confrontare quella con «dismesso» sarebbe una regola che
+      // smette di funzionare il giorno in cui si traduce l'interfaccia.
+      flat.push({ name: DOM.deviceLabel(d), type: (TYPES[d.type] || TYPES.altro).label, stato: (STATI[DOM.statoOf(d)] || { label: DOM.statoOf(d) }).label, presenza: (PRESENZE[DOM.presenzaOf(d)] || { label: DOM.presenzaOf(d) }).label, model: d.model || '', ip: d.ip || '', serial: d.serial || '', owner: d.owner || '', locN: L.nome, roomN: R.nome, rackId: rk.id, u: d.u, garanzia: d.garanzia || '', supporto: d.supporto || '', note: d.note || '', _loc: L.id, _room: R.id, _rack: rk.id, _dev: d.id, _dev_obj: d });
     }
 
     // --- notifiche scadenze: la configurazione arriva da /api/settings (§8.38),
@@ -2916,46 +3009,83 @@ class Component extends DCLogic {
       return days.length ? Math.max(...days) : 30;
     })();
     let setNScad = 0;
-    {
-      const now = new Date();
-      const lim = new Date(now.getTime() + (setWindowDays * 86400000));
-      for (const r of flat) for (const fv of [r.garanzia, r.supporto]) {
-        if (!fv) continue;
-        const dt = new Date(fv);
-        if (!isNaN(dt) && dt >= now && dt <= lim) setNScad++;
+    if (DOM) {
+      // ⚠ L'anteprima deve contare ciò che il WORKER manderebbe, non ciò che è
+      // visibile: stesso parser, stessa finestra, stessa idoneità per stato. Prima
+      // usava `new Date` e non guardava lo stato, quindi prometteva avvisi per
+      // dispositivi che non ne avrebbero mai prodotti — e una anteprima che sbaglia
+      // per eccesso è il modo di far configurare male le notifiche.
+      const oggi = DOM.todayLocal();
+      for (const r of flat) {
+        if (!DOM.notifies(r._dev_obj)) continue;
+        for (const fv of [r.garanzia, r.supporto]) {
+          const parsed = DOM.parseExpiry(fv);
+          if (!parsed) continue;
+          if (DOM.notificationDue(DOM.daysBetween(parsed, oggi), [setWindowDays])) setNScad++;
+        }
       }
     }
 
     // --- vista scadenze dedicata ---
+    // ⚠ Riscritta dalla fase 2G, e sono tre difetti chiusi in un colpo.
+    //
+    // 1. `if ((d.stato || 'attivo') === 'dismesso') continue;` — i dismessi
+    //    SPARIVANO. Era sbagliato per la domanda che questa vista pone: un apparato
+    //    dismesso ha un contratto che scade, e chi fa l'inventario dei contratti deve
+    //    poterlo vedere. Adesso compaiono, e i due filtri qui sotto permettono di
+    //    isolarli. Non ricevono più promemoria via posta — quella è l'altra domanda,
+    //    e la decide il worker (§8.48 voce 8);
+    //
+    // 2. `new Date(val)` — accettava sette forme che il backend rifiuta, quindi la
+    //    vista mostrava scadenze che nessun avviso avrebbe mai mandato. E su
+    //    `2027-02-30` non rifiutava: la faceva SCORRERE al 2 marzo (voce 9);
+    //
+    // 3. `Math.round((dt - Date.now()) / 86400000)` — non è un conteggio di giorni.
+    //    Dipende dall'ora del giorno, e nella notte del cambio dell'ora una
+    //    differenza di 23 o 25 ore si arrotondava a un giorno per caso.
+    //
+    // `notifiable` accanto a ogni riga dice se quella scadenza genererebbe davvero
+    // un'email: è l'informazione che spiega la differenza fra le due viste senza
+    // obbligare chi guarda a conoscerla.
     const scadTot = { scadute: 0, entro90: 0, future: 0 };
     const scadRows = [];
-    if (data) {
+    const scadFiltri = S.scadFiltri || { stato: '', presenza: '' };
+    if (data && DOM) {
+      const oggi = DOM.todayLocal();
       const entries = [];
       for (const L of locations) for (const R of L.sale) for (const rk of R.racks) for (const d of rk.devices) {
-        if ((d.stato || 'attivo') === 'dismesso') continue;
+        if (scadFiltri.stato && DOM.statoOf(d) !== scadFiltri.stato) continue;
+        if (scadFiltri.presenza && DOM.presenzaOf(d) !== scadFiltri.presenza) continue;
         for (const [kind, val] of [['Garanzia', d.garanzia], ['Supporto', d.supporto]]) {
-          if (!val) continue;
-          const dt = new Date(val);
-          if (isNaN(dt)) continue;
-          entries.push({ dt, val, kind, d, L, R, rk });
+          const parsed = DOM.parseExpiry(val);
+          if (!parsed) continue;
+          entries.push({ giorni: DOM.daysBetween(parsed, oggi), val, kind, d, L, R, rk });
         }
       }
-      entries.sort((a, b) => a.dt - b.dt);
+      // Ordine per GIORNI, che è un intero: ordinare per istante era un ordine sulla
+      // stessa informazione passata per un tipo che non le serviva.
+      entries.sort((a, b) => (a.giorni - b.giorni) || (a.val < b.val ? -1 : 1));
       for (const en of entries) {
-        const giorni = Math.round((en.dt.getTime() - Date.now()) / 86400000);
-        const lv = giorni < 0 ? 2 : (giorni <= 90 ? 1 : 0);
+        const giorni = en.giorni;
+        const livello = DOM.expiryLevel(giorni, 90);
+        const lv = livello === 'expired' ? 2 : (livello === 'warning' ? 1 : 0);
+        const notifiable = DOM.notificationDue(giorni, [90]) && DOM.notifies(en.d);
         if (lv === 2) scadTot.scadute++; else if (lv === 1) scadTot.entro90++; else scadTot.future++;
         const col = lv === 2 ? '#ff5c5c' : (lv === 1 ? '#ffb020' : 'var(--dd7dde4)');
         const cell = (txt, c, bold) => ({ txt, style: { fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: c || 'var(--dd7dde4)', fontWeight: bold ? 700 : 400, padding: '7px 10px 7px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } });
         scadRows.push({
-          csv: [en.val, giorni, lv === 2 ? 'scaduta' : (lv === 1 ? 'entro 90 giorni' : 'futura'), en.kind.toLowerCase(), en.d.name, en.d.model || '', en.d.serial || '', en.L.id, en.R.id, en.rk.id, en.d.owner || ''],
+          csv: [en.val, giorni, lv === 2 ? 'scaduta' : (lv === 1 ? 'entro 90 giorni' : 'futura'), en.kind.toLowerCase(), DOM.deviceLabel(en.d), en.d.model || '', en.d.serial || '', en.L.id, en.R.id, en.rk.id, en.d.owner || '', DOM.statoOf(en.d), DOM.presenzaOf(en.d), notifiable ? 'si' : 'no'],
           cells: [
             cell(en.val + (lv === 2 ? ' ⚠' : ''), col, lv > 0),
             cell(giorni < 0 ? giorni + ' gg' : '+' + giorni + ' gg', col, lv > 0),
             cell(en.kind),
-            cell(en.d.name),
-            cell(en.L.nome), cell(en.R.nome), cell(en.rk.id),
-            cell(en.d.owner || '—')
+            cell(DOM.deviceLabel(en.d)),
+            cell(en.L.nome), cell(en.R.nome), cell(DOM.rackLabel(en.rk)),
+            cell(en.d.owner || '—'),
+            // ⚠ Lo stato in grigio quando non produce avvisi: è il modo di mostrare
+            // che la riga è ispezionabile e non azionabile, senza una legenda.
+            cell(DOM.statoOf(en.d), notifiable ? null : 'var(--d57626f)'),
+            cell(DOM.presenzaOf(en.d), DOM.occupiesSpace(en.d) ? null : 'var(--d57626f)')
           ],
           onClick: () => this.setState({ scadOpen: false, dashOpen: false, locId: en.L.id, roomId: en.R.id, selRack: en.rk.id, highlightDev: en.d.id, selDev: null, editing: false })
         });
@@ -2965,7 +3095,7 @@ class Component extends DCLogic {
     const piantaActive = !S.invOpen && !S.capOpen && !S.scadOpen && !S.dashOpen && !S.manualOpen && !S.profileOpen;
 
     // --- dashboard riepilogo ---
-    const dashTot = { sale: 0, rack: 0, dev: 0, tot: 0, used: 0, manut: 0, dismInCorso: 0, dism: 0 };
+    const dashTot = { sale: 0, rack: 0, dev: 0, tot: 0, used: 0, manut: 0, dismInCorso: 0, dism: 0, rimossi: 0 };
     const typeCount = {};
     const dashSites = [];
     const dashRooms = [];
@@ -2977,23 +3107,29 @@ class Component extends DCLogic {
         for (const rk of R.racks) {
           dashTot.rack++; sRack++;
           sTot += rk.u; dashTot.tot += rk.u; rTot += rk.u;
-          const occ = new Array(rk.u + 1).fill(false);
           for (const d of rk.devices) {
             dashTot.dev++; sDev++;
             typeCount[d.type] = (typeCount[d.type] || 0) + 1;
-            const st = d.stato || 'attivo';
+            const st = DOM.statoOf(d);
             if (st === 'manutenzione') dashTot.manut++;
             if (st === 'dismissione') dashTot.dismInCorso++;
             if (st === 'dismesso') dashTot.dism++;
-            for (let k = d.u; k < d.u + (d.h || 1); k++) if (k <= rk.u) occ[k] = true;
+            // ⚠ La presenza è una dimensione a parte dallo stato (§8.50): un
+            // apparato può essere `attivo + rimosso` (portato in un altro sito) o
+            // `dismesso + presente` (fuori servizio ma ancora nel rack). Contare i
+            // rimossi separatamente è ciò che rende leggibile la differenza fra
+            // «quanti apparati abbiamo» e «quanti ne abbiamo in sala».
+            if (!DOM.occupiesSpace(d)) dashTot.rimossi++;
           }
-          for (let k = 1; k <= rk.u; k++) if (occ[k]) { dashTot.used++; sUsed++; rUsed++; }
+          // Una definizione sola di «U occupate», la stessa del backend.
+          const capRk = DOM.rackCapacity(rk.u, rk.devices);
+          dashTot.used += capRk.usedU; sUsed += capRk.usedU; rUsed += capRk.usedU;
         }
         const rPct = rTot ? rUsed / rTot : 0;
         dashRooms.push({
           pct: rPct,
           label: L.nome + ' · ' + R.nome,
-          txt: rUsed + '/' + rTot + ' U (' + Math.round(rPct * 100) + '%)',
+          txt: rUsed + '/' + rTot + ' U (' + DOM.percent(rUsed, rTot) + '%)',
           barStyle: { width: Math.max(rPct * 100, rUsed > 0 ? 1.5 : 0) + '%', height: '100%', background: rPct > 0.85 ? '#ff5c5c' : (rPct > 0.65 ? '#ffb020' : accent), borderRadius: 4 },
           onClick: () => this.setState({ dashOpen: false, invOpen: false, capOpen: false, scadOpen: false, locId: L.id, roomId: R.id, selRack: null })
         });
@@ -3001,7 +3137,7 @@ class Component extends DCLogic {
       const pct = sTot ? sUsed / sTot : 0;
       dashSites.push({
         nome: L.nome,
-        sub: L.sale.length + ' sale · ' + sRack + ' rack · ' + sDev + ' disp. · ' + Math.round(pct * 100) + '%',
+        sub: L.sale.length + ' sale · ' + sRack + ' rack · ' + sDev + ' disp. · ' + DOM.percent(sUsed, sTot) + '%',
         barStyle: { width: (pct * 100) + '%', height: '100%', background: pct > 0.85 ? '#ff5c5c' : (pct > 0.65 ? '#ffb020' : accent), borderRadius: 3, animation: 'barGrow 0.6s ease both', transformOrigin: 'left' },
         onClick: () => this.setState({ dashOpen: false, invOpen: false, capOpen: false, scadOpen: false, locId: L.id, roomId: L.sale[0] ? L.sale[0].id : null, selRack: null })
       });
@@ -3039,27 +3175,45 @@ class Component extends DCLogic {
     const capLocs = locations.map(L => ({
       nome: L.nome.toUpperCase(),
       rooms: L.sale.map(R => {
+        // ⚠ Riscritta dalla fase 2G, e due difetti chiusi qui (§8.48 voci 6 e 7).
+        //
+        // 1. `if ((d.stato || 'attivo') === 'dismesso') {}` — un blocco VUOTO. Con
+        //    ogni probabilità l'intenzione era escludere i dismessi; il fatto è che
+        //    non li escludeva. La domanda giusta però non era quella: lo stato
+        //    OPERATIVO non dice se un apparato occupa uno slot. Adesso decide la
+        //    PRESENZA FISICA, e `dismesso + presente` occupa mentre
+        //    `qualunque + rimosso` no.
+        //
+        // 2. `const rw = rk.row || '—'` — una SENTINELLA che collide col dato. Nel
+        //    seed di produzione esiste un rack la cui fila è letteralmente «—»
+        //    (CS-Q01): finiva nello stesso gruppo di tutti quelli senza fila, e il
+        //    totale di unità libere di quella fila era la somma di due cose diverse.
+        //    Adesso il gruppo è `DOM.rowGroup`, che tiene separata la CHIAVE
+        //    dall'ETICHETTA: l'aspetto non cambia, cambia ciò che si considera lo
+        //    stesso gruppo.
         let tot = 0, used = 0, bestRack = null, bestFree = 0;
-        const byRow = {};
+        const byRow = new Map();
         for (const rk of R.racks) {
           tot += rk.u;
-          const occ = new Array(rk.u + 1).fill(false);
-          for (const d of rk.devices) { if ((d.stato || 'attivo') === 'dismesso') {} for (let k = d.u; k < d.u + (d.h || 1); k++) if (k <= rk.u) occ[k] = true; }
-          let rkUsed = 0, run = 0, maxRun = 0;
-          for (let k = 1; k <= rk.u; k++) { if (occ[k]) { rkUsed++; run = 0; } else { run++; if (run > maxRun) maxRun = run; } }
-          used += rkUsed;
-          if (maxRun > bestFree) { bestFree = maxRun; bestRack = rk.id; }
-          const rw = rk.row || '—';
-          if (!byRow[rw]) byRow[rw] = { tot: 0, used: 0 };
-          byRow[rw].tot += rk.u; byRow[rw].used += rkUsed;
+          const cap = DOM.rackCapacity(rk.u, rk.devices);
+          used += cap.usedU;
+          if (cap.largestFreeRun > bestFree) {
+            bestFree = cap.largestFreeRun;
+            bestRack = DOM.rackLabel(rk);
+          }
+          const g = DOM.rowGroup(rk);
+          if (!byRow.has(g.key)) byRow.set(g.key, { g, tot: 0, used: 0 });
+          const b = byRow.get(g.key);
+          b.tot += rk.u; b.used += cap.usedU;
         }
         const pct = tot ? used / tot : 0;
+        const righe = [...byRow.values()].sort((a, b) => DOM.compareRowGroups(a.g, b.g));
         return {
           nome: R.nome,
-          sum: used + '/' + tot + ' U occupate (' + Math.round(pct * 100) + '%) · ' + R.racks.length + ' rack',
+          sum: used + '/' + tot + ' U occupate (' + DOM.percent(used, tot) + '%) · ' + R.racks.length + ' rack',
           best: bestRack ? 'miglior slot: ' + bestRack + ' (' + bestFree + ' U contigue)' : '',
           barStyle: { width: (pct * 100) + '%', height: '100%', background: pct > 0.85 ? '#ff5c5c' : (pct > 0.65 ? '#ffb020' : accent), borderRadius: 4, animation: 'barGrow 0.6s ease both', transformOrigin: 'left' },
-          rows: Object.entries(byRow).map(([rw, v]) => 'Fila ' + rw + ': ' + (v.tot - v.used) + ' U libere / ' + v.tot),
+          rows: righe.map(b => 'Fila ' + b.g.label + ': ' + (b.tot - b.used) + ' U libere / ' + b.tot),
           onClick: () => this.setState({ capOpen: false, dashOpen: false, locId: L.id, roomId: R.id, selRack: null })
         };
       })
@@ -3073,9 +3227,9 @@ class Component extends DCLogic {
       return so.dir === 'desc' ? -cmp : cmp;
     });
     // colonne visibili, larghezze, densità, chip
-    const invVis = S.invColsVis || ['name', 'type', 'stato', 'model', 'ip', 'roomN', 'rackId', 'u', 'garanzia'];
+    const invVis = S.invColsVis || ['name', 'type', 'stato', 'presenza', 'model', 'ip', 'roomN', 'rackId', 'u', 'garanzia'];
     const VCOLS = COLS.filter(([k]) => invVis.includes(k));
-    const invWidths = { name: 'minmax(130px,1.15fr)', type: '104px', stato: '132px', model: 'minmax(110px,1.4fr)', ip: '112px', serial: '112px', owner: 'minmax(90px,1fr)', locN: 'minmax(100px,1fr)', roomN: 'minmax(100px,1.15fr)', rackId: '76px', u: '60px', garanzia: '100px', supporto: '100px', note: 'minmax(90px,1.2fr)' };
+    const invWidths = { name: 'minmax(130px,1.15fr)', type: '104px', stato: '132px', presenza: '124px', model: 'minmax(110px,1.4fr)', ip: '112px', serial: '112px', owner: 'minmax(90px,1fr)', locN: 'minmax(100px,1fr)', roomN: 'minmax(100px,1.15fr)', rackId: '76px', u: '60px', garanzia: '100px', supporto: '100px', note: 'minmax(90px,1.2fr)' };
     const invGridCols = VCOLS.map(([k]) => invWidths[k] || '1fr').join(' ');
     const invRowPad = S.invDensity === 'compatta' ? '6px' : '11px';
     const invNFilt = Object.values(IF).filter(Boolean).length;
@@ -3104,9 +3258,9 @@ class Component extends DCLogic {
     const doExpCsv = () => {
       // _uid in prima colonna: è ciò che rende il giro export→modifica→import
       // non distruttivo per l'identità (§8.4).
-      const rows = [['_uid', 'location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note']];
+      const rows = [['_uid', 'location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'presenza', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note']];
       for (const L of locations) for (const R of L.sale) for (const rk of R.racks) for (const d of rk.devices)
-        rows.push([d._uid || '', L.id, R.id, rk.id, d.name, d.type, d.stato || 'attivo', d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
+        rows.push([d._uid || '', L.id, R.id, rk.id, d.name, d.type, DOM.statoOf(d), DOM.presenzaOf(d), d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
       csvDownload(rows, 'inventario-sale-server.csv');
     };
 
@@ -3672,18 +3826,26 @@ class Component extends DCLogic {
         for (const L of locations) for (const R of L.sale) {
           let uTot = 0, uUsati = 0, nDev = 0;
           for (const rk of R.racks) {
-            const used = rk.devices.reduce((t, d) => t + (d.h || 1), 0);
+            // ⚠ Era la TERZA definizione di «U occupate», e anche lei `SUM(h)`
+            // (§8.48 voce 5). Con `rk.u = 0` la percentuale era `NaN%` — un difetto
+            // che nessuno aveva notato perché nessun rack reale è alto zero unità.
+            const cap = DOM.rackCapacity(rk.u, rk.devices);
+            const used = cap.usedU;
             uTot += rk.u; uUsati += used; nDev += rk.devices.length;
-            rck.push([L.nome, R.nome, rk.id, rk.name || '', (rk.seriali || []).join(' / '), rk.row || '', rk.u, used, rk.u - used, Math.round(used / rk.u * 100) + '%', rk.devices.length]);
+            rck.push([L.nome, R.nome, rk.id, rk.name || '', (rk.seriali || []).join(' / '), rk.row || '', rk.u, used, cap.freeU, DOM.percent(used, rk.u) + '%', rk.devices.length]);
             for (const d of rk.devices)
-              dev.push([d._uid || '', L.nome, R.nome, rk.id, d.name, (TYPES[d.type] || TYPES.altro).label, d.stato || 'attivo', d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
+              dev.push([d._uid || '', L.nome, R.nome, rk.id, d.name, (TYPES[d.type] || TYPES.altro).label, DOM.statoOf(d), DOM.presenzaOf(d), d.model || '', d.ip || '', d.serial || '', d.owner || '', d.u, d.h || 1, d.garanzia || '', d.supporto || '', d.note || '']);
           }
-          sal.push([L.nome, R.nome, R.dim || '', R.area || '', R.racks.length, nDev, uTot, uUsati, uTot - uUsati, uTot ? Math.round(uUsati / uTot * 100) + '%' : '0%']);
+          sal.push([L.nome, R.nome, R.dim || '', R.area || '', R.racks.length, nDev, uTot, uUsati, Math.max(0, uTot - uUsati), DOM.percent(uUsati, uTot) + '%']);
         }
         const blob = mod.creaXlsx([
           // `_uid` anche qui: le intestazioni vengono minuscolizzate in import, quindi
           // questo foglio è ri-importabile e senza identità produrrebbe sostituzioni.
-          { nome: 'Dispositivi', intestazioni: ['_uid', 'Location', 'Sala', 'Rack', 'Nome', 'Tipo', 'Stato', 'Modello', 'IP', 'Seriale', 'Referente', 'U', 'Altezza U', 'Garanzia', 'Supporto', 'Note'], righe: dev },
+          // ⚠ `Presenza` col valore GREZZO (`presente`/`rimosso`) e non un'etichetta
+          // tradotta: questo foglio è ri-importabile, e `parsePresenza` riconosce
+          // entrambe le forme — ma scrivere il valore rende il giro esatto invece che
+          // dipendente da una mappa di etichette.
+          { nome: 'Dispositivi', intestazioni: ['_uid', 'Location', 'Sala', 'Rack', 'Nome', 'Tipo', 'Stato', 'Presenza', 'Modello', 'IP', 'Seriale', 'Referente', 'U', 'Altezza U', 'Garanzia', 'Supporto', 'Note'], righe: dev },
           { nome: 'Rack', intestazioni: ['Location', 'Sala', 'Rack', 'Descrizione', 'Seriali', 'Fila', 'Unità', 'U occupate', 'U libere', 'Occupazione', 'Dispositivi'], righe: rck },
           { nome: 'Sale', intestazioni: ['Location', 'Sala', 'Dimensioni', 'Superficie', 'Rack', 'Dispositivi', 'U totali', 'U occupate', 'U libere', 'Occupazione'], righe: sal }
         ]);
@@ -3732,12 +3894,12 @@ class Component extends DCLogic {
               O[nome] = {
                 path: [g('location'), g('sala'), g('rack')].filter(Boolean).join(' / '),
                 u: parseInt(g('u'), 10) || 1,
-                d: { name: nome, type: g('tipo'), stato: g('stato'), model: g('modello'), ip: g('ip'), serial: g('seriale'), owner: g('referente'), garanzia: g('garanzia'), supporto: g('supporto'), note: g('note'), h: parseInt(g('h'), 10) || 1 }
+                d: { name: nome, type: g('tipo'), stato: g('stato'), presenza: g('presenza'), model: g('modello'), ip: g('ip'), serial: g('seriale'), owner: g('referente'), garanzia: g('garanzia'), supporto: g('supporto'), note: g('note'), h: parseInt(g('h'), 10) || 1 }
               };
             }
           }
           const N = flatten(data);
-          const FIELDS = [['type', 'tipo'], ['stato', 'stato'], ['model', 'modello'], ['ip', 'IP'], ['serial', 'seriale'], ['owner', 'referente'], ['garanzia', 'garanzia'], ['supporto', 'supporto'], ['note', 'note'], ['h', 'altezza U']];
+          const FIELDS = [['type', 'tipo'], ['stato', 'stato'], ['presenza', 'presenza'], ['model', 'modello'], ['ip', 'IP'], ['serial', 'seriale'], ['owner', 'referente'], ['garanzia', 'garanzia'], ['supporto', 'supporto'], ['note', 'note'], ['h', 'altezza U']];
           const rep = [];
           for (const k of Object.keys(N)) {
             if (!O[k]) { rep.push({ cat: 'Aggiunto', nome: k, prima: '', dopo: N[k].path + ' · U' + N[k].u, campi: '' }); continue; }
@@ -3808,7 +3970,8 @@ class Component extends DCLogic {
         cursor: 'pointer', fontFamily: 'inherit'
       },
       dashCards,
-      dashOccLabel: dashTot.used + '/' + dashTot.tot + ' U occupate (' + (dashTot.tot ? Math.round(dashTot.used / dashTot.tot * 100) : 0) + '%)',
+      dashOccLabel: dashTot.used + '/' + dashTot.tot + ' U occupate (' + (DOM ? DOM.percent(dashTot.used, dashTot.tot) : 0) + '%)'
+        + (dashTot.rimossi ? ' · ' + dashTot.rimossi + ' rimossi dal rack' : ''),
       dashOccBar: { width: (dashTot.tot ? dashTot.used / dashTot.tot * 100 : 0) + '%', height: '100%', background: accent, borderRadius: 4, animation: 'barGrow 0.6s ease both', transformOrigin: 'left' },
       dashTypes,
       dashTypeSegs,
@@ -3838,12 +4001,18 @@ class Component extends DCLogic {
         border: 'none', borderLeft: '1px solid var(--d2b333d)', padding: '10px 16px', fontSize: 12, fontWeight: S.scadOpen ? 700 : 500,
         cursor: 'pointer', fontFamily: 'inherit'
       },
-      scadCols: ['Scadenza', 'Giorni', 'Tipo', 'Dispositivo', 'Sito', 'Sala', 'Rack', 'Referente'],
+      scadCols: ['Scadenza', 'Giorni', 'Tipo', 'Dispositivo', 'Sito', 'Sala', 'Rack', 'Referente', 'Stato', 'Presenza'],
       scadRows,
+      scadFiltroStato: scadFiltri.stato,
+      scadFiltroPresenza: scadFiltri.presenza,
+      onScadFiltroStato: (e) => this.setState(st => ({
+        scadFiltri: { ...(st.scadFiltri || { stato: '', presenza: '' }), stato: e.target.value } })),
+      onScadFiltroPresenza: (e) => this.setState(st => ({
+        scadFiltri: { ...(st.scadFiltri || { stato: '', presenza: '' }), presenza: e.target.value } })),
       scadSummary: scadTot.scadute + ' scadute · ' + scadTot.entro90 + ' entro 90 giorni · ' + scadTot.future + ' future',
       scadEmpty: scadRows.length === 0,
       scadExportCsv: () => {
-        const rows = [['scadenza', 'giorni', 'stato', 'tipo', 'dispositivo', 'modello', 'seriale', 'location', 'sala', 'rack', 'referente']]
+        const rows = [['scadenza', 'giorni', 'livello', 'tipo', 'dispositivo', 'modello', 'seriale', 'location', 'sala', 'rack', 'referente', 'stato', 'presenza', 'genera_avviso']]
           .concat(scadRows.map(r => r.csv));
         csvDownload(rows, 'scadenze-ced.csv');
       },
@@ -3952,11 +4121,11 @@ class Component extends DCLogic {
       impApplyBtnStyle: { flex: 1, background: accent, color: '#ffffff', border: 'none', borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
       scaricaModello: async () => {
         const mod = await import((window.__resources && window.__resources.xlsx) || './xlsx.js');
-        const hdr = ['_uid', 'location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note'];
+        const hdr = ['_uid', 'location', 'sala', 'rack', 'nome', 'tipo', 'stato', 'presenza', 'modello', 'ip', 'seriale', 'referente', 'u', 'h', 'garanzia', 'supporto', 'note'];
         const esempio = [];
         const L0 = locations[0], R0 = L0 && L0.sale[0], K0 = R0 && R0.racks[0];
-        if (K0) esempio.push(['', L0.id, R0.id, K0.id, 'srv-esempio-01', 'server', 'attivo', 'Dell R660', '10.0.0.100', 'SN-ESEMPIO', 'Team Infra', '10', '1', '2027-12-31', '2028-06-30', 'riga di esempio: sostituiscila']);
-        const rifer = [['_uid', 'identità del dispositivo: LASCIARE VUOTO per i nuovi, NON modificare per quelli esistenti'], ['tipo', 'server, rete, storage, firewall, alimentazione, altro'], ['stato', 'attivo, manutenzione, dismissione, dismesso'], ['u', 'slot di partenza contato dal basso (numero)'], ['h', 'altezza in unità rack (numero)'], ['garanzia / supporto', 'date in formato AAAA-MM-GG'], ['location / sala / rack', 'devono esistere già nell\'applicazione (usa gli id sotto)'], ['nome', 'NON è identità: si può rinominare. Per aggiornare un dispositivo esistente serve la colonna _uid, altrimenti un nome ripetuto rende la riga ambigua e viene saltata']];
+        if (K0) esempio.push(['', L0.id, R0.id, K0.id, 'srv-esempio-01', 'server', 'attivo', 'presente', 'Dell R660', '10.0.0.100', 'SN-ESEMPIO', 'Team Infra', '10', '1', '2027-12-31', '2028-06-30', 'riga di esempio: sostituiscila']);
+        const rifer = [['_uid', 'identità del dispositivo: LASCIARE VUOTO per i nuovi, NON modificare per quelli esistenti'], ['tipo', 'server, rete, storage, firewall, alimentazione, altro'], ['stato', 'attivo, manutenzione, dismissione, dismesso — ciclo di vita OPERATIVO'], ['presenza', 'presente, rimosso — se l\'hardware occupa ancora il suo slot nel rack. Indipendente dallo stato: un apparato dismesso puo essere ancora installato. Colonna assente = la presenza registrata non cambia'], ['u', 'slot di partenza contato dal basso (numero)'], ['h', 'altezza in unità rack (numero)'], ['garanzia / supporto', 'date in formato AAAA-MM-GG'], ['location / sala / rack', 'devono esistere già nell\'applicazione (usa gli id sotto)'], ['nome', 'NON è identità: si può rinominare. Per aggiornare un dispositivo esistente serve la colonna _uid, altrimenti un nome ripetuto rende la riga ambigua e viene saltata']];
         const esistenti = [];
         for (const L of locations) for (const R of L.sale) for (const rk of R.racks) esistenti.push([L.id, L.nome, R.id, R.nome, rk.id, rk.u]);
         const blob = mod.creaXlsx([
@@ -4032,6 +4201,12 @@ class Component extends DCLogic {
               name: nome,
               type: IDENT.parseTipo(g('tipo'), esistente ? (esistente.type || 'altro') : 'altro'),
               stato: IDENT.parseStato(g('stato'), esistente ? (esistente.stato || 'attivo') : 'attivo'),
+              // ⚠ Il fallback è la presenza CHE IL DISPOSITIVO HA GIÀ, non il
+              // default: un foglio senza la colonna `presenza` non deve rimettere
+              // «presente» a un apparato che qualcuno aveva registrato come rimosso.
+              // È la stessa regola di `stato`, e serve per la stessa ragione — gli
+              // export vecchi non hanno quella colonna.
+              presenza: IDENT.parsePresenza(g('presenza'), esistente ? DOM.presenzaOf(esistente) : 'presente'),
               model: g('modello'), ip: g('ip'), serial: g('seriale'), owner: g('referente'),
               u, h: hh, garanzia: g('garanzia'), supporto: g('supporto'), note: g('note')
             });
@@ -4139,7 +4314,7 @@ class Component extends DCLogic {
           return { draft: d };
         });
       },
-      startAdd: () => this.setState({ editing: true, selDev: null, highlightDev: null, draftError: '', draft: { name: '', type: 'server', stato: 'attivo', model: '', ip: '', serial: '', owner: '', garanzia: '', supporto: '', note: '', room: room.id, rack: S.selRack, u: 1, h: 1 } }),
+      startAdd: () => this.setState({ editing: true, selDev: null, highlightDev: null, draftError: '', draft: { name: '', type: 'server', stato: 'attivo', presenza: 'presente', model: '', ip: '', serial: '', owner: '', garanzia: '', supporto: '', note: '', room: room.id, rack: S.selRack, u: 1, h: 1 } }),
       // --- scheda rack stampabile ---
       schedaOpen: !!(S.schedaOpen && sel),
       openScheda: () => this.setState({ schedaOpen: true }),
@@ -4169,13 +4344,13 @@ class Component extends DCLogic {
             display: 'flex', alignItems: 'center', paddingLeft: 6,
             fontFamily: "'Roboto Mono',monospace", fontSize: 9, color: '#111827',
             overflow: 'hidden', whiteSpace: 'nowrap', boxSizing: 'border-box',
-            opacity: (d.stato || 'attivo') === 'dismesso' ? 0.45 : 1
+            opacity: !DOM.occupiesSpace(d) ? 0.25 : (DOM.statoOf(d) === 'dismesso' ? 0.45 : 1)
           }
         };
       }) : [],
-      schedaCols: ['U', 'Nome', 'Tipo', 'Stato', 'Modello', 'IP', 'Seriale', 'Referente', 'Garanzia', 'Supporto'],
+      schedaCols: ['U', 'Nome', 'Tipo', 'Stato', 'Presenza', 'Modello', 'IP', 'Seriale', 'Referente', 'Garanzia', 'Supporto'],
       schedaRows: sel ? [...sel.devices].sort((a, b) => b.u - a.u).map(d => ({
-        cells: ['U' + d.u + ((d.h || 1) > 1 ? '–' + (d.u + d.h - 1) : ''), d.name, (TYPES[d.type] || TYPES.altro).label, (Component.stati()[d.stato] || Component.stati().attivo).label, d.model || '—', d.ip || '—', d.serial || '—', d.owner || '—', d.garanzia || '—', d.supporto || '—']
+        cells: ['U' + d.u + ((d.h || 1) > 1 ? '–' + (d.u + d.h - 1) : ''), DOM.deviceLabel(d), (TYPES[d.type] || TYPES.altro).label, (Component.stati()[DOM.statoOf(d)] || { label: DOM.statoOf(d) }).label, (Component.presenze()[DOM.presenzaOf(d)] || { label: DOM.presenzaOf(d) }).label, d.model || '—', d.ip || '—', d.serial || '—', d.owner || '—', d.garanzia || '—', d.supporto || '—']
       })) : [],
       // Caricare una foto è un'operazione da AMMINISTRATORE (§8.5), non da
       // operatore: il server rifiuta `POST /api/photos` agli altri ruoli, e
@@ -4238,7 +4413,7 @@ class Component extends DCLogic {
         const orig = S.selDev
           ? (() => { for (const L of locations) for (const R of L.sale) for (const rk of R.racks) { const f = rk.devices.find(d => d.id === S.selDev); if (f) return f; } return null; })()
           : null;
-        const dev = preserveIdentity(orig, { id, name: dr.name.trim(), type: dr.type, stato: dr.stato || 'attivo', model: dr.model, ip: dr.ip, serial: dr.serial, owner: dr.owner, garanzia: dr.garanzia || '', supporto: dr.supporto || '', note: dr.note || '', u, h });
+        const dev = preserveIdentity(orig, { id, name: dr.name.trim(), type: dr.type, stato: dr.stato || 'attivo', presenza: dr.presenza || 'presente', model: dr.model, ip: dr.ip, serial: dr.serial, owner: dr.owner, garanzia: dr.garanzia || '', supporto: dr.supporto || '', note: dr.note || '', u, h });
         const next = JSON.parse(JSON.stringify(data));
         for (const L of next.locations) for (const R of L.sale) for (const rk of R.racks) {
           // Rimozione per _uid, non per id: gli id dei dispositivi derivano dal nome e

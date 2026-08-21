@@ -1,0 +1,345 @@
+{
+ "_nota": "Sottostringa LETTERALE senza distinzione di maiuscole. I campi del dispositivo sono nove e comprendono tipo, stato e presenza; le note NO. I rack si cercano per id, name e seriali. % e _ sono caratteri normali.",
+ "deviceFields": [
+  "id",
+  "name",
+  "model",
+  "ip",
+  "serial",
+  "owner",
+  "tipo",
+  "stato",
+  "presenza"
+ ],
+ "rackFields": [
+  "id",
+  "name",
+  "seriali"
+ ],
+ "device": [
+  {
+   "name": "per id",
+   "device": {
+    "id": "srv-db-01",
+    "name": "Database"
+   },
+   "q": "srv-db",
+   "match": true
+  },
+  {
+   "name": "id: era ASSENTE dalla ricerca del prototipo",
+   "device": {
+    "id": "ASSET-4471",
+    "name": "Nodo"
+   },
+   "q": "asset-4471",
+   "match": true
+  },
+  {
+   "name": "per nome",
+   "device": {
+    "name": "Nodo Alfa"
+   },
+   "q": "alfa",
+   "match": true
+  },
+  {
+   "name": "maiuscole indifferenti",
+   "device": {
+    "name": "NODO ALFA"
+   },
+   "q": "alfa",
+   "match": true
+  },
+  {
+   "name": "query in maiuscolo",
+   "device": {
+    "name": "nodo alfa"
+   },
+   "q": "ALFA",
+   "match": true,
+   "_meta": "chi cerca normalizza la query: il contratto e su una needle minuscola, e chi chiama la abbassa. La fixture porta la needle GREZZA e il test la abbassa come fa il chiamante."
+  },
+  {
+   "name": "per modello",
+   "device": {
+    "name": "x",
+    "model": "Dell R660"
+   },
+   "q": "r660",
+   "match": true
+  },
+  {
+   "name": "per seriale",
+   "device": {
+    "name": "x",
+    "serial": "SN-99"
+   },
+   "q": "sn-99",
+   "match": true
+  },
+  {
+   "name": "per referente",
+   "device": {
+    "name": "x",
+    "owner": "Team Infra"
+   },
+   "q": "infra",
+   "match": true
+  },
+  {
+   "name": "per ip come TESTO parziale",
+   "device": {
+    "name": "x",
+    "ip": "10.0.0.100"
+   },
+   "q": "10.0.0",
+   "match": true
+  },
+  {
+   "name": "per tipo: era ASSENTE dalla ricerca del prototipo",
+   "device": {
+    "name": "x",
+    "type": "firewall"
+   },
+   "q": "firewall",
+   "match": true
+  },
+  {
+   "name": "tipo per DIFETTO: un dispositivo senza type e «altro»",
+   "device": {
+    "name": "x"
+   },
+   "q": "altro",
+   "match": true
+  },
+  {
+   "name": "per stato: era ASSENTE dalla ricerca del prototipo",
+   "device": {
+    "name": "x",
+    "stato": "manutenzione"
+   },
+   "q": "manutenzione",
+   "match": true
+  },
+  {
+   "name": "stato per DIFETTO: senza stato si trova cercando attivo",
+   "device": {
+    "name": "x"
+   },
+   "q": "attivo",
+   "match": true
+  },
+  {
+   "name": "per presenza",
+   "device": {
+    "name": "x",
+    "presenza": "rimosso"
+   },
+   "q": "rimosso",
+   "match": true
+  },
+  {
+   "name": "presenza per DIFETTO",
+   "device": {
+    "name": "x"
+   },
+   "q": "presente",
+   "match": true
+  },
+  {
+   "name": "tipo NUMERICO: sta in extra, e si cerca per il suo valore",
+   "device": {
+    "name": "x",
+    "type": 42
+   },
+   "q": "42",
+   "match": true,
+   "_meta": "la colonna e NULL e il valore sta in extra: il default NON deve vincere"
+  },
+  {
+   "name": "tipo numerico: NON si cerca come il default",
+   "device": {
+    "name": "x",
+    "type": 42
+   },
+   "q": "altro",
+   "match": false
+  },
+  {
+   "name": "stato NUMERICO: stessa regola",
+   "device": {
+    "name": "x",
+    "stato": 7
+   },
+   "q": "7",
+   "match": true
+  },
+  {
+   "name": "le NOTE non si cercano",
+   "device": {
+    "name": "x",
+    "note": "da sostituire entro giugno"
+   },
+   "q": "giugno",
+   "match": false,
+   "_meta": "decisione di questa fase: testo libero e lungo"
+  },
+  {
+   "name": "nessun campo combacia",
+   "device": {
+    "name": "Nodo",
+    "model": "Dell"
+   },
+   "q": "zzz",
+   "match": false
+  },
+  {
+   "name": "% e un carattere LETTERALE",
+   "device": {
+    "name": "Sconto 50%"
+   },
+   "q": "%",
+   "match": true
+  },
+  {
+   "name": "% non e un jolly",
+   "device": {
+    "name": "Nodo Alfa"
+   },
+   "q": "%",
+   "match": false,
+   "_meta": "con LIKE questa query troverebbe tutto"
+  },
+  {
+   "name": "_ e un carattere LETTERALE",
+   "device": {
+    "name": "nodo_alfa"
+   },
+   "q": "_",
+   "match": true
+  },
+  {
+   "name": "_ non e un jolly",
+   "device": {
+    "name": "nodo-alfa"
+   },
+   "q": "_",
+   "match": false
+  },
+  {
+   "name": "unicode",
+   "device": {
+    "name": "Sala Ø nord"
+   },
+   "q": "ø",
+   "match": true
+  },
+  {
+   "name": "em dash nel nome",
+   "device": {
+    "name": "Nodo — primario"
+   },
+   "q": "—",
+   "match": true
+  },
+  {
+   "name": "la barra nel codice non si spezza",
+   "device": {
+    "id": "10.0.0.0/24"
+   },
+   "q": "0.0/24",
+   "match": true
+  },
+  {
+   "name": "query vuota: nessun risultato, come la casella vuota",
+   "device": {
+    "name": "Nodo"
+   },
+   "q": "",
+   "match": false
+  },
+  {
+   "name": "campo numerico",
+   "device": {
+    "name": 42
+   },
+   "q": "42",
+   "match": true
+  },
+  {
+   "name": "campo booleano non si cerca",
+   "device": {
+    "name": true
+   },
+   "q": "true",
+   "match": false
+  }
+ ],
+ "rack": [
+  {
+   "name": "per id",
+   "rack": {
+    "id": "CS-Q01"
+   },
+   "q": "cs-q",
+   "match": true
+  },
+  {
+   "name": "per nome",
+   "rack": {
+    "id": "K1",
+    "name": "Armadio rete"
+   },
+   "q": "armadio",
+   "match": true
+  },
+  {
+   "name": "per seriale",
+   "rack": {
+    "id": "K1",
+    "seriali": [
+     "AB-1",
+     "AB-2"
+    ]
+   },
+   "q": "ab-2",
+   "match": true
+  },
+  {
+   "name": "seriali vuoti",
+   "rack": {
+    "id": "K1",
+    "seriali": []
+   },
+   "q": "ab",
+   "match": false
+  },
+  {
+   "name": "seriali assenti",
+   "rack": {
+    "id": "K1"
+   },
+   "q": "ab",
+   "match": false
+  },
+  {
+   "name": "seriale numerico: si cerca comunque",
+   "rack": {
+    "id": "K1",
+    "seriali": [
+     4471
+    ]
+   },
+   "q": "4471",
+   "match": true,
+   "_meta": "nella 2E questi seriali non si trovavano, perche l'array intero finiva in extra. Adesso si cercano: e una delle divergenze risolte."
+  },
+  {
+   "name": "id senza rack: niente combacia, e non solleva",
+   "rack": {},
+   "q": "k1",
+   "match": false
+  }
+ ]
+}

@@ -74,6 +74,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from app import domain
 from app.identity import canonicalise
 from app.identity.model import UUID_RE
 from app.inventory.json_numbers import is_number, is_representable
@@ -94,7 +95,19 @@ from app.inventory.json_strings import is_representable_text
 #:
 #: Si incrementa quando cambia la DISTRIBUZIONE dei dati fra le colonne. Non quando
 #: si aggiunge un test, si corregge un commento o si rinomina una variabile.
-MAPPER_VERSION = 1
+MAPPER_VERSION = 2
+#
+# Storia degli incrementi, perché un numero senza storia non si sa più perché è
+# cambiato:
+#
+#   1  fase 2C: la mappa iniziale, con `garanzia_date` / `supporto_date` derivate.
+#   2  fase 2G: `presenza` diventa una colonna TIPIZZATA e `ip_addr` una colonna
+#      DERIVATA. Prima della 2G un documento che contenesse `presenza` la portava in
+#      `extra` — sintatticamente valido, e invisibile a ogni interrogazione. Le righe
+#      già scritte riassemblerebbero lo stesso documento, quindi lo stesso digest,
+#      mentre la vista Capacità non troverebbe la presenza e la ricerca non troverebbe
+#      l'indirizzo: è esattamente il caso per cui questo numero esiste (§8.44), e
+#      obbliga a un `project.py --rebuild` in manutenzione.
 
 # ==================================================================
 # vocabolari
@@ -115,8 +128,16 @@ CHILD_KEY = {"location": "sale", "room": "racks", "rack": "devices"}
 #: mappa: un valore fuori elenco si conserva com'è e si segnala, perché un
 #: inventario importato da un foglio di calcolo ne contiene sempre qualcuno e
 #: rifiutarlo perderebbe il dato invece di correggerlo.
-DEVICE_TYPES = ("server", "rete", "storage", "firewall", "alimentazione", "altro")
-DEVICE_STATES = ("attivo", "manutenzione", "dismissione", "dismesso")
+#: ⚠ RIESPORTATI da `app/domain.py` dalla fase 2G. Erano definiti qui, e finché la
+#: validazione era l'unica a usarli andava bene; adesso li usano anche la ricerca, la
+#: capacità e il frontend. Due elenchi divergono, e divergerebbero sul valore che
+#: qualcuno ha aggiunto in uno solo dei due.
+DEVICE_TYPES = domain.DEVICE_TYPES
+DEVICE_STATES = domain.DEVICE_STATES
+
+#: Presenza FISICA (§8.50). Vocabolario SEPARATO dagli stati operativi: le due domande
+#: — «è in servizio?» e «occupa ancora lo slot?» — hanno risposte indipendenti.
+DEVICE_PRESENCES = domain.DEVICE_PRESENCES
 
 
 # ==================================================================
@@ -192,6 +213,9 @@ class DeviceRow:
     name: Any = None
     type: Any = None
     stato: Any = None
+    #: Presenza FISICA (fase 2G). Colonna tipizzata e non un valore dedotto: è la
+    #: distinzione di §8.50, e la vista Capacità la interroga.
+    presenza: Any = None
     model: Any = None
     ip: Any = None
     serial: Any = None
@@ -206,12 +230,25 @@ class DeviceRow:
     note: Any = None
     u: Any = None
     h: Any = None
-    #: DERIVATE dalle due precedenti col parser dello scanner delle scadenze
-    #: (§8.41). Non tornano nel documento: sono la forma interrogabile di un
-    #: valore che resta autorevole nella sua colonna di testo. `None` significa
-    #: «quel testo non è una data», ed è il caso normale.
+    #: DERIVATE dalle due precedenti col parser del dominio (§8.50). Non tornano nel
+    #: documento: sono la forma interrogabile di un valore che resta autorevole nella
+    #: sua colonna di testo. `None` significa «quel testo non è una data», ed è il caso
+    #: normale.
     garanzia_date: Any = None
     supporto_date: Any = None
+    #: DERIVATA da `ip` con `domain.parse_address` (fase 2G). Tipo `inet` nel database.
+    #:
+    #: ⚠ È la colonna che rende possibile la ricerca per indirizzo ESATTO e per CIDR
+    #: IPv6, e il modo in cui la si ottiene è il punto: PostgreSQL non interpreta MAI
+    #: il testo dell'utente. `inet` ha una grammatica sua — accetta `10.1` come
+    #: `10.0.0.1` e `10.0.0.0/8` come indirizzo — e usarla avrebbe aggiunto semantica
+    #: che il prodotto non ha. Qui la decisione «questo testo è un indirizzo» la prende
+    #: `domain.parse_address`, unica per Python, SQL e frontend, e nella colonna
+    #: arriva già la forma canonica.
+    #:
+    #: `None` significa «quel testo non è un indirizzo» — un nome di host, un campo
+    #: vuoto, `10.0.0.1/24` — ed è un caso normale, non un guasto.
+    ip_addr: Any = None
     extra: dict = field(default_factory=dict)
 
 
@@ -403,6 +440,7 @@ FIELD_MAP: dict[str, tuple[tuple[str, str, Any], ...]] = {
         ("name", "name", _is_str),
         ("type", "type", _is_str),
         ("stato", "stato", _is_str),
+        ("presenza", "presenza", _is_str),
         ("model", "model", _is_str),
         ("ip", "ip", _is_str),
         ("serial", "serial", _is_str),
@@ -431,24 +469,37 @@ DERIVED: dict[str, tuple[tuple[str, str, Any], ...]] = {}
 
 
 def _parse_expiry(value: Any) -> date | None:
-    """⚠ Import LOCALE, e non è pigrizia.
+    """La data di scadenza, col parser UNICO del dominio (§8.50).
 
-    Si usa il parser dello scanner delle scadenze (§8.41), non un secondo parser
-    scritto qui: così `garanzia_date` significa esattamente «la data che il worker
-    userà», e non «la data secondo un'altra idea di data valida». Due idee di data
-    valida in due moduli divergono, e divergono sui casi limite.
+    ⚠ Non un secondo parser scritto qui: `garanzia_date` significa esattamente «la
+    data che il worker userà» e «la data che il frontend mostra», non «la data secondo
+    un'altra idea di data valida». Due idee di data valida divergono, e divergono sui
+    casi limite — che sono precisamente quelli che un inventario compilato a mano
+    produce.
 
-    L'import è dentro la funzione perché `from app.notifications.expiry import ...`
-    esegue prima `app/notifications/__init__.py`, che importa il limitatore e quindi
-    **SQLAlchemy**. Al livello del modulo la mappa pura si porterebbe dietro il
-    database per una funzione di dieci righe che non ne ha bisogno.
+    Fino alla fase 2G l'import era LOCALE, per non trascinare SQLAlchimia attraverso
+    `app/notifications/__init__.py` in un modulo puro. Adesso il parser vive in
+    `app/domain.py`, che non importa niente: l'acrobazia non serve più, e il fatto che
+    non serva più è un piccolo segnale che il posto giusto era quello.
     """
-    from app.notifications.expiry import parse_expiry
-    return parse_expiry(value)
+    return domain.parse_expiry(value)
+
+
+def _parse_address(value: Any) -> str | None:
+    """L'indirizzo in forma CANONICA, o `None`. Diventa la colonna `inet`.
+
+    Si restituisce il TESTO canonico e non un oggetto: è ciò che il driver passa a
+    PostgreSQL, e la conversione la fa il tipo `inet` su un valore che
+    `domain.parse_address` ha già normalizzato. Nessuna grammatica di PostgreSQL
+    partecipa alla decisione se un testo sia un indirizzo.
+    """
+    found = domain.parse_address(value)
+    return None if found is None else found.text
 
 
 DERIVED["device"] = (("garanzia_date", "garanzia", _parse_expiry),
-                     ("supporto_date", "supporto", _parse_expiry))
+                     ("supporto_date", "supporto", _parse_expiry),
+                     ("ip_addr", "ip", _parse_address))
 
 #: Campi che generiamo noi e che non vengono dal documento: non finiscono mai in
 #: `extra` e non compaiono nel documento riassemblato. Un test pretende che ogni

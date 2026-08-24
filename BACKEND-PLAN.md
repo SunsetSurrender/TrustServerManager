@@ -5255,7 +5255,8 @@ una nuova sì.
 
 | # | cosa | dove | esito |
 |---|---|---|---|
-| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale. | dati | **APERTA, blocco al rilascio — ma non più la stessa voce aperta.** La 2F l'ha aggirata con un corpus derivato (`seed-dated`), la 2G ci ha aggiunto le presenze, la 2H non l'ha toccata. La **2I costruisce lo strumento**: `fixtures/qualification/notification-scenario.json`, 21 apparati di forma reale con l'atteso DICHIARATO caso per caso, e `test_qualification_pg.py` che percorre il cammino completo su PostgreSQL — proiezione, colonne derivate, selezione dei candidati, filtro sullo stato, composizione del digest, consegna, ritentativo, idempotenza. ⚠ Resta APERTA perché la voce chiede la qualificazione **prima del rilascio**, e il rilascio è la 2J: prima mancava lo strumento, ora manca l'esecuzione al rilascio. Dichiararla chiusa adesso sarebbe dichiarare fatta una cosa che non è stata fatta. §8.52.5 |
+| 14A | **Semantica e cammino applicativo delle notifiche.** Il seed di produzione non ha nessuna scadenza, quindi prima della 2F non esisteva modo di provare il worker su dati di forma reale. | dati | **RISOLTA dalla 2J.** La 2I aveva costruito lo strumento (`fixtures/qualification/notification-scenario.json`, 21 apparati con l'atteso DICHIARATO caso per caso); la 2J l'ha percorso sullo stack vero — fixture installata come seme di un ambiente proprio, data di riferimento 2026-09-01 iniettata, worker vero in un container, conversazione SMTP con un relay di prova: **14 dovute, 14 avvisate**, un solo digest ai due destinatari configurati, `Message-ID` presente, consegna `sent`, secondo giro `already_ran_today` senza doppioni, l'apparato con garanzia E supporto con due promemoria, la data illeggibile senza derivata, barra e Unicode intatti, e un SMTP guasto che lascia `pending` invece di dichiarare consegnato. §8.53 |
+| 14B | **Accettazione del relay SMTP di produzione.** Superare la prova con un relay controllato non dimostra il relay aziendale, la rete, né l'elenco dei destinatari. | operations | **APERTA, blocco al rilascio.** Si chiude con un invio di prova attraverso il relay **reale** verso un destinatario di prova **approvato**, usando `POST /api/notifications/test` (già limitato di proposito). Fino ad allora le notifiche di produzione restano **disattivate**. ⚠ Non servono dispositivi finti in produzione, e non si manda posta di qualificazione all'elenco completo dei destinatari. `deploy/RELEASE-MANIFEST.md` §6 |
 | 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend | **CARATTERISTICA DICHIARATA**, non debito semantico. Riclassificata: nessun numero sullo schermo cambia e nessuna implementazione è in disaccordo con un'altra — è un costo di scrittura, quindi un fatto operativo (§8.46), non una discrepanza. Resta scritta qui perché questo registro è anche il posto dove si legge che cosa è stato guardato e archiviato. |
 | 16 | ⚠ **NUOVA, scoperta dalla 2G.** `rack.u` nel documento è un intero JSON senza massimo; la colonna della proiezione è `integer`. Un rack più alto di 2³¹ finisce in `extra` e la colonna resta NULL, quindi la capacità **dallo SQL** riporta quel rack senza altezza mentre il modello puro — che legge il documento — calcola sul valore vero. | backend | **RISOLTA — limite di dominio dichiarato e APPLICATO.** `rack.u` deve stare nell'intervallo intero positivo che la proiezione sostiene: `domain.RACK_U_MIN..RACK_U_MAX`, cioè `1..2147483647`. Un valore fuori viene RIFIUTATO dalla convalida normale del documento, prima di persistere, col codice stabile `rack_u_out_of_range`. Non si passa a `bigint`: sarebbe cambiare il tipo di una colonna — quindi versione della mappa e ricostruzione — per un dato che l'interfaccia non produce e che nel browser esaurisce la memoria della scheda. Il limite non DIVERGE più dal comportamento: dove due letture davano due numeri, ora il documento non entra. §8.51.1 |
 
@@ -6682,6 +6683,297 @@ momento sbagliato avrebbe reso rosso lo strato 1 e registrato un'intercettazione
 Non ha provisionato nessuna macchina, non ha copiato nessun segreto su nessun host, non
 ha inizializzato nessun database di produzione, non ha aperto nessun invio SMTP reale,
 non ha distribuito niente. La fase 2I finisce con artefatti e test; il rilascio è la 2J.
+
+### 8.53 Fase 2J — la qualificazione, e le cose che solo l'esecuzione dice
+
+La 2I ha costruito la baseline e l'ha provata in una camera bianca. La camera bianca
+però usava `compose.storage-dev.yaml`, perché la macchina di sviluppo non ha un
+secondo disco — cioè provava *quasi* la produzione. La 2J toglie quel «quasi»: un
+host con systemd, un filesystem ext4 dedicato montato da `fstab` su `/srv/tsm-data`,
+`compose.yaml` e nient'altro, le immagini costruite da `git archive` del commit, e
+l'hostname `tsm-prd-01`.
+
+Il risultato, in una riga: **software qualificato, restano sette cancelli
+operativi** (`deploy/RELEASE-MANIFEST.md`). Ma la parte che vale scrivere qui non è
+il verdetto — sono i sei difetti che nessuna suite aveva mai visto, e le tre volte in
+cui il test si è rivelato sbagliato mentre il prodotto aveva ragione.
+
+#### 8.53.1 L'identità del rilascio, e perché il commit da solo non basta
+
+«Abbiamo provato la versione di venerdì» non è una frase verificabile. Il requisito
+lo dice in una riga — *«Do not certify "latest". Certify exact hashes»* — e
+`tools/release-identity.py` la rende eseguibile.
+
+Il primo atto della fase è stato leggere i digest delle tre immagini di base, e ha
+trovato subito un difetto: **`nginx` era pinnata per TAG.** `backend/Dockerfile`
+pinna python per digest e ne scrive anche la ragione — «in rete chiusa un build non
+riproducibile significa non poter ricostruire la versione che funzionava» —
+`compose.yaml` pinna postgres per digest, e `web/Dockerfile` no. Non era una svista
+formale: `docker pull nginx:1.27-alpine` su una macchina che aveva già costruito
+tsm-web ha risposto «Downloaded newer image». Lo stesso commit costruiva due immagini
+diverse in due giorni diversi.
+
+Poi è arrivata la domanda più interessante: **su che cosa si calcola un digest
+dell'albero?** Sui file su disco, la prima risposta. Sbagliata: il repository si
+modifica su Windows e si esegue su Linux, `core.autocrlf` è attivo, e
+`.gitattributes` impone LF a `.sh`, `.service`, `.conf` e `Dockerfile` — non a `.py`,
+`.json`, `.js`, `.css`, `.html`. **39 dei 117 file del rilascio differiscono fra
+copia di lavoro e commit, per il solo `\r`.** Un digest calcolato sul disco vale
+soltanto sulla macchina che l'ha stampato, presentato come se valesse per tutti.
+
+Da qui due decisioni che si tengono per mano:
+
+  * il digest si calcola sui **blob del commit**, quindi è uguale su ogni
+    piattaforma ed è ciò che un host riceve;
+  * le immagini del rilascio si costruiscono **su Linux da `git archive`**, non
+    dalla copia di lavoro. Un'immagine costruita su Windows contiene i CRLF e non è
+    quella che il commit produce. Entrambe funzionano; solo una è qualificata.
+
+E una terza, che risolve un problema pratico che il requisito solleva senza
+risolverlo. §4 dice che se cambia il codice cambia l'identità e la qualificazione va
+rifatta. Ma dopo la qualificazione si scrive documentazione, e ogni riga muove il
+commit: se l'identità fosse solo il commit, ogni frase aggiunta al manifesto
+invaliderebbe formalmente la qualificazione che il manifesto descrive. La
+conseguenza pratica sarebbe peggiore dell'imprecisione — si smetterebbe di guardare
+quel numero. Quindi si distinguono: **il commit dice DA DOVE viene il rilascio,
+l'albero del rilascio dice CHE COSA verrebbe installato.** Un commit che tocca solo
+`tools/`, `backend/tests/` o un `.md` lascia il secondo identico, e la frase «la
+documentazione aggiunta dopo non cambia ciò che è stato qualificato» diventa una cosa
+che si verifica invece di una cosa che si promette.
+
+#### 8.53.2 Le intestazioni di sicurezza che il file dichiarava e la risposta non portava
+
+Il difetto più istruttivo della fase, e si vede solo chiedendo.
+
+`web/nginx.conf` dichiara quattro intestazioni nel blocco `server`: HSTS,
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
+no-referrer`. Un'ispezione statica del file le trova tutte e quattro. Chiedendole al
+server:
+
+    /                                  nosniff, HSTS, DENY, no-referrer
+    /domain.js                         nosniff, HSTS, DENY, no-referrer
+    /api/health                        nosniff, HSTS, DENY, no-referrer
+    /vendor/react.production.min.js    NESSUNA
+    /fonts/PublicSans-400.woff2        NESSUNA
+
+In nginx `add_header` **non si somma fra livelli**: una sola direttiva dentro un
+`location` SCARTA tutte quelle ereditate dal blocco `server`, e `always` non cambia
+questa regola — cambia solo il comportamento sulle risposte di errore. I due
+`location` dei file versionati avevano un `add_header Cache-Control "public,
+immutable"`, e quella riga portava via tutto il resto.
+
+Mancava `nosniff` **esattamente sul JavaScript vendorizzato**, cioè dove serve: il
+MIME sniffing di una risposta script è il caso classico che quell'intestazione esiste
+per chiudere.
+
+La correzione non ripete le quattro intestazioni nei due blocchi: **toglie
+l'`add_header` che rompeva l'ereditarietà.** `expires 30d` emette già
+`Cache-Control: max-age=2592000` da solo senza toccarla, quindi si perde soltanto
+`immutable` — una richiesta condizionale ogni trenta giorni per una manciata di file
+su una rete chiusa. Ripeterle a mano avrebbe funzionato ma avrebbe fatto divergere
+produzione e sviluppo su HSTS, che in sviluppo non deve esserci (§8.31): togliere la
+causa le tiene identiche, e `tools/sync-nginx-dev.py --check` lo conferma.
+
+#### 8.53.3 Il worker perdeva la sua unicità a ogni riavvio del database
+
+`acquire_singleton` prende un lock consultivo di **sessione** e il commento accanto
+dice, giustamente, che «lo impedisce nel posto in cui i due worker si incontrano
+davvero, cioè il database». Il lock si prendeva una volta all'avvio e non si
+guardava più.
+
+Ma un lock di sessione vive quanto la sessione, e la sessione muore ogni volta che
+PostgreSQL riparte — un riavvio del contenitore, un aggiornamento, un OOM killer. Il
+worker però continuava a girare, perché i suoi giri usano il pool (con
+`pool_pre_ping`, che riconnette) e non quella connessione. Misurato
+sull'installazione, non dedotto:
+
+    lock consultivi                 1
+    docker compose restart db
+    lock consultivi                 0
+    worker                          Up (healthy)
+    battito                         running | notifications_disabled
+    log del worker                  niente
+    un secondo `worker.py`          PARTE, invece di uscire con 3
+
+La conseguenza **non** era la posta doppia: `claim_run` è un `INSERT` sulla chiave
+primaria della data e regge comunque la corsa fra due giri — c'è un test che lo
+prova. La conseguenza era la perdita **silenziosa** della garanzia dichiarata, che è
+la proprietà peggiore che un meccanismo di sicurezza possa avere: assente e
+indistinguibile da presente.
+
+Ora l'esclusività si riafferma prima di ogni giro. `holds_singleton` chiede a
+`pg_locks` se **questa** sessione tiene **quella** chiave — «nostro», non «di
+qualcuno»: una query che chiedesse solo se il lock esiste risponderebbe sì anche
+quando è di un altro processo, cioè sarebbe cieca proprio nel caso per cui il
+controllo esiste. `reassert_singleton` lo riprende su una connessione nuova se era
+libero, e **rinuncia** se è di un altro: strapparlo lascerebbe due processi convinti
+entrambi di essere l'unico. Costa una query ogni 300 secondi, e la finestra di
+esclusività passa da «per sempre» a «un giro».
+
+Verificato sull'installazione: lock a 1, riavvio del database, lock a 0, **ripreso
+dopo 216 s dallo stesso processo** (non riavviato), e un secondo worker respinto con
+«un altro worker delle notifiche è già attivo».
+
+#### 8.53.4 Un backup che nessuno aveva mai ripristinato
+
+L'istantanea del volume dei dati si prendeva a servizio fermo e filesystem smontato,
+e sembrava perfetta: dimensione giusta, digest stampato, servizio ripartito senza un
+errore. Al primo ripristino PostgreSQL è uscito con **`PANIC: could not locate a
+valid checkpoint record`**.
+
+Fermare il servizio e smontare non basta quando il disco è un file con un device di
+loop. `umount` scarica il filesystem sul **device**; la scrittura del device verso il
+file sottostante è un'altra cosa, e `cp` legge il file. L'immagine copiata in quel
+momento è a metà.
+
+Lo stesso errore, dall'altro lato, ha prodotto un secondo sintomo peggiore: al
+ripristino il loop era ancora attaccato al file, il kernel al rimontaggio ha servito
+la vista **vecchia**, PostgreSQL è partito sui dati di prima e li ha riscritti sopra
+i byte appena ripristinati. Il ripristino sembrava riuscito e l'inventario era ancora
+alla versione di prima. Il controllo che avrebbe dovuto prenderlo diceva
+`[ a != b ] || [ a = b ]` — vero sempre: **un controllo che non può fallire
+dichiarava riuscito un ripristino che non era avvenuto.**
+
+Ora lo strumento stacca il loop, fa `sync`, verifica che la copia sia identica al
+volume, passa un `e2fsck -fn` sull'immagine, e al ripristino pretende che almeno una
+fra versione, utenze e audit sia **cambiata**. Su una VM vera il loop non esiste e la
+coerenza la dà il quiesce dell'ipervisore; il principio resta: **si prova il
+ripristino, non il backup.**
+
+La prova, alla fine: ripristinata l'istantanea, `must_change_pw` è tornato vero,
+l'audit è tornato indietro, **la provvisoria del bootstrap ha funzionato di nuovo** e
+la password cambiata dopo non ha più funzionato. È la dimostrazione più diretta che
+i dati sono quelli di prima.
+
+#### 8.53.5 Tre volte il test aveva torto e il prodotto ragione
+
+Vale scriverle perché il riflesso opposto — «il test è rosso, correggi il codice» —
+avrebbe peggiorato il prodotto in tutti e tre i casi.
+
+**Il disco non montato.** L'attesa scritta era «`systemctl start` fallisce». Invece
+riesce, e la verità è migliore: `RequiresMountsFor` non è solo un ordinamento, rende
+l'unità `.mount` una dipendenza **necessaria**, e systemd la **avvia** — monta il
+disco da sé e poi parte. Il codice 20 del preflight resta la seconda rete, per il
+caso in cui il mount non si possa soddisfare: provato spostando l'immagine del disco,
+e allora `systemctl start` fallisce, nessun container parte, e — la riga che conta —
+**nessuna directory viene creata su `/`**.
+
+**Il worker e la proiezione incoerente.** Il test storpiava il nome di un sito e
+pretendeva che il worker rifiutasse. Non rifiuta, e fa bene: la sua guardia è
+`validate_model`, che guarda il **modello**; un nome sbagliato è una perdita di
+**fedeltà**, e a quella serve il confronto col digest che fa il `GET`. Quello che il
+worker deve prendere è una colonna **derivata** che non corrisponde al testo da cui
+deriva — `DERIVED_MISMATCH`, gravità ERROR — perché una data derivata sbagliata
+lascia documento e digest identici e manderebbe un promemoria alla data sbagliata.
+Riscritta così, l'iniezione viene rifiutata.
+
+E per arrivarci sono servite altre due condizioni che il primo tentativo non aveva:
+le notifiche **accese** (a notifiche spente `run_once` esce prima di guardare il
+modello) e il giro di oggi **non ancora fatto** (`claim_run` risponde
+`already_ran_today` e non arriva alla validazione). Un controllo che passa senza aver
+provato niente è peggio di un controllo assente.
+
+**La fixture installata con un `PUT`.** L'API l'ha rifiutata con
+`identity_replacement`, e il rifiuto è corretto: sostituire l'intero documento cambia
+l'UID di ogni sala e di ogni rack, e la guardia sull'identità (§8.10) esiste per non
+lasciar passare uno scambio come se fosse una modifica. La fixture è un **seme**, non
+una modifica: si installa con `bootstrap.py --seed` come versione 1 di un ambiente
+suo, che è ciò che §26 della 2I intendeva con «un altro ambiente».
+
+#### 8.53.6 Le suite che nessuno eseguiva
+
+§32 chiede di eseguire **ogni** suite committata, non un sottoinsieme scelto. È il
+requisito che ha prodotto il ritrovamento più imbarazzante e più utile della fase.
+
+`tools/xlsx-roundtrip-test.py` serviva `handoff/` con un `http.server` locale ed
+entrava con `admin`/`admin`. Quella era la forma dell'applicazione **prima** che
+arrivasse l'autenticazione: il test risale al terzo commit del progetto, l'autenticazione
+al sesto. Da allora il login non passava, il pannello di accesso restava sopra la
+pagina, e il primo clic finiva su un `<div>` che intercettava gli eventi. Il test non
+arrivava a essere né rosso né verde, e **nessuna altra suite copre la semantica che
+protegge**: un giro export→import che azzera le altezze a 1 e riporta ogni stato ad
+«attivo» è perdita di dati su una funzione che viene distribuita.
+
+Portarlo allo stack vero ha richiesto tre correzioni, e la terza è la più
+interessante. Le prime due sono meccaniche: via il server locale, dentro le
+credenziali vere; e `dispatch_event` invece di `click()` sul pulsante «Editing»,
+perché la pianta della sala lo copre con un `<div>` — qui interessa l'handler, non la
+geometria. La terza è concettuale: il test cercava nell'inventario esistente quattro
+dispositivi con altezza predefinita e contava sulle «altezze non predefinite già
+presenti nei dati reali». Contro la **baseline di produzione** quella premessa non
+vale: la baseline ha 102 rack e **zero** dispositivi. Un test che dipende da quali
+dati capita di trovare prova una cosa diversa a ogni installazione — quindi adesso lo
+scenario **lo costruisce**, e vale su qualunque installazione, baseline vuota
+compresa, che è lo stato con cui il prodotto viene consegnato.
+
+⚠ E ha rivelato una cosa su se stesso: **scrive sul server.** «Applica import» non
+modifica soltanto la copia di lavoro del client — salva, e l'inventario passa alla
+versione successiva. Il commento diceva il contrario. Lo ha scoperto §9 della
+qualificazione, che ha visto lo stato non più iniziale e l'ha detto.
+
+#### 8.53.7 `grep -q` in fondo a una pipe, con `pipefail`
+
+Un difetto degli strumenti che vale conoscere una volta per tutte, perché produce
+falsi negativi *proprio quando la cosa cercata c'è*.
+
+Con `set -o pipefail` attivo, `cmd | grep -q PATTERN` riporta **fallimento** quando
+il pattern viene trovato: `grep -q` esce al primo riscontro e chiude la pipe, `cmd`
+muore di `SIGPIPE` con stato 141, e `pipefail` prende quello. Il controllo «il
+preflight è girato in questo avvio» diceva no su un journal che conteneva la riga
+cercata sei volte.
+
+Si cattura in una variabile e si confronta con `case`. Tre strumenti della fase ne
+erano affetti.
+
+Nella stessa famiglia, altri due inciampi degli strumenti, entrambi risolti
+guardando *che cosa* si sta misurando invece di *come*:
+
+  * l'orologio dell'host **non è monotono** fra un avvio e l'altro (a ogni avvio il
+    kernel lo riporta all'ora dell'RTC e poi la sincronizzazione lo riporta avanti),
+    quindi `journalctl --since <orario>` seleziona un insieme che non corrisponde a
+    niente. Si usa un **cursore**: è una posizione, cresce sempre, e non gli importa
+    che ora sia;
+  * `/proc/sys/kernel/random/boot_id` **non cambia** quando si riavvia una
+    distribuzione WSL, perché il kernel è condiviso: direbbe «stesso avvio» anche
+    dopo che systemd è stato rieseguito da zero e tutti i mount e i container sono
+    stati ricreati. Si guarda invece l'ora di avvio dei container rispetto alla
+    cattura precedente.
+
+E un accento che ha fatto perdere tempo tre volte: una stringa con lettere accentate
+attraversa la shell, `docker exec`, `psql` e il decoder di `subprocess`, e un
+confronto letterale falliva su valori conservati perfettamente. Si cerca la radice
+della parola, o un carattere non-ASCII qualunque quando la proprietà da provare è
+«l'Unicode è sopravvissuto».
+
+#### 8.53.8 Che cosa è stato misurato
+
+Le suite committate, **tutte**: 3246 test Python, 463 controlli statici, 560 + 45 +
+120 di contratto in JavaScript, 46 di smoke, 19 sul proxy, 31 sull'archiviazione con
+controprova, 12 offline con controllo negativo, 15 sul giro XLSX, e sei suite di
+browser (e2e 29, utenze 51, audit 24, impostazioni 40, foto 17, interrogazioni 67),
+più la camera bianca sulla baseline (47).
+
+Aggiunte dalla 2J: 112 controlli di qualificazione del rilascio, 73 iniezioni di
+guasto su dodici guasti, 34 di riavvio e riavvii controllati, 25 di funzionamento
+completo senza internet, 15 di backup e ripristino, 18 di notifica end-to-end.
+
+Misure a riposo: quattro container per **155 MiB** in tutto. `GET /api/inventory` 21
+ms mediani attraverso nginx e TLS, contro i 39 ms della 2D — più rapido perché la
+baseline non ha dispositivi. Bilancio delle connessioni: **36 richieste su 100
+disponibili**, con un lavoratore uvicorn.
+
+#### 8.53.9 Che cosa questa fase NON ha fatto
+
+Non ha distribuito niente. Nessuna VM di produzione predisposta, nessun segreto
+copiato su un host reale, nessun database di produzione inizializzato, nessun relay
+SMTP reale aperto.
+
+E non ha chiuso sette cancelli operativi, elencati in `deploy/RELEASE-MANIFEST.md`
+§8. Due di essi non sono tecnici e non lo diventeranno: la **conferma umana** di
+`Rack R09 — Test` e dell'ordine delle file in Saletta Nuova. Il generatore le ha
+segnalate proprio perché dai dati non si distinguono da un errore, e nessuna
+automazione ha il diritto di decidere che «Test» significa sviluppo — o che significa
+produzione.
 
 ## 9. Ordine di lavoro proposto
 

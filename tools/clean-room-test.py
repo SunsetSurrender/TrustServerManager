@@ -212,6 +212,13 @@ def esegui(page, base, args, provvisoria: str) -> None:
           "password_change_required" in json.dumps(esito["json"] or {}),
           f"corpo: {json.dumps(esito['json'])[:200]}")
 
+    # Il token della sessione RISTRETTA, preso prima del cambio: serve fra poco per
+    # provare che il cambio l'ha revocata. §8 della 2J lo chiede per nome («prove
+    # all old sessions invalidated»), e non è la stessa cosa che provare la
+    # provvisoria: chi ha rubato il cookie non ha bisogno della password.
+    cookie_prima = next((c["value"] for c in page.context.cookies()
+                         if c["name"] == "tsm_session"), None)
+
     # ==============================================================
     # 10-11. cambio password e accesso nuovo
     # ==============================================================
@@ -243,6 +250,25 @@ def esegui(page, base, args, provvisoria: str) -> None:
     """, provvisoria)
     check("la provvisoria NON funziona più dopo il cambio", esito != 200,
           f"HTTP {esito}")
+
+    # E il COOKIE di prima non deve più valere. Si prova in una scheda pulita, con
+    # quel solo cookie impostato a mano: usare la scheda corrente proverebbe che il
+    # cookie NUOVO funziona, che è un'altra affermazione.
+    if cookie_prima:
+        pagina2 = page.context.browser.new_context(ignore_https_errors=True)
+        pagina2.add_cookies([{"name": "tsm_session", "value": cookie_prima,
+                              "url": base}])
+        p2 = pagina2.new_page()
+        p2.goto(f"{base}/", wait_until="domcontentloaded")
+        stato = p2.evaluate("""
+          async () => (await fetch('/api/auth/me', {credentials: 'include'})).status
+        """)
+        check("il cookie di sessione di PRIMA del cambio è stato revocato",
+              stato in (401, 403), f"HTTP {stato}: la sessione vecchia vive ancora")
+        pagina2.close()
+    else:
+        check("il cookie di sessione di PRIMA del cambio è stato revocato", False,
+              "non ho trovato il cookie tsm_session prima del cambio")
 
     # ==============================================================
     # 12. l'inventario si carica, ed è la baseline
@@ -276,6 +302,18 @@ def esegui(page, base, args, provvisoria: str) -> None:
     intrusi = [x for x in NOMI_DI_SVILUPPO + SERIALI_DI_SVILUPPO if x in testo_doc]
     check("nessun dato del seed di sviluppo nel documento", not intrusi,
           f"trovati: {intrusi}")
+
+    # Nessuna FOTO: né riferimenti nel documento né byte serviti. §8 della 2J lo
+    # chiede accanto a «nessun dispositivo di prova», e per una ragione: una foto
+    # di sviluppo sopravvissuta sarebbe l'unico dato del vecchio ambiente ancora
+    # visibile a un operatore, e nessuna vista dell'inventario la mostrerebbe come
+    # anomala.
+    check("nessun riferimento a foto nel documento", '"foto"' not in testo_doc,
+          "il documento nomina una foto: la tabella photos nasce vuota")
+    esito_foto = page.evaluate(JS_GET, "/api/photos/00000000-0000-0000-0000-000000000000")
+    check("una foto qualunque non esiste (l'archivio è vuoto)",
+          esito_foto["status"] in (404, 400, 422),
+          f"HTTP {esito_foto['status']}")
 
     # I seriali degli ARMADI invece devono esserci: sono metadato di produzione, e
     # confonderli coi seriali dei dispositivi è l'errore contro cui §6 mette in

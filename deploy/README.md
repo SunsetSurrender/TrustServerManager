@@ -1229,3 +1229,128 @@ df -h /srv/tsm-data
 | 40 | `TSM_ENV=production` e cookie `Secure` |
 | 41 | `db` e `api` non pubblicano porte sull'host |
 | 42 | `pgdata` ancorato a `/srv/tsm-data/postgres`; radice di Docker fuori dal disco dati |
+
+---
+
+## 8. Qualificazione del rilascio (fase 2J)
+
+Il documento che dice **che cosa è stato qualificato e con quale esito** è
+`deploy/RELEASE-MANIFEST.md`. Questa sezione dice come si rifà.
+
+### 8.1 Identità del rilascio: si certificano i digest, non i nomi
+
+```bash
+python tools/release-identity.py            # tabella leggibile
+python tools/release-identity.py --check    # cancello: esce != 0 se qualcosa non torna
+```
+
+`--check` rifiuta un albero di lavoro sporco, una immagine di base pinnata per tag
+invece che per digest, un digest della baseline che non corrisponde all'artefatto, e
+una somma delle dipendenze vendorizzate che non torna. Sono le condizioni sotto le
+quali la frase «abbiamo qualificato questo» non è vera.
+
+Due numeri, e la differenza conta:
+
+* **l'albero del rilascio** è il digest dei soli file che finiscono su un host (117).
+  Si calcola sui **blob del commit**, quindi vale su qualunque piattaforma, e un
+  commit che tocca solo `tools/`, i test o un `.md` lo lascia identico. È il numero
+  da confrontare per sapere se ciò che si sta installando è ciò che è stato provato.
+* **l'Id delle immagini** identifica il binario, non la sorgente: due build della
+  stessa sorgente danno Id diversi. Si confronta, non si ricalcola.
+
+⚠ **Le immagini del rilascio si costruiscono su Linux da `git archive`, non dalla
+copia di lavoro Windows.** `core.autocrlf` è attivo e `.gitattributes` impone LF solo
+a `.sh`, `.service`, `.conf` e `Dockerfile`: 39 dei 117 file del rilascio hanno CRLF
+su una copia Windows e LF nel commit. Entrambe le immagini funzionano, ma solo una è
+quella qualificata.
+
+```bash
+git archive --format=tar -o /tmp/tsm.tar HEAD      # su una macchina con rete
+# sull'host di build Linux
+mkdir -p /opt/tsm && tar -xf /tmp/tsm.tar -C /opt/tsm
+cd /opt/tsm && chmod 0750 deploy/preflight.sh && docker compose build
+```
+
+### 8.2 Backup e ripristino: un backup che nessuno ha mai ripristinato non è un backup
+
+In produzione il backup della VM lo fa Veeam. Quello che Veeam non dice è se
+l'applicazione è integra **dopo** il ripristino, e la risposta si ottiene solo
+ripristinando:
+
+```bash
+sudo bash tools/backup-restore-test.sh --snapshot prima-aggiornamento
+# ... si fa la modifica ...
+sudo bash tools/backup-restore-test.sh --restore prima-aggiornamento
+```
+
+Il ripristino verifica: PostgreSQL parte senza errori di recupero, la storia
+dell'inventario è intatta, il digest della versione 1 è quello della baseline, la
+proiezione dichiara la stessa versione della testa, i riferimenti alle foto non sono
+orfani, lo stato del worker è coerente, la readiness è verde, `project.py --verify`
+esce 0, e nginx serve la pagina.
+
+⚠ **Un'istantanea presa senza staccare il device di loop è inutilizzabile**, e non
+lo sembra. Fermare il servizio e smontare il filesystem non basta: `umount` scarica
+il filesystem sul *device*, la scrittura del device verso il file sottostante è
+un'altra cosa, e `cp` legge il file. Un'istantanea presa in quel momento sembra
+perfetta — dimensione giusta, digest stampato, servizio ripartito senza un errore —
+e al ripristino PostgreSQL esce con `PANIC: could not locate a valid checkpoint
+record`. Lo strumento ora stacca il loop, fa `sync`, verifica che la copia sia
+identica al volume e passa un `e2fsck -fn` sull'immagine.
+
+Su una VM vera il disco non è un file con un loop e questo passo non esiste: la
+coerenza la dà il quiesce dell'ipervisore. Il principio resta: **si prova il
+ripristino, non il backup.**
+
+### 8.3 Che cosa fa un guasto: la matrice
+
+`tools/failure-injection-test.py` (DISTRUTTIVO) inietta dodici guasti uno per volta e
+per ognuno registra che cosa si osserva, se lo stato cambia, e come si rimedia. La
+matrice completa sta in `deploy/RELEASE-MANIFEST.md` §5. Le due righe che vale
+memorizzare:
+
+| se... | allora |
+|---|---|
+| `projection_not_current` | `project.py --rebuild`, subito: la storia è la verità, la proiezione è derivata |
+| `projection_inconsistent` | **prima** `--verify`, si guarda e si conserva la prova, **poi** `--rebuild` come recupero esplicito. Nessun percorso dell'applicazione può produrre questo stato, quindi la causa è fuori |
+
+### 8.4 Riavvio e riavvii controllati
+
+```bash
+sudo bash tools/reboot-restart-test.sh --capture
+sudo reboot
+sudo bash tools/reboot-restart-test.sh --verify
+sudo bash tools/reboot-restart-test.sh --restart-matrix
+```
+
+`--verify` pretende che il disco si sia montato da solo, che systemd abbia dedotto
+la dipendenza dal mount, che il preflight sia girato e abbia detto SUPERATO, che
+tutti e quattro i servizi siano healthy, che la readiness sia verde e che i dati
+siano **identici** a quelli catturati prima. Nessuna riparazione a mano.
+
+### 8.5 Notifiche: 14A è chiusa, 14B no
+
+```bash
+sudo bash tools/notification-qualification.sh --dir /opt/tsm --allow-destructive
+```
+
+⚠ **Rifà il disco dei dati**: costruisce un ambiente il cui inventario è la fixture
+di qualificazione. Va eseguito su un host di qualificazione, e alla fine si
+ripristina un'istantanea.
+
+Superarlo qualifica la **semantica e il cammino applicativo** delle notifiche (voce
+14A del registro). **Non** qualifica il relay aziendale, la rete, né l'elenco dei
+destinatari: quella è la 14B, e fino a quando non è chiusa **le notifiche di
+produzione restano disattivate**. La 14B si chiude con un invio di prova attraverso
+il relay reale verso un destinatario di prova approvato, usando
+`POST /api/notifications/test` — non servono dispositivi finti in produzione, e non
+si manda posta di qualificazione all'elenco completo.
+
+### 8.6 Segreti: la battuta finale, con canarini
+
+`tools/release-qualification.py --section 30` cerca la provvisoria del bootstrap, la
+password dell'amministratore e il contenuto dei tre secret montati nei log dei
+container, in ogni colonna di testo del database, nell'audit e negli artefatti
+generati. E cerca **anche due valori che devono esserci** — il nome
+dell'amministratore e il digest della baseline — perché una ricerca che non trova
+niente non distingue un database pulito da una scansione che non guarda niente.

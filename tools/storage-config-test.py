@@ -386,6 +386,24 @@ check("esiste .gitattributes che impone LF agli script",
 # fallirebbe nel proxy con un errore che non spiega niente — e solo per chi passa
 # dal proxy, cioè per tutti tranne chi prova dalla rete interna.
 nginx_conf = (ROOT / "web" / "nginx.conf").read_text(encoding="utf-8")
+
+
+def _nginx_blocchi_versionati(testo: str) -> list[str]:
+    """I corpi dei `location` di /vendor/ e /fonts/.
+
+    Servono a un controllo della 2J: un `add_header` dentro uno di questi due
+    blocchi SCARTA le quattro intestazioni di sicurezza ereditate dal blocco
+    `server`, e il file continua a dichiararle. E' il difetto che la
+    qualificazione ha trovato chiedendole al server invece di leggerle qui.
+    """
+    fuori = []
+    for marcatore in ("location ^~ /vendor/", "location ^~ /fonts/"):
+        i = testo.find(marcatore)
+        if i < 0:
+            continue
+        j = testo.find("}", i)
+        fuori.append(testo[i:j + 1] if j > i else testo[i:])
+    return fuori
 nginx_dev = (ROOT / "web" / "nginx.dev.conf").read_text(encoding="utf-8")
 check("nginx accetta un corpo abbastanza grande per una foto da 10 MB",
       "client_max_body_size 11m" in nginx_conf,
@@ -394,6 +412,23 @@ check("la configurazione di sviluppo ha lo STESSO limite di quella di produzione
       "client_max_body_size 11m" in nginx_dev,
       "le due configurazioni devono differire solo nei listener "
       "(tools/sync-nginx-dev.py)")
+
+def senza_apici(testo: str) -> str:
+    """Il testo senza nessun apice, singolo o doppio.
+
+    ⚠ Serve per confrontare frammenti di codice dopo `code_only`, e la ragione la
+    dice la docstring di `code_only` stessa: `ast.unparse` RICOSTRUISCE le
+    stringhe e ne normalizza le virgolette, quindi un `"limitatore"` nel sorgente
+    ricompare come `'limitatore'`. Undici controlli della sezione 19 sono nati
+    rossi esattamente per questo, cercando le doppie in un testo che ne aveva
+    solo di singole.
+
+    Togliendo gli apici da entrambi i lati del confronto la domanda torna a essere
+    quella che interessa — «questo nome compare nel codice?» — invece di «con
+    quali virgolette è scritto?».
+    """
+    return testo.replace('"', "").replace("'", "")
+
 
 def code_only(path) -> str:
     """Il sorgente Python senza commenti E senza docstring.
@@ -2539,17 +2574,28 @@ def _voci_registro():
     if inizio < 0:
         return []
     sezione = testo[inizio:fine if fine > 0 else len(testo)]
+    # ⚠ ALLARGATO di nuovo nella 2J: l'identificativo puo' avere una LETTERA.
+    # La voce 14 si e' divisa in 14A (semantica delle notifiche, chiusa) e 14B
+    # (accettazione del relay reale, aperta), perche' erano due cose diverse tenute
+    # insieme da un numero. Con `(\d+)` le due nuove righe non venivano lette
+    # affatto: il registro ne dichiarava sedici, il lettore ne trovava quindici, e
+    # una voce APERTA sarebbe potuta restare invisibile al controllo qui sotto —
+    # cioe' il caso esatto che questo lettore esiste per prendere.
     voci = []
     for riga in sezione.splitlines():
-        m = re.match(r"^\|\s*(\d+)\s*\|", riga)
+        m = re.match(r"^\|\s*(\d+[A-Z]?)\s*\|", riga)
         if m:
-            voci.append((int(m.group(1)), riga))
+            voci.append((m.group(1), riga))
     return voci
 
 
-#: Le voci che il requisito autorizza a restare aperte dopo la 2H. Una sola: il seed
-#: senza scadenze, che non e' una discrepanza semantica ma un dato che non c'e'.
-REGISTRO_APERTE_AMMESSE = {14}
+#: Le voci che il requisito autorizza a restare aperte. Una sola, ed e' 14B:
+#: l'accettazione del relay SMTP di produzione, che non e' una discrepanza semantica
+#: ma un cancello operativo — si chiude con un invio attraverso il relay reale, e
+#: nessun test puo' chiuderla al posto di chi lo fa (§8.53, RELEASE-MANIFEST §6).
+#: 14A e' stata chiusa dalla 2J.
+#: Gli identificativi sono STRINGHE perche' il registro ne ha con la lettera.
+REGISTRO_APERTE_AMMESSE = {"14B"}
 
 
 # ⚠ ROVESCIATO nella 2G: il rimando era «dopo aver risolto le incoerenze del
@@ -2591,6 +2637,222 @@ check("nessuna semantica delle scadenze e' stata riconciliata",
       "in dismissione" not in candidates_src and "level" not in candidates_src,
       "la sorgente del worker non conosce i livelli della vista: se li conoscesse, "
       "qualcuno avrebbe cominciato a fonderle")
+
+
+# ==================================================================
+# 19. fase 2J: la qualificazione del rilascio, e i suoi strumenti (§8.53)
+# ==================================================================
+#
+# Un controllo statico non puo' dire se la qualificazione e' passata: quello lo dice
+# l'esecuzione, su un host. Puo' dire se gli STRUMENTI che la eseguono sono ancora
+# capaci di fallire — che e' l'altra meta', e quella che si perde in silenzio. Un
+# cancello disattivabile togliendo una riga, senza che niente diventi rosso, non e'
+# un cancello.
+
+_ident = code_only(ROOT / "tools" / "release-identity.py")
+_qual = code_only(ROOT / "tools" / "release-qualification.py")
+_inie = code_only(ROOT / "tools" / "failure-injection-test.py")
+_riav = (ROOT / "tools" / "reboot-restart-test.sh").read_text(encoding="utf-8")
+_back = (ROOT / "tools" / "backup-restore-test.sh").read_text(encoding="utf-8")
+_notif = (ROOT / "tools" / "notification-qualification.sh").read_text(encoding="utf-8")
+_sink = code_only(ROOT / "tools" / "smtp-sink.py")
+
+# ------------------------------------------------------------------ identita'
+check("l'identita' del rilascio si calcola dai BLOB del commit, non dal disco",
+      "ls-tree" in _ident and "git blob ids at HEAD" in _ident,
+      "il repository si modifica su Windows e si esegue su Linux: un digest "
+      "calcolato sulla copia di lavoro vale solo sulla macchina che l'ha stampato")
+check("e dichiara quali file del disco divergono dal commit",
+      "worktree_differs" in _ident,
+      "sapere che un'immagine costruita qui NON e' quella del commit e' la meta' "
+      "utile dell'informazione")
+check("ogni immagine di base deve essere pinnata per DIGEST",
+      "@sha256:" in _ident and "pinnata per TAG" in _ident,
+      "un tag mobile fa costruire due immagini diverse dallo stesso commit")
+for _servizio in ("api", "web", "db"):
+    check(f"l'identita' del rilascio guarda l'immagine di base di '{_servizio}'",
+          f"({_servizio}, Path(" in senza_apici(_ident),
+          "un servizio non elencato non verrebbe mai controllato")
+check("l'albero del rilascio si deduce dalle righe COPY dei Dockerfile",
+      "sorgenti_copy" in _ident,
+      "un elenco scritto a mano si scorda proprio il file aggiunto ieri")
+
+# I tre digest delle basi, presi dai file veri: se uno torna a essere un tag, la
+# 2J non e' piu' ricostruibile.
+for _rel, _pat in (("backend/Dockerfile", "ARG PYTHON_IMAGE="),
+                   ("web/Dockerfile", "ARG NGINX_IMAGE=")):
+    _txt = (ROOT / _rel).read_text(encoding="utf-8")
+    _riga = next((l for l in _txt.splitlines() if l.startswith(_pat)), "")
+    check(f"{_rel}: l'immagine di base e' pinnata per digest",
+          "@sha256:" in _riga, _riga or "dichiarazione assente")
+check("compose.yaml: l'immagine di postgres e' pinnata per digest",
+      "postgres@sha256:" in (ROOT / "compose.yaml").read_text(encoding="utf-8"))
+
+# ------------------------------------------------------------------ produzione
+check("la qualificazione interroga la composizione RESA, senza passare -f",
+      "subprocess.run([docker, compose, *args]" in senza_apici(_qual)
+      and "Nessun `-f`" in (ROOT / "tools" / "release-qualification.py").read_text(encoding="utf-8"),
+      "passare i file a mano renderebbe il test cieco all'override aggiunto per "
+      "sbaglio, che e' il caso da prendere")
+check("i valori di produzione si ESTRAGGONO e si confrontano",
+      "re.findall" in _qual and "TSM_ENV|TSM_COOKIE_SECURE" in _qual,
+      "un pattern negativo su un'espressione che puo' backtrackare dice si' e no "
+      "per ragioni che non hanno a che vedere con quello che guarda")
+check("le intestazioni di sicurezza si chiedono al SERVER, non al file",
+      "strict-transport-security" in _qual and "x-content-type-options" in _qual
+      and "cli.request" in _qual,
+      "in nginx un `add_header` in un blocco interno scarta quelli ereditati: il "
+      "file continua a dichiararli e la risposta non li porta")
+check("e si chiedono su OGNI tipo di risposta, non solo sulla radice",
+      "/vendor/react.production.min.js" in _qual and "/fonts/" in _qual,
+      "il difetto trovato dalla 2J stava esattamente su quei due percorsi")
+check("nginx: i due blocchi dei file versionati non hanno add_header",
+      all("add_header" not in b for b in
+          _nginx_blocchi_versionati(nginx_conf)),
+      "un `add_header` la' dentro riporta via le quattro intestazioni di sicurezza")
+
+# ------------------------------------------------------------------ pool
+check("il bilancio delle connessioni si legge dai pool EFFETTIVI",
+      "p.size()" in _qual and "_max_overflow" in _qual,
+      "i due engine non passano pool_size: usano i default di SQLAlchemy, e un "
+      "aggiornamento di dipendenza potrebbe spostarli senza toccare il nostro codice")
+check("e si confronta con max_connections di PostgreSQL",
+      "max_connections" in _qual and "superuser_reserved_connections" in _qual)
+check("l'invariante anti-stallo e' verificata",
+      "cap_read >= cap_req" in _qual,
+      "ridurre il pool di lettura reintroduce lo stallo da acquisizione a due fasi")
+
+# ------------------------------------------------------------------ segreti
+check("la battuta sui segreti ha una CONTROPROVA",
+      "controprova" in _qual and "scansiona(" in _qual,
+      "una ricerca che non puo' trovare niente non distingue un database pulito "
+      "da una scansione che non guarda")
+check("e il canarino della password viene USATO prima di essere cercato",
+      "canarino come password" in _qual,
+      "cercare una stringa mai inviata non prova niente")
+check("i segreti cercati comprendono i secret montati",
+      "postgres_password" in _qual and "api_db_password" in _qual)
+
+# ------------------------------------------------------------------ iniezioni
+check("lo strumento distruttivo lo dichiara nel nome del file",
+      (ROOT / "tools" / "failure-injection-test.py").is_file(),
+      "chi legge un elenco deve sapere quale strumento lascia l'installazione da "
+      "rimettere in piedi")
+check("e pretende un consenso esplicito",
+      "--allow-destructive" in _inie and "required=True" in _inie)
+check("ogni iniezione DICHIARA l'attesa prima di eseguire",
+      _inie.count("caso(") >= 12,
+      "dedurre l'attesa dal comportamento osservato prova solo che il codice e' "
+      "coerente con se stesso")
+for _guasto in ("database", "limitatore", "proiezione-vecchia",
+                "proiezione-incoerente", "hash", "smtp", "secondo-worker",
+                "tls", "mount", "disco-assente", "spazio", "pool"):
+    check(f"la matrice dei guasti comprende «{_guasto}»",
+          f"{_guasto}:" in senza_apici(_inie),
+          "un guasto operativo non provato e' un 500 inspiegato che aspetta")
+check("nessun guasto previsto deve rispondere 500",
+      'g["status"] != 500' in _inie or "!= 500" in _inie,
+      "un 500 e' la risposta che non dice niente")
+check("la matrice registra osservabile, stato e RIMEDIO",
+      "riga_matrice(" in _inie and "rimedio:" in senza_apici(_inie),
+      "il rimedio e' l'unica delle tre che qualcuno usera' alle otto di sera")
+check("il worker si prova su una incoerenza del MODELLO, non della fedelta'",
+      "garanzia_date = DATE" in senza_apici(_inie)
+      and "DELETE FROM scheduler_runs" in senza_apici(_inie),
+      "la guardia del worker e' `validate_model`: un nome storpiato e' una perdita "
+      "di fedelta', e il worker fa bene a non accorgersene")
+check("e con le notifiche ACCESE",
+      "notifications,enabled" in _inie,
+      "a notifiche spente `run_once` esce prima di guardare il modello, e il "
+      "controllo passerebbe senza aver provato niente")
+
+# ------------------------------------------------------------------ riavvio
+check("il riavvio si verifica con un CURSORE del journal, non con un orario",
+      "--after-cursor" in _riav and "--show-cursor" in _riav,
+      "l'orologio dell'host non e' monotono fra un avvio e l'altro: un filtro "
+      "temporale seleziona un insieme che non corrisponde a niente")
+check("e NON usa boot_id per decidere se l'avvio e' nuovo",
+      "boot_id" in _riav and "NON si usa" in _riav,
+      "su una distribuzione WSL il kernel e' condiviso e il boot_id non cambia")
+check("il riavvio pretende che i dati siano IDENTICI",
+      "identico dopo il riavvio" in _riav)
+check("e che il preflight sia girato in quell'avvio",
+      "PREFLIGHT SUPERATO" in _riav)
+check("gli healthcheck si ASPETTANO, non si contano subito",
+      "tutti_sani" in _riav and "start_period" in _riav,
+      "contarli subito dopo un riavvio di PostgreSQL misura la fretta di chi "
+      "misura, non la salute del servizio")
+
+# ------------------------------------------------------------------ ripristino
+check("l'istantanea si prende a servizio fermo E con il loop staccato",
+      "losetup -d" in _back and "sync" in _back,
+      "un `umount` scarica il filesystem sul DEVICE; la scrittura del device verso "
+      "il file e' un'altra cosa, e `cp` legge il file")
+check("e si verifica che la copia sia identica al volume",
+      "copia identica al volume" in _back)
+check("e che il filesystem dell'istantanea sia coerente",
+      "e2fsck" in _back,
+      "un backup che nessuno ha mai ripristinato non e' un backup")
+check("il ripristino pretende che lo stato sia CAMBIATO",
+      "stato davvero sostituito" in _back,
+      "un controllo che non puo' fallire dichiarava riuscito un ripristino che non "
+      "era avvenuto")
+check("il ripristino verifica fedelta' e attualita' della proiezione",
+      "project.py --verify" in _back)
+
+# ------------------------------------------------------------------ notifiche
+check("la fixture di qualificazione si installa come SEME, non con un PUT",
+      "bootstrap.py --seed" in _notif and "identity_replacement" in _notif,
+      "scambiare l'intero documento cambia ogni UID, e la guardia sull'identita' "
+      "esiste per non lasciarlo passare come una modifica")
+check("la data di riferimento e' INIETTATA, non quella di sistema",
+      "now_utc=datetime(" in _notif and "RIFERIMENTO_ANNO" in _notif,
+      "§19 chiede una data di riferimento esplicita")
+check("l'atteso della fixture e' DICHIARATO, non dedotto",
+      "ATTESI_NOTIFICABILI=14" in _notif and "ATTESI_DISPOSITIVI=21" in _notif,
+      "dedurlo dall'esecuzione proverebbe solo che il codice e' coerente con se "
+      "stesso")
+check("il digest della fixture deve essere DIVERSO da quello della baseline",
+      "quello della baseline" in _notif and "BASELINE_SHA" in _notif,
+      "e' la barriera che tiene la fixture fuori dalla produzione")
+check("si prova che un secondo giro nello stesso giorno non spedisce",
+      "already_ran_today" in _notif)
+check("l'identita' di un promemoria comprende il TIPO di scadenza",
+      "expiry_kind, threshold_days" in _notif,
+      "ometterlo dichiara duplicato l'apparato che ha garanzia E supporto")
+
+# ------------------------------------------------------------------ relay finto
+check("il relay finto non annuncia STARTTLS",
+      "STARTTLS" in _sink and "454" in _sink,
+      "annunciare un'estensione che non si sa fare farebbe fallire il worker per "
+      "un motivo che con le notifiche non c'entra")
+check("e verifica di poter SCRIVERE prima di accettare connessioni",
+      "prova-di-scrittura" in _sink,
+      "un relay che dice si' e non conserva e' peggio di un relay che non parte")
+check("il relay finto sa rifiutare in modo TRANSITORIO",
+      "421" in _sink and "fail_first" in _sink,
+      "senza un 421 non si prova che il worker ritenta invece di dichiarare "
+      "consegnato")
+check("il relay finto non e' nell'immagine di produzione",
+      "smtp-sink.py" not in (ROOT / "web" / "Dockerfile").read_text(encoding="utf-8")
+      and "tools" in (ROOT / ".dockerignore").read_text(encoding="utf-8"))
+
+# ------------------------------------------------------------------ il manifesto
+_man = ROOT / "deploy" / "RELEASE-MANIFEST.md"
+check("il manifesto del rilascio esiste", _man.is_file(),
+      "§34 lo chiede: e' il documento che dice CHE COSA e' stato qualificato")
+if _man.is_file():
+    _mt = _man.read_text(encoding="utf-8")
+    for _voce in ("commit", "albero del rilascio", "baseline", "migrazioni",
+                  "mappa", "schemaVersion", "14A", "14B"):
+        check(f"il manifesto dichiara «{_voce}»", _voce in _mt)
+    check("il manifesto NON contiene segreti",
+          "$argon2id$" not in _mt
+          and not __import__("re").search(r"(?i)password[^\n]{0,20}[:=]\s*\S{8,}", _mt),
+          "§34: niente password, niente hash, niente segreti SMTP")
+    check("il manifesto dichiara i tre esiti possibili",
+          "SOFTWARE QUALIFICATO" in _mt or "software qualificato" in _mt.lower(),
+          "§35: non si riduce a PASS/FAIL")
 
 
 if __name__ == "__main__":

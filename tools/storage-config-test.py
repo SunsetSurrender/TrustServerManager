@@ -2662,10 +2662,14 @@ check("l'identita' del rilascio si calcola dai BLOB del commit, non dal disco",
       "ls-tree" in _ident and "git blob ids at HEAD" in _ident,
       "il repository si modifica su Windows e si esegue su Linux: un digest "
       "calcolato sulla copia di lavoro vale solo sulla macchina che l'ha stampato")
+# ⚠ Non basta che la parola compaia: deve comparire dove si PRODUCE e dove si
+# CONSUMA. Una mutazione che rinominava la chiave nel dizionario e lasciava intatto
+# il lettore e' SFUGGITA a un controllo scritto come «la parola c'e' da qualche
+# parte» — che e' vero anche quando il dato non arriva piu' a nessuno.
 check("e dichiara quali file del disco divergono dal commit",
-      "worktree_differs" in _ident,
-      "sapere che un'immagine costruita qui NON e' quella del commit e' la meta' "
-      "utile dell'informazione")
+      _ident.count("worktree_differs") >= 2,
+      f"trovata {_ident.count('worktree_differs')} volta: la chiave va scritta dal "
+      f"produttore e letta dal consumatore, altrimenti il dato si perde per strada")
 check("ogni immagine di base deve essere pinnata per DIGEST",
       "@sha256:" in _ident and "pinnata per TAG" in _ident,
       "un tag mobile fa costruire due immagini diverse dallo stesso commit")
@@ -2723,10 +2727,16 @@ check("l'invariante anti-stallo e' verificata",
       "ridurre il pool di lettura reintroduce lo stallo da acquisizione a due fasi")
 
 # ------------------------------------------------------------------ segreti
-check("la battuta sui segreti ha una CONTROPROVA",
-      "controprova" in _qual and "scansiona(" in _qual,
+# ⚠ La prima stesura cercava le PAROLE «controprova» e «scansiona(»: una mutazione
+# che sostituiva l'asserzione con `True` le lasciava entrambe al loro posto ed e'
+# SFUGGITA. Quello che va controllato e' che l'asserzione dipenda dal RISULTATO
+# della scansione.
+check("la battuta sui segreti ha una CONTROPROVA che puo' fallire",
+      "controprova" in _qual and "scansiona(" in _qual
+      and "bool(colpi)" in _qual,
       "una ricerca che non puo' trovare niente non distingue un database pulito "
-      "da una scansione che non guarda")
+      "da una scansione che non guarda; e una controprova che non puo' fallire non "
+      "e' una controprova")
 check("e il canarino della password viene USATO prima di essere cercato",
       "canarino come password" in _qual,
       "cercare una stringa mai inviata non prova niente")
@@ -2784,10 +2794,15 @@ check("gli healthcheck si ASPETTANO, non si contano subito",
       "misura, non la salute del servizio")
 
 # ------------------------------------------------------------------ ripristino
-check("l'istantanea si prende a servizio fermo E con il loop staccato",
-      "losetup -d" in _back and "sync" in _back,
-      "un `umount` scarica il filesystem sul DEVICE; la scrittura del device verso "
-      "il file e' un'altra cosa, e `cp` legge il file")
+# ⚠ Il loop va staccato in DUE cammini: quando si prende l'istantanea e quando si
+# ripristina. Un controllo su una sola occorrenza e' SFUGGITO a una mutazione che
+# lo togliva dal solo cammino dell'istantanea — quello che ha prodotto il «PANIC:
+# could not locate a valid checkpoint record».
+check("il loop si stacca in ENTRAMBI i cammini (istantanea e ripristino)",
+      _back.count("losetup -d") >= 2 and "sync" in _back,
+      f"trovato {_back.count('losetup -d')} volte: un `umount` scarica il "
+      f"filesystem sul DEVICE; la scrittura del device verso il file e' un'altra "
+      f"cosa, e `cp` legge il file")
 check("e si verifica che la copia sia identica al volume",
       "copia identica al volume" in _back)
 check("e che il filesystem dell'istantanea sia coerente",
@@ -2836,6 +2851,44 @@ check("il relay finto sa rifiutare in modo TRANSITORIO",
 check("il relay finto non e' nell'immagine di produzione",
       "smtp-sink.py" not in (ROOT / "web" / "Dockerfile").read_text(encoding="utf-8")
       and "tools" in (ROOT / ".dockerignore").read_text(encoding="utf-8"))
+
+# ------------------------------------------------------------------ codici sul filo
+#
+# ⚠ Perché i codici si appuntano come LETTERALI, e non basta che i test li usino.
+#
+# I test della baseline confrontano l'esito con la costante — `bl.BASELINE_HAS_DEVICES`
+# — che è la cosa giusta da fare in un test. Ma allora cambiare il VALORE della
+# costante è invisibile: il test confronta il codice con se stesso e resta verde. Una
+# mutazione che rinominava `"baseline_has_devices"` in `"baseline_ok_devices"` è
+# SFUGGITA a tutta la suite pura, e la ragione non è che i test siano scritti male.
+#
+# Un codice d'errore è un contratto verso l'esterno: finisce in un rapporto, in un
+# log, in una procedura operativa, e qualcuno lo cerca. Cambiarlo in silenzio rompe
+# chi lo cerca. Quindi almeno un posto deve pinnare la STRINGA, indipendentemente
+# dalla costante — e questo è quel posto.
+_baseline_src = code_only(ROOT / "backend" / "app" / "inventory" / "baseline.py")
+for _codice in ("baseline_digest_mismatch", "baseline_not_canonical",
+                "baseline_roundtrip_failed", "baseline_has_devices",
+                "baseline_has_photo_refs", "baseline_has_manual",
+                "baseline_not_a_document"):
+    check(f"il codice «{_codice}» è quello dichiarato",
+          _codice in _baseline_src,
+          "un codice d'errore è un contratto: chi lo cerca nei log non lo "
+          "troverebbe più")
+
+_cli_baseline = code_only(ROOT / "backend" / "scripts" / "production_baseline.py")
+for _codice in ("production_baseline_already_initialized",
+                "production_baseline_target_not_empty",
+                "production_baseline_insufficient_privilege",
+                "production_baseline_schema_mismatch",
+                "production_baseline_document_invalid",
+                "production_baseline_not_acknowledged",
+                "production_baseline_password_from_environment",
+                "production_baseline_unknown_environment"):
+    check(f"il codice «{_codice}» è quello dichiarato",
+          _codice in _cli_baseline,
+          "è il codice che un'automazione confronta per distinguere «manca il "
+          "disco» da «il database è già inizializzato»")
 
 # ------------------------------------------------------------------ il manifesto
 _man = ROOT / "deploy" / "RELEASE-MANIFEST.md"

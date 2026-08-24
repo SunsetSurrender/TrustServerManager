@@ -12,8 +12,26 @@
 #     dati da GET /api/inventory.
 #   - README.md, vendor/README.md, vendor/SHA256SUMS → documentazione interna
 #
+# Base pinnata per DIGEST, come backend/Dockerfile e come il servizio `db` in
+# compose.yaml. Questa era l'unica delle tre a essere pinnata per TAG, e la
+# differenza non e' formale: `1.27-alpine` e' un tag MOBILE, che Docker Hub
+# ripubblica a ogni 1.27.x e a ogni ricostruzione di alpine.
+#
+# ⚠ Non e' un pericolo teorico: la qualificazione della 2J ha fatto `docker pull
+# nginx:1.27-alpine` su una macchina che aveva gia' costruito tsm-web, e Docker ha
+# risposto «Downloaded newer image». Cioe' lo stesso commit di git costruiva due
+# immagini web diverse in due giorni diversi, e l'identita' del rilascio non era
+# ricostruibile dal repository — che e' esattamente la cosa che il commento di
+# backend/Dockerfile dichiara di non voler permettere («in rete chiusa un build non
+# riproducibile significa non poter ricostruire la versione che funzionava», §6).
+#
+# Aggiornare questo digest e' un atto deliberato e visibile in revisione, come per
+# le altre due basi. Per leggerlo:
+#     docker pull nginx:1.27-alpine
+#     docker image inspect nginx:1.27-alpine --format '{{index .RepoDigests 0}}'
+#
 # nginx:1.27-alpine
-ARG NGINX_IMAGE=nginx:1.27-alpine
+ARG NGINX_IMAGE=nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
 FROM ${NGINX_IMAGE}
 
 # Il contesto di build è la radice del repository (serve handoff/), quindi i

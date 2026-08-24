@@ -1,0 +1,340 @@
+{
+  "locations": [
+    {
+      "_uid": "99999999-0000-4000-8000-00000000000a",
+      "id": "qualificazione",
+      "nome": "QUALIFICAZIONE (dati di prova) — NON è produzione",
+      "sale": [
+        {
+          "_uid": "99999999-0000-4000-8000-00000000000b",
+          "area": "",
+          "dim": "",
+          "h": 4.99,
+          "id": "sala-a",
+          "nome": "Sala A — Backend",
+          "racks": [
+            {
+              "_uid": "99999999-0000-4000-8000-0000000000a1",
+              "devices": [
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000001",
+                  "garanzia": "2026-09-13",
+                  "h": 2,
+                  "id": "SRV-CORE-01",
+                  "name": "srv-core-01",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 1
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000002",
+                  "garanzia": "2026-10-01",
+                  "h": 1,
+                  "id": "SRV-CORE-02",
+                  "name": "srv-core-02",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 4
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000003",
+                  "garanzia": "2026-09-01",
+                  "h": 1,
+                  "id": "SRV-CORE-03",
+                  "name": "srv-core-03",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 7
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000010",
+                  "garanzia": "",
+                  "h": 1,
+                  "id": "SW-ACCESS-01",
+                  "name": "sw-access-01",
+                  "presenza": "presente",
+                  "stato": "manutenzione",
+                  "supporto": "2026-09-06",
+                  "u": 10
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000050",
+                  "garanzia": "2026-09-09",
+                  "h": 1,
+                  "id": "SRV-BOTH-01",
+                  "name": "srv-both-01",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "2026-09-26",
+                  "u": 13
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000051",
+                  "garanzia": "2026-09-10",
+                  "h": 1,
+                  "id": "SRV-BOTH-02",
+                  "name": "srv-both-02",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "2027-10-06",
+                  "u": 16
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000060",
+                  "garanzia": "2026-09-12",
+                  "h": 1,
+                  "id": "SRV-DUP",
+                  "name": "dup-in-sala-a",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 19
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-0000000000a2",
+                  "garanzia": "2026-09-05",
+                  "h": 1,
+                  "id": "SRV-INJECT-01",
+                  "name": "<b>srv-x</b>\r\nBcc: qualcuno@altrove.example",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 22
+                }
+              ],
+              "h": 1.0,
+              "id": "R01",
+              "name": "Rack R01 — Core",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 0.2,
+              "y": 0.2
+            },
+            {
+              "_uid": "99999999-0000-4000-8000-0000000000a2",
+              "devices": [
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000011",
+                  "garanzia": "2026-09-21",
+                  "h": 2,
+                  "id": "STG-OLD-01",
+                  "name": "stg-old-01",
+                  "presenza": "presente",
+                  "stato": "dismissione",
+                  "supporto": "",
+                  "u": 1
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000020",
+                  "garanzia": "2026-09-16",
+                  "h": 1,
+                  "id": "SRV-DISM-01",
+                  "name": "srv-dism-01",
+                  "presenza": "presente",
+                  "stato": "dismesso",
+                  "supporto": "",
+                  "u": 4
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000021",
+                  "garanzia": "2026-09-11",
+                  "h": 1,
+                  "id": "SRV-DISM-02",
+                  "name": "srv-dism-02",
+                  "presenza": "rimosso",
+                  "stato": "dismesso",
+                  "supporto": "",
+                  "u": 7
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000030",
+                  "garanzia": "2026-08-29",
+                  "h": 1,
+                  "id": "SRV-EXP-01",
+                  "name": "srv-exp-01",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 10
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000031",
+                  "garanzia": "2026-08-31",
+                  "h": 1,
+                  "id": "SRV-EXP-02",
+                  "name": "srv-exp-02",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 13
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000040",
+                  "garanzia": "2026-10-02",
+                  "h": 1,
+                  "id": "SRV-FAR-01",
+                  "name": "srv-far-01",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 16
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000041",
+                  "garanzia": "2027-03-20",
+                  "h": 1,
+                  "id": "SRV-FAR-02",
+                  "name": "srv-far-02",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "2027-09-01",
+                  "u": 19
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000090",
+                  "garanzia": "2026-09-07",
+                  "h": 1,
+                  "id": "SRV-MOVED-01",
+                  "name": "srv-moved-01",
+                  "presenza": "rimosso",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 22
+                }
+              ],
+              "h": 1.0,
+              "id": "R02",
+              "name": "Rack R02 — Storage",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 0.9,
+              "y": 0.2
+            },
+            {
+              "_uid": "99999999-0000-4000-8000-0000000000a3",
+              "devices": [
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000080",
+                  "garanzia": "2026-09-15",
+                  "h": 1,
+                  "id": "SRV-SLASH-01",
+                  "name": "srv-slash-01",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 1
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-0000000000a0",
+                  "garanzia": "",
+                  "h": 1,
+                  "id": "SRV-NODATE-01",
+                  "name": "srv-nodate-01",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 4
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-0000000000a1",
+                  "garanzia": "in attesa di conferma",
+                  "h": 1,
+                  "id": "SRV-BADDATE-01",
+                  "name": "srv-baddate-01",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "2026-13-45",
+                  "u": 7
+                }
+              ],
+              "h": 1.0,
+              "id": "RO4495",
+              "name": "Rack RO4495 / B — doppio",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 1.6,
+              "y": 0.2
+            }
+          ],
+          "segnaposto": false,
+          "vani": [
+            {
+              "h": 4.99,
+              "porta": {
+                "lato": "bottom",
+                "w": 0.84,
+                "x": 0.35
+              },
+              "w": 4.25,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "w": 4.25
+        },
+        {
+          "_uid": "99999999-0000-4000-8000-00000000000c",
+          "area": "",
+          "dim": "",
+          "h": 6,
+          "id": "sala-b",
+          "nome": "Sala Röntgen — 21 °C ✓",
+          "racks": [
+            {
+              "_uid": "99999999-0000-4000-8000-0000000000a4",
+              "devices": [
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000070",
+                  "garanzia": "2026-09-14",
+                  "h": 1,
+                  "id": "SRV-UNI-01",
+                  "model": "Modèle Ω-3000",
+                  "name": "srv-röntgen-01 — µ",
+                  "note": "在机架顶部",
+                  "owner": "Reparto Diagnostica — Dott.ssa Öztürk",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 1
+                },
+                {
+                  "_uid": "99999999-1000-4000-8000-000000000061",
+                  "garanzia": "2026-09-19",
+                  "h": 1,
+                  "id": "SRV-DUP",
+                  "name": "dup-in-sala-b",
+                  "presenza": "presente",
+                  "stato": "attivo",
+                  "supporto": "",
+                  "u": 4
+                }
+              ],
+              "h": 1.0,
+              "id": "UPS",
+              "name": "Armadio UPS",
+              "row": "A",
+              "seriali": [],
+              "u": 12,
+              "w": 0.6,
+              "x": 2.3,
+              "y": 0.2
+            }
+          ],
+          "segnaposto": false,
+          "vani": [],
+          "w": 9.2
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 1
+}

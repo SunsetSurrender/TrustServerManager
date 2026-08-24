@@ -5255,7 +5255,7 @@ una nuova sì.
 
 | # | cosa | dove | esito |
 |---|---|---|---|
-| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale. | dati | **APERTA, blocco al rilascio.** La 2F l'ha aggirata con un corpus derivato (`seed-dated`), la 2G ci ha aggiunto le presenze, la 2H non la tocca: un corpus costruito da me non è un dato reale. ⚠ Qualificazione richiesta prima del rilascio: popolare uno scenario di scadenze DETERMINISTICO e di forma reale, e percorrere il cammino completo degli avvisi su quello — non su un caso costruito per far passare un test. Vedi §7. |
+| 14 | Il **seed di produzione non ha nessuna scadenza**: 86 dispositivi, zero `garanzia` e zero `supporto`. Prima della 2F non esisteva nessun modo di provare il worker su dati di forma reale. | dati | **APERTA, blocco al rilascio — ma non più la stessa voce aperta.** La 2F l'ha aggirata con un corpus derivato (`seed-dated`), la 2G ci ha aggiunto le presenze, la 2H non l'ha toccata. La **2I costruisce lo strumento**: `fixtures/qualification/notification-scenario.json`, 21 apparati di forma reale con l'atteso DICHIARATO caso per caso, e `test_qualification_pg.py` che percorre il cammino completo su PostgreSQL — proiezione, colonne derivate, selezione dei candidati, filtro sullo stato, composizione del digest, consegna, ritentativo, idempotenza. ⚠ Resta APERTA perché la voce chiede la qualificazione **prima del rilascio**, e il rilascio è la 2J: prima mancava lo strumento, ora manca l'esecuzione al rilascio. Dichiararla chiusa adesso sarebbe dichiarare fatta una cosa che non è stata fatta. §8.52.5 |
 | 15 | La sincronizzazione della 2C cancella e reinserisce **ogni riga a ogni salvataggio**, quindi ogni scrittura grande apre qualche secondo di statistiche del pianificatore vecchie (§8.46). Invisibile alla scala di produzione. | backend | **CARATTERISTICA DICHIARATA**, non debito semantico. Riclassificata: nessun numero sullo schermo cambia e nessuna implementazione è in disaccordo con un'altra — è un costo di scrittura, quindi un fatto operativo (§8.46), non una discrepanza. Resta scritta qui perché questo registro è anche il posto dove si legge che cosa è stato guardato e archiviato. |
 | 16 | ⚠ **NUOVA, scoperta dalla 2G.** `rack.u` nel documento è un intero JSON senza massimo; la colonna della proiezione è `integer`. Un rack più alto di 2³¹ finisce in `extra` e la colonna resta NULL, quindi la capacità **dallo SQL** riporta quel rack senza altezza mentre il modello puro — che legge il documento — calcola sul valore vero. | backend | **RISOLTA — limite di dominio dichiarato e APPLICATO.** `rack.u` deve stare nell'intervallo intero positivo che la proiezione sostiene: `domain.RACK_U_MIN..RACK_U_MAX`, cioè `1..2147483647`. Un valore fuori viene RIFIUTATO dalla convalida normale del documento, prima di persistere, col codice stabile `rack_u_out_of_range`. Non si passa a `bigint`: sarebbe cambiare il tipo di una colonna — quindi versione della mappa e ricostruzione — per un dato che l'interfaccia non produce e che nel browser esaurisce la memoria della scheda. Il limite non DIVERGE più dal comportamento: dove due letture davano due numeri, ora il documento non entra. §8.51.1 |
 
@@ -5267,6 +5267,14 @@ soltanto scritto.
 Resta aperta **una** voce: la **14**, il seed senza scadenze, e resta un **blocco al
 rilascio**. Non è una discrepanza semantica — è la funzione più delicata del prodotto non
 ancora esercitata su dati che qualcuno ha scritto davvero.
+
+⚠ Aggiornamento dopo la **2I**: la voce 14 ha cambiato natura senza chiudersi. Lo
+scenario di qualificazione esiste, è deterministico, è di forma reale, e il cammino
+completo degli avvisi ci passa in automatico a ogni esecuzione della suite (§8.52.5).
+Quello che manca è percorrerlo **al rilascio**, sull'installazione vera, che è la 2J.
+La distinzione non è formale: uno scenario che gira in CI dimostra che il prodotto
+funziona su dati di quella forma; il rilascio dimostra che funziona su
+quell'installazione, con quel relay SMTP e quei destinatari.
 
 Nessuna incoerenza semantica visibile all'utente resta aperta. Se ne comparisse una,
 §14 del requisito della 2G la dichiara un blocco al rilascio, e il posto dove scriverla
@@ -6336,6 +6344,345 @@ strumento gira.** Il ripristino è `git checkout`, quindi una modifica non commi
 fatta nel frattempo viene cancellata; e se rompe un test, resta rotta per tutte le
 mutazioni successive.
 
+### 8.52 Fase 2I — la baseline di produzione, e i suoi rifiuti
+
+Che cosa produce la fase: un artefatto, un comando e una camera bianca. L'artefatto è
+lo stato da cui una installazione nuova comincia; il comando lo installa su un
+database vergine e si **rifiuta** su ogni altro; la camera bianca prova che
+l'applicazione, su quello stato, è usabile.
+
+⚠ Nessuna migrazione, nessun indice, nessun privilegio nuovo, nessuna rotta nuova. Una
+baseline è **dati**, non schema.
+
+#### 8.52.1 Perché non si ripulisce il database che c'è
+
+La forma ovvia era uno script di ripulitura:
+
+    DELETE FROM inventory_devices;
+    DELETE FROM audit;
+    ...
+
+ed è stata scartata per una ragione che vale la pena scrivere per intero: uno script
+così è **indistinguibile, nel momento in cui lo si lancia**, fra un ambiente di prova e
+un'installazione con sei mesi di lavoro dentro. La differenza sta nel database, non nel
+comando, e nel momento in cui si preme invio nessuno la sta guardando.
+
+Quindi la baseline si **costruisce** da un database vuoto, e su un database non vuoto
+il comando dice no. Il corollario operativo è che non esiste nessuna via di fuga per un
+bersaglio popolato: §16 del requisito la permetterebbe per un «ambiente di
+ricostruzione esplicitamente supportato», e non ne è stata aggiunta nessuna. Un
+database nuovo costa un comando; un consenso in più da ricordarsi di *non* dare costa
+un'installazione.
+
+#### 8.52.2 L'artefatto, e la classificazione dei campi
+
+`deploy/baseline/production-baseline.json` — 3 siti, 6 sale, 102 rack, **0
+dispositivi**, 42 602 byte, digest canonico
+`febafb7e8b9ceac5ef69ead1e66a5add7a62a79d1c8186935430754f8066a1b1`.
+
+È generato una volta da `tools/make-production-baseline.py`, guardato, e committato.
+**Non dipende dal seed a runtime** (§20 del requisito), e la ragione è la stessa di
+sempre: `fixtures/seed.json` è un file che qualcuno modifica per provare una cosa, e
+se l'installazione lo leggesse una prova di martedì diventerebbe la struttura di
+produzione di giovedì.
+
+Il file è in forma **canonica**, cioè è esattamente il documento che finisce nel
+database. Non è pedanteria: se fosse una forma equivalente ma diversa, il digest
+appuntato non apparterrebbe all'istantanea salvata, e rivedere il file non sarebbe
+rivedere ciò che si installa.
+
+⚠ **La classificazione dei campi strutturali (§3 del requisito) dà l'insieme vuoto**, e
+la cosa interessante è come lo si è stabilito. Un documento di entità è aperto di
+proposito — ciò che non ha una colonna viaggia in `extra` — e «non lo conosco» non è
+una decisione. Quindi il generatore confronta ogni chiave di ogni sito, sala e rack con
+`FIELD_MAP` della mappa relazionale, e su una chiave che non è né tipizzata né
+dichiarata da rimuovere **si ferma e chiede**. Oggi non ce ne sono; il valore del
+cancello è per il giorno in cui ce ne sarà una, e `test_un_campo_ignoto_FERMA_il_generatore`
+lo verifica dandogliene una.
+
+Due campi meritavano una decisione, e sono opposti:
+
+| campo | esito | perché |
+|---|---|---|
+| `rack.seriali` | **conservato** (18 numeri) | sono i numeri di inventario degli ARMADI, cespiti fisici con la targhetta. §6 del requisito mette in guardia esattamente su questo: toglierli perché «sembrano seriali di macchine» butterebbe via metadato di produzione vero |
+| `room.segnaposto` | **conservato** | non è un campo di prova: è una COLONNA tipizzata (`rooms.segnaposto`) e un default canonico, e dice che una planimetria è indicativa — l'applicazione ci disegna un banner |
+| `rack.foto` | **rimosso** (per regola; oggi nessuno) | la tabella `photos` di una installazione nuova è vuota, e `bootstrap` pretende che i riferimenti esistano: uno superstite farebbe fallire l'inizializzazione a metà |
+
+⚠ Il caso `foto` ha trovato un **difetto vero nel generatore**, e l'ha trovato un test
+scritto per un ramo che i dati di oggi non esercitano. `foto` è una colonna
+*tipizzata*, quindi stava sia in «conosciute» sia in «da rimuovere», e con le
+conosciute guardate per prime il ramo della rimozione non veniva mai raggiunto: un rack
+con una fotografia — funzione del prodotto, la scheda rack stampabile la mostra —
+l'avrebbe portata nella baseline. Le due categorie non sono disgiunte, e la più
+specifica va guardata prima.
+
+Il `manuale` è **assente**, e l'assenza è la forma canonica del manuale vuoto:
+`canonicalise` non lo inventa se manca, l'applicazione lo legge come
+`(S.data.manuale || [])`, e le voci integrate stanno nel codice del frontend. Scrivere
+`manuale: []` aggiungerebbe una chiave che la canonicalizzazione non produce, cioè un
+artefatto diverso dal documento che verrebbe salvato (§4 del requisito).
+
+#### 8.52.3 Il manifesto, e la domanda che nessun test può porre
+
+`deploy/baseline/MANIFEST.md` elenca ogni sito, ogni sala e ogni rack, con `_uid`,
+codice, fila, altezza e seriali. Serve a una domanda che nessuna asserzione può
+formulare: **questa è la struttura giusta?** Un sito di prova rimasto dentro passa
+qualunque validazione di schema; una sala vera dimenticata fuori pure.
+
+Il generatore aggiunge una sezione **«Da confermare»** con i nomi che contengono una
+parola tipica dei dati di prova (`test`, `prova`, `demo`, `finto`, …). Non rimuove
+niente — in un CED vero un rack che si chiama «Test» è spesso un rack vero, che ospita
+i sistemi di collaudo — ma mette quella riga davanti a chi conosce le sale. Oggi ce n'è
+**una**: `Rack R09 — Test`, nella sala Backend, in una serie R01…R09 coerente. Giudicato
+rack di collaudo reale, conservato, e segnalato perché la differenza fra quello e un
+rack di sviluppo rimasto dentro non la stabilisce un programma.
+
+#### 8.52.4 I sei cancelli, e quale dei sei prova qualcosa
+
+`backend/scripts/production_baseline.py`, fuori da HTTP come il bootstrap e per la
+stessa ragione moltiplicata: `tsm_api` non ha nemmeno il privilegio di inserire la riga
+di testa (§8.19).
+
+| cancello | verifica | codice di rifiuto |
+|---|---|---|
+| 0 schema | le tabelle attese esistono | `production_baseline_schema_mismatch` |
+| 1 documento | invarianti dello schema congelato + digest appuntato | `production_baseline_document_invalid` |
+| 2 privilegi | chi esegue è (membro del) proprietario dello schema | `production_baseline_insufficient_privilege` |
+| 3 migrazioni | la revisione applicata è quella attesa dal codice | `production_baseline_schema_mismatch` |
+| 4 ambiente | `TSM_ENV` è un valore riconosciuto | `production_baseline_unknown_environment` |
+| 5 stato | tabella per tabella: niente storia, niente utenze, niente dati | `production_baseline_already_initialized` / `..._target_not_empty` |
+| 6 consenso | `--allow-initialise`, dichiarato ogni volta | `production_baseline_not_acknowledged` |
+
+⚠ **Solo il cancello 5 prova qualcosa** (§17 del requisito). `TSM_ENV=test` non rende
+sacrificabile un database popolato e `TSM_ENV=production` non autorizza niente: una
+variabile d'ambiente si sbaglia, si eredita da una shell, si dimentica in un file. Gli
+altri cinque rendono difficile arrivarci per sbaglio; solo quello che GUARDA il
+database sa dire se il bersaglio è quello che si crede.
+
+⚠ Il cancello 0 esiste per un difetto trovato eseguendo il comando: la prima
+interrogazione su un database non migrato solleva `UndefinedTable`, che in PostgreSQL
+aborta la **transazione** e non solo se stessa — quindi ogni cancello successivo
+falliva a cascata e l'operatore riceveva una traccia di stack. Fallire chiuso non
+basta: deve fallire **dicendo cosa**.
+
+⚠ E due difetti della stessa famiglia sui PRIVILEGI, trovati dal test scritto per
+chiudere una mutazione sfuggita. Meritano entrambi di essere scritti, perché il
+sintomo era in entrambi i casi «una traccia di stack che parla della tabella
+sbagliata»:
+
+  1. `gate_schema` interrogava `information_schema.tables`, che è **filtrata dai
+     privilegi**: elenca solo le tabelle su cui chi interroga ha almeno un permesso.
+     Eseguito come `tsm_api` — che non ha nessun grant su `reminders`,
+     `scheduler_runs`, `worker_heartbeat`, `reminder_deliveries`, `maintenance_runs` —
+     il cancello dichiarava «5 tabelle attese assenti: applicare le migrazioni». Quel
+     messaggio è peggio dell'errore: manda un operatore a eseguire migrazioni già
+     applicate, mentre il problema vero è il ruolo. `pg_catalog.pg_class` non è
+     filtrato, e risponde alla domanda che questo cancello deve porre — «la tabella
+     esiste» — lasciando «chi può leggerla» al cancello successivo;
+
+  2. tutti i cancelli venivano **valutati** prima che uno solo venisse guardato, perché
+     erano argomenti di una lista. Quindi `gate_state` eseguiva le sue interrogazioni
+     anche dopo che i privilegi avevano detto no, e `SELECT count(*) FROM reminders`
+     come `tsm_api` solleva — abortendo la transazione, quindi a cascata. La
+     distinzione che mancava è concettuale: **schema e privilegi non sono altri due
+     cancelli, sono le condizioni per poter porre le altre domande.** Ora quei due si
+     valutano in ordine e si fermano al primo no; gli altri quattro restano valutati
+     tutti insieme, perché sono domande indipendenti e chi diagnostica ha bisogno di
+     sapere se ne ha una o quattro — lo stesso ragionamento di `project.py --verify`,
+     che stampa sempre entrambe le sue cause invece della prima.
+
+⚠ Nessuno dei due era visibile dalle suite prima del giro di mutazioni, e la ragione è
+istruttiva: il test che c'era accettava «un rifiuto qualsiasi» (`returncode != 0`),
+perché il ruolo di runtime poteva non avere una password in quel database. Con il
+cancello disattivato il rifiuto arrivava comunque — dalla connessione che non si
+apriva — e il test restava verde provando nient'altro che l'esistenza di un errore.
+
+Il cancello 2 non confronta con la stringa `tsm`: chiede al catalogo chi possiede
+`inventory_head` e verifica l'appartenenza con `pg_has_role`. Un confronto per nome
+passerebbe su un'installazione che ha chiamato il ruolo diversamente, e passerebbe per
+il motivo sbagliato.
+
+**La provvisoria.** Generata da CSPRNG (192 bit), solo hash Argon2id nel database,
+`must_change_pw` impostato, stampata **una volta** e in nessun altro posto. `--json` è
+ammesso soltanto con `--check`, e la ragione è verificabile a colpo d'occhio invece che
+per lettura del codice: il manifesto è la cosa che si redirige in un file, la
+provvisoria è la cosa che non deve finire in un file, e stanno su due comandi diversi.
+Il comando **non legge `TSM_BOOTSTRAP_PASSWORD`** e se la trova impostata **si ferma**:
+ignorarla sarebbe peggio, perché l'operatore andrebbe a cercare una password che non è
+stata usata e la troverebbe scritta da qualche parte a fare da esca.
+
+**L'audit.** Una riga, `bootstrap`, versione 1 — esattamente ciò che il contratto di
+bootstrap già scriveva. La creazione dell'amministratore non ne aggiunge una, e non è
+una dimenticanza: `bootstrap.py` si comporta allo stesso modo, e §13 del requisito
+chiede di restare coerenti col contratto esistente invece di inventarne un altro.
+
+**Le impostazioni** non si scrivono: le stabilisce la migrazione 0007
+(`notifications.enabled = false`, `recipients: []`, nessuna password SMTP nel
+database). Il comando le **verifica**, e se sono già state modificate rifiuta — perché
+un'installazione con le notifiche accese ha una storia.
+
+#### 8.52.5 La fixture di qualificazione, e le tre barriere
+
+`fixtures/qualification/notification-scenario.json` — 1 sito, 2 sale, 4 rack, **21
+apparati** con le scadenze, su una geometria copiata da quella vera (le misure della
+sala Backend, la porta, un armadio da 12 U, e una sala con `vani: []`).
+
+Copre ogni caso che §15 del requisito nomina — attivo in finestra, manutenzione con
+supporto, dismissione idonea, dismesso visibile e non notificabile, scaduto, fuori
+finestra, garanzia *e* supporto, id di business duplicato con `_uid` distinti, contesto
+Unicode, contesto con una barra, apparato fisicamente rimosso — più i casi che le fasi
+precedenti hanno reso interessanti: la data illeggibile, il nome con un CRLF, il bordo
+esatto della finestra, «scade oggi».
+
+⚠ **L'atteso è DICHIARATO, non dedotto.** Ogni caso porta `notifiable=N` scritto a mano
+leggendo il requisito, e i test confrontano quel numero con ciò che il dominio calcola.
+Dedurlo con la stessa funzione che si verifica dimostrerebbe che la funzione è
+d'accordo con se stessa. Ogni caso porta anche un `why`: un caso senza motivazione è un
+caso che nessuno può giudicare sbagliato.
+
+Le date si calcolano rispetto a una data di riferimento **esplicita**, mai
+`date.today()`: una fixture che legge l'orologio produce un documento diverso a ogni
+esecuzione, e allora un test rosso non si può riprodurre.
+
+**Non può diventare la baseline**, e la separazione non è affidata alla memoria di chi
+lancia un comando:
+
+1. il digest appuntato — `--init` accetta solo quel numero;
+2. il cancello «zero dispositivi» — qui ce ne sono 21;
+3. il nome del sito, `QUALIFICAZIONE (dati di prova) — NON è produzione`, che contiene
+   di proposito una parola che il generatore della baseline segnala.
+
+Tutte e tre verificate, più la prova sul comando vero (`--init` su questo documento
+esce 1 con `production_baseline_document_invalid` e non scrive niente) e la prova che
+gli `_uid` dei due documenti non si sovrappongono.
+
+⚠ **Un difetto della fixture, trovato dalla controprova di un test.** La prima stesura
+metteva ogni apparato allo slot `u: 1`: otto macchine nello stesso rack occupavano lo
+stesso slot, la capacità di ogni rack risultava 1 U, e lo scenario **non esercitava la
+capacità che diceva di esercitare**. L'ha preso l'asserzione che rende «presenti» i
+rimossi e pretende un totale più alto: il totale non cambiava. Una fixture di forma
+reale in cui tutto sta al primo slot non esercita né la capacità, né il blocco contiguo
+più ampio, né la sovrapposizione.
+
+#### 8.52.6 La camera bianca, e i due difetti che ha trovato
+
+`tools/run-clean-room-test.ps1` + `tools/clean-room-test.py`: la sequenza di §23 del
+requisito sullo stack VERO — Compose, nginx, TLS, l'immagine costruita, Chrome — da un
+database che non esiste a un operatore che salva la prima modifica. **44 controlli su
+44.**
+
+Prova ciò che nessuna suite può provare: che l'applicazione sia usabile su quello
+stato. E la baseline è il caso in cui il rischio è massimo, perché è lo stato che
+nessuno ha mai guardato — zero dispositivi, zero foto, zero scadenze, zero dismessi:
+ogni vista viene esercitata sul suo insieme vuoto per la prima volta.
+
+⚠ **`maintenance_runs` non è vuota su una installazione vera, e nessuna suite poteva
+saperlo.** Il worker è un servizio Compose: parte insieme a tutto il resto e la sua
+prima cosa è un giro di garbage collection delle foto. Su un database appena migrato
+quel giro trova zero foto, non cancella niente, e lascia una riga
+(`outcome=nothing_to_collect`) **prima** che qualcuno esegua la baseline. La prima
+stesura pretendeva la tabella vuota e diceva: «il bersaglio contiene dati: giri di
+manutenzione (1)» — un rifiuto giusto per una ragione sbagliata, **sul cammino
+normale**, cioè il tipo di cancello che insegna a scavalcare i cancelli.
+
+La correzione non allenta la richiesta di §14: la tabella si guarda nel **merito**. Un
+giro che ha esaminato zero foto e cancellato zero non è informazione su dei dati — non
+c'erano dati. Un giro che ha esaminato o cancellato qualcosa è la prova che delle foto
+sono esistite, cioè che questo database ha una storia, e allora si rifiuta. Due test
+nuovi, uno per verso: senza il primo il cancello torna a dire no sul cammino normale,
+senza il secondo diventa permissivo.
+
+⚠ **Il registro di una installazione nuova ha sei righe, e sono tutte sue.** Il test le
+pretende come insieme esatto invece di contarne due: `bootstrap`, l'accesso con la
+provvisoria, il cambio obbligatorio, il rientro, **il tentativo con la provvisoria
+scaduta** (registrato: il registro di sicurezza funziona dal primo minuto) e il
+salvataggio. Dice sia che non c'è niente di prima, sia che c'è tutto quello che è
+avvenuto.
+
+#### 8.52.7 Verifica
+
+| | |
+|---|---|
+| test Python | **3243** (da 3092 della 2H) |
+| controlli statici | **393** (da 346) |
+| contratto di dominio (JS) | 560 |
+| client delle interrogazioni (JS) | 45 |
+| identità (JS) | 120 |
+| camera bianca, nel browser | **44 / 44** |
+| viste interrogate, nel browser (2H) | 67 / 67 |
+| `project.py --verify` | fedeltà OK, attualità OK, mappa v2 |
+
+I 151 test nuovi si dividono così: 37 sull'artefatto (puri), 31 sulla fixture di
+qualificazione (puri), 58 sulla baseline su PostgreSQL, 25 sul cammino completo degli
+avvisi su PostgreSQL.
+
+⚠ **Tre difetti dei miei test, e vale la pena registrare il terzo.** `SET ROLE` senza
+`LOCAL` sopravvive alla transazione: `engine.begin()` chiude la transazione ma non la
+connessione, che torna nel pool ancora impersonando `tsm_api`, e il test successivo
+muore con «permission denied for table reminders» — un fallimento che parla di una
+tabella che non c'entra niente, in un test che non ha fatto nulla di sbagliato. Il
+controllo «la fixture non legge l'orologio» combaciava con la **propria prosa** (la
+docstring del generatore spiega perché `date.today()` non si usa, e quella spiegazione
+contiene la stringa cercata): è la stessa trappola della 2G, e la cura è togliere le
+docstring oltre ai commenti. E il test che cercava i nomi nel digest cercava il **codice
+di business** invece del nome — la versione negativa passava per il motivo sbagliato,
+perché il codice non compare mai nel corpo.
+
+#### 8.52.8 Le mutazioni, e le tre che sono sfuggite
+
+Ventiquattro mutazioni: ogni cancello guastato uno per volta, ogni invariante
+dell'artefatto disattivato, e i due generatori resi indulgenti. Su una fase il cui
+contenuto sono dei **no**, è l'unica verifica che conta: un cancello che dice sempre sì
+passa qualunque test scritto per il caso felice.
+
+Quattro strati, dal più economico al più costoso, e si ferma al primo rosso:
+
+    1. controlli statici                    ~2 s
+    2. test puri (artefatto + fixture)      ~3 s
+    3. suite baseline su PostgreSQL        ~25 s
+    4. qualificazione su PostgreSQL        ~20 s
+
+⚠ **Il primo giro ne ha fatte sfuggire TRE su ventiquattro**, ed è la parte del
+rapporto che vale più delle altre — è l'unica in cui lo strumento ha detto qualcosa che
+non sapevo.
+
+| sfuggita | che cosa significava |
+|---|---|
+| il giro relazionale non si verifica | nessun test provava che quel controllo serva: sul documento vero il giro torna sempre |
+| il cancello dei privilegi dice sempre sì | il test accettava «un rifiuto qualsiasi», e senza una password per `tsm_api` il rifiuto arrivava dalla connessione |
+| il cancello delle migrazioni dice sempre sì | nessun test aveva uno schema COMPLETO con una revisione sbagliata: quello che c'era usava uno schema vuoto, e il cancello 0 lo prende prima |
+
+La prima è la più interessante, perché la risposta non era «scrivere un test in più».
+Il controllo del giro relazionale è una **difesa in profondità**: la rappresentabilità e
+`validate_model` coprono i casi naturali, quindi non esiste un input plausibile che lo
+attivi — se esistesse, non sarebbe in profondità. Una difesa così si prova guastando ciò
+che verifica, non cercando un input: si fa restituire ad `assemble` un documento diverso
+e si pretende che il controllo lo veda. Prova la LOGICA del controllo, che è l'unica
+cosa di lui che si può provare.
+
+Le altre due hanno prodotto due difetti veri nel codice (§8.52.4), che è il caso
+migliore possibile: la mutazione non ha trovato un test debole, ha trovato un test
+debole *e* il difetto che quel test non vedeva.
+
+**Secondo giro: 24 mutazioni su 24 intercettate**, ognuna dallo strato che le compete.
+
+| strato | intercettate |
+|---|---|
+| test puri (artefatto + fixture) | 11 |
+| suite baseline su PostgreSQL | 11 |
+| controlli statici | 2 |
+
+⚠ Una nota di metodo, e non è la prima volta: **non si modifica niente mentre lo
+strumento gira** — e in questa fase «niente» include `BACKEND-PLAN.md`, perché i
+controlli statici leggono il registro del debito. Una modifica alla documentazione nel
+momento sbagliato avrebbe reso rosso lo strato 1 e registrato un'intercettazione falsa.
+
+#### 8.52.9 Che cosa questa fase NON ha fatto
+
+Non ha provisionato nessuna macchina, non ha copiato nessun segreto su nessun host, non
+ha inizializzato nessun database di produzione, non ha aperto nessun invio SMTP reale,
+non ha distribuito niente. La fase 2I finisce con artefatti e test; il rilascio è la 2J.
+
 ## 9. Ordine di lavoro proposto
 
 
@@ -6488,15 +6835,41 @@ mutazioni successive.
     revisione e il rilancio delle interrogazioni aperte, e una sala con `vani: []` —
     che è il default canonico — che faceva morire il render dell'intera applicazione.
 
-21. **Il buco dei dati di seed** (§8.48 voce 14, §7): il seed di produzione non ha
-    nessuna scadenza, quindi la funzione più delicata del prodotto non è mai stata
-    esercitata su dati che qualcuno ha scritto davvero. **Blocco al rilascio**, ed è
-    l'ULTIMA voce aperta del registro. La qualificazione richiesta: uno scenario di
-    scadenze deterministico e di forma reale, e il cammino completo degli avvisi
-    percorso su quello.
+21. ~~**Fase 2I — la baseline di produzione**: artefatto esplicito, comando che
+    rifiuta, camera bianca~~ ✔ **fatto** (§8.52) —
+    `deploy/baseline/production-baseline.json`, `deploy/baseline/MANIFEST.md`,
+    `backend/app/inventory/baseline.py`, `backend/scripts/production_baseline.py`,
+    `tools/make-production-baseline.py`, `tools/clean-room-test.py`,
+    `tools/run-clean-room-test.ps1`, `fixtures/qualification/`.
 
-22. **Rilascio**: purga dei dati di prova, baseline di produzione, deploy sulla VM.
-    Non iniziato, e dipende dal punto 21.
+    3 siti, 6 sale, 102 rack **vuoti**, digest appuntato, sei cancelli, e una
+    installazione nuova percorsa dal database inesistente al primo salvataggio di un
+    operatore: 44 controlli su 44 nel browser.
+
+    **Nessuna migrazione, nessun indice, nessun privilegio nuovo, nessuna rotta
+    nuova**: una baseline è dati, non schema.
+
+    ⚠ Un difetto che solo lo stack vero poteva mostrare: il worker parte insieme a
+    tutto il resto e lascia un giro di garbage collection a vuoto in
+    `maintenance_runs` PRIMA che qualcuno esegua la baseline. Pretendere quella
+    tabella vuota faceva dire no al cancello sul cammino normale.
+
+21-bis. **Il buco dei dati di seed** (§8.48 voce 14, §7): resta **APERTA** e resta un
+    **blocco al rilascio**, ma ha cambiato natura. Lo strumento c'è — lo scenario di
+    qualificazione è deterministico, di forma reale, con l'atteso dichiarato caso per
+    caso, e il cammino completo degli avvisi ci passa in automatico
+    (`test_qualification_pg.py`, 25 test). Quello che manca è **percorrerlo al
+    rilascio**, sull'installazione vera, con quel relay SMTP e quei destinatari.
+    Prima mancava lo strumento; ora manca l'esecuzione.
+
+22. **Fase 2J — rilascio**: provisioning della VM, secret sull'host, inizializzazione
+    del database di produzione con la baseline, qualificazione delle notifiche
+    sull'installazione vera, apertura dell'invio SMTP. Non iniziato.
+
+    ⚠ La purga dei dati di prova **non è più un punto di questo elenco**, ed è la
+    conseguenza più utile della 2I: non c'è niente da purgare, perché
+    l'installazione di produzione non nasce da un database di sviluppo ripulito ma da
+    un database vuoto più un artefatto revisionato.
 7. Aggancio frontend (gli 8 punti di §4) e sequenza di avvio autenticata (§8.1)
    → **da qui i dati sono durevoli**
 8. Coda di scrittura serializzata lato client (§8.2)

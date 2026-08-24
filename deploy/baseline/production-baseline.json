@@ -1,0 +1,1552 @@
+{
+  "locations": [
+    {
+      "_uid": "c731f700-b920-4deb-9886-6b1364bf57b4",
+      "id": "pomezia-g0",
+      "nome": "Pomezia — G0",
+      "sale": [
+        {
+          "_uid": "5dea9ef5-ea20-4087-af0c-e5d925b7641c",
+          "area": "21.18 m²",
+          "dim": "4.25 × 4.99 m",
+          "h": 4.99,
+          "id": "backend",
+          "nome": "Backend",
+          "racks": [
+            {
+              "_uid": "a227d36e-20d5-42b9-9aea-8fed156b9118",
+              "devices": [],
+              "h": 0.85,
+              "id": "R01",
+              "name": "Rack R01 — Core",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 0.05,
+              "y": 0.75
+            },
+            {
+              "_uid": "eafd9d2b-130c-4ec6-aa15-1647bdd98bc1",
+              "devices": [],
+              "h": 0.85,
+              "id": "R02",
+              "name": "Rack R02 — Database",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 0.05,
+              "y": 1.63
+            },
+            {
+              "_uid": "9103a283-6800-44c2-901f-31008f1d644c",
+              "devices": [],
+              "h": 0.85,
+              "id": "R03",
+              "name": "Rack R03 — Virtualizzazione",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 0.05,
+              "y": 2.51
+            },
+            {
+              "_uid": "416a84bb-78ba-40bb-adf7-9d34863ddb09",
+              "devices": [],
+              "h": 0.62,
+              "id": "UPS",
+              "name": "Armadio UPS",
+              "row": "A",
+              "seriali": [],
+              "u": 12,
+              "w": 0.8,
+              "x": 0.05,
+              "y": 3.55
+            },
+            {
+              "_uid": "6099c10e-e901-459e-afc2-3fd81512542a",
+              "devices": [],
+              "h": 0.6,
+              "id": "R04",
+              "name": "Rack R04 — Applicativi",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.6,
+              "y": 0.95
+            },
+            {
+              "_uid": "4a67331e-c865-4bdd-8e9b-674767d35cc1",
+              "devices": [],
+              "h": 0.6,
+              "id": "R05",
+              "name": "Rack R05 — Storage SAN",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.6,
+              "y": 1.605
+            },
+            {
+              "_uid": "7e24fcd1-75e0-4b95-ae21-c6c5283360d2",
+              "devices": [],
+              "h": 0.6,
+              "id": "R06",
+              "name": "Rack R06 — Backup",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.6,
+              "y": 2.26
+            },
+            {
+              "_uid": "95ac0cf6-b118-40b3-a658-d7238f34ac27",
+              "devices": [],
+              "h": 0.6,
+              "id": "R07",
+              "name": "Rack R07 — Kubernetes",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.6,
+              "y": 2.915
+            },
+            {
+              "_uid": "7bea8392-6fa2-44b7-9f65-65dae5c5ba5d",
+              "devices": [],
+              "h": 0.6,
+              "id": "R08",
+              "name": "Rack R08 — GPU",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.6,
+              "y": 3.57
+            },
+            {
+              "_uid": "02a57b83-7c5f-4288-abe2-fb114773eab1",
+              "devices": [],
+              "h": 0.6,
+              "id": "R09",
+              "name": "Rack R09 — Test",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.6,
+              "y": 4.225
+            }
+          ],
+          "segnaposto": false,
+          "vani": [
+            {
+              "h": 4.99,
+              "porta": {
+                "lato": "bottom",
+                "w": 0.84,
+                "x": 0.35
+              },
+              "w": 4.25,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "w": 4.25
+        },
+        {
+          "_uid": "f38e181b-77f6-434f-86ab-5cbe35e5b3d4",
+          "area": "13.85 m²",
+          "dim": "2.79 × 4.97 m",
+          "h": 4.97,
+          "id": "centro-stella",
+          "nome": "Centro Stella",
+          "racks": [
+            {
+              "_uid": "ae2300fc-4d95-487f-9179-bab477ef0288",
+              "devices": [],
+              "h": 0.55,
+              "id": "CS-R01",
+              "name": "Rack CS-R01",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 0.45,
+              "y": 0.8
+            },
+            {
+              "_uid": "c5e313fc-3142-445e-80f8-401c0be7e691",
+              "devices": [],
+              "h": 0.55,
+              "id": "CS-R02",
+              "name": "Rack CS-R02",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 0.45,
+              "y": 1.4
+            },
+            {
+              "_uid": "7c2f777b-b20c-4832-9492-1720635f9000",
+              "devices": [],
+              "h": 0.55,
+              "id": "CS-R03",
+              "name": "Rack CS-R03",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 0.45,
+              "y": 2
+            },
+            {
+              "_uid": "dcd8fbb4-fc4a-4287-8444-12e81aa8dfa6",
+              "devices": [],
+              "h": 0.55,
+              "id": "CS-R04",
+              "name": "Rack CS-R04",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 0.45,
+              "y": 2.6
+            },
+            {
+              "_uid": "56dbdba9-c67a-45c0-9d95-2b2c6ae68a6e",
+              "devices": [],
+              "h": 0.55,
+              "id": "CS-R05",
+              "name": "Rack CS-R05",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 0.45,
+              "y": 3.2
+            },
+            {
+              "_uid": "17e29058-451d-4b2b-91c3-6d6756fe869d",
+              "devices": [],
+              "h": 0.55,
+              "id": "CS-R06",
+              "name": "Rack CS-R06",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 1.1,
+              "y": 0.8
+            },
+            {
+              "_uid": "630cce3a-dfd6-4889-bb6c-2b77dfe7d0ab",
+              "devices": [],
+              "h": 0.42,
+              "id": "CS-Q01",
+              "name": "Quadro elettrico",
+              "row": "—",
+              "seriali": [],
+              "u": 6,
+              "w": 0.42,
+              "x": 2.15,
+              "y": 2.7
+            }
+          ],
+          "segnaposto": false,
+          "vani": [
+            {
+              "h": 4.97,
+              "porta": {
+                "lato": "bottom",
+                "w": 0.87,
+                "x": 1.77
+              },
+              "w": 2.79,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "w": 2.79
+        },
+        {
+          "_uid": "dffe39f3-5e30-4388-9295-4352b191a311",
+          "area": "36.63 m²",
+          "dim": "4.89 × 7.50 m",
+          "h": 7.5,
+          "id": "frontend",
+          "nome": "Frontend",
+          "racks": [
+            {
+              "_uid": "d0ba2dd9-456b-4e29-86ed-f869fd094ab3",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R01",
+              "name": "Rack FE-R01",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 0.3
+            },
+            {
+              "_uid": "dc7fae91-68e0-4dd5-bd6d-ce401b97d471",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R02",
+              "name": "Rack FE-R02",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 1
+            },
+            {
+              "_uid": "de672ad7-1cb5-4b04-aa5f-ce670802285b",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R03",
+              "name": "Rack FE-R03",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 1.7
+            },
+            {
+              "_uid": "6a7dfb5c-6d3c-4ac2-a059-8f028ebc5a10",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R04",
+              "name": "Rack FE-R04",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 2.3999999999999995
+            },
+            {
+              "_uid": "b0c4cb4a-f5b4-4749-994b-7b69ad707119",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R05",
+              "name": "Rack FE-R05",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 3.0999999999999996
+            },
+            {
+              "_uid": "678b450d-6d7c-49fb-9262-fbc9f0b779ed",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R06",
+              "name": "Rack FE-R06",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 3.8
+            },
+            {
+              "_uid": "4185346e-6579-44b2-8729-4d15891a4374",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R07",
+              "name": "Rack FE-R07",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 4.499999999999999
+            },
+            {
+              "_uid": "4f331a1d-b0ac-495d-8c17-5fd2997ce1e2",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R08",
+              "name": "Rack FE-R08",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 5.199999999999999
+            },
+            {
+              "_uid": "b5e98763-9f25-4cd8-8dcf-b6dfb99e1d4c",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R09",
+              "name": "Rack FE-R09",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 5.8999999999999995
+            },
+            {
+              "_uid": "e511d60a-791f-426b-b9ec-5513bc171b85",
+              "devices": [],
+              "h": 0.66,
+              "id": "FE-R10",
+              "name": "Rack FE-R10",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 1,
+              "y": 6.6
+            },
+            {
+              "_uid": "5ee1b7ee-1965-4798-b0d8-dd40fd45328e",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R11",
+              "name": "Rack FE-R11",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 0.8
+            },
+            {
+              "_uid": "b2929e83-f9a3-465f-a650-d4cb3c345888",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R12",
+              "name": "Rack FE-R12",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 1.35
+            },
+            {
+              "_uid": "068df71b-ee45-40aa-a2af-da649b9e76c2",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R13",
+              "name": "Rack FE-R13",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 1.9000000000000001
+            },
+            {
+              "_uid": "de865797-2c36-44de-8d2c-93e420808617",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R14",
+              "name": "Rack FE-R14",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 2.45
+            },
+            {
+              "_uid": "01ed30bc-56f7-4b60-bb7c-eeb326cd1854",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R15",
+              "name": "Rack FE-R15",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 3
+            },
+            {
+              "_uid": "dac72949-dde7-47c5-bb69-a28264517c44",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R16",
+              "name": "Rack FE-R16",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 3.55
+            },
+            {
+              "_uid": "b06f034e-b94b-4a8d-adce-5ab89f5fc7d3",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R17",
+              "name": "Rack FE-R17",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 4.1000000000000005
+            },
+            {
+              "_uid": "06ba0555-b886-46b6-8390-3de88165a051",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R18",
+              "name": "Rack FE-R18",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 4.65
+            },
+            {
+              "_uid": "617fa780-7c12-4032-af06-320c330db77a",
+              "devices": [],
+              "h": 0.53,
+              "id": "FE-R19",
+              "name": "Rack FE-R19",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.85,
+              "y": 5.2
+            },
+            {
+              "_uid": "465baa08-a0c9-43f5-8448-a3accefdf988",
+              "devices": [],
+              "h": 0.55,
+              "id": "FE-Q01",
+              "name": "Armadio tecnico",
+              "row": "—",
+              "seriali": [],
+              "u": 12,
+              "w": 0.8,
+              "x": 3,
+              "y": 0.05
+            }
+          ],
+          "segnaposto": false,
+          "vani": [
+            {
+              "h": 7.5,
+              "porta": {
+                "lato": "bottom",
+                "w": 0.9,
+                "x": 3.85
+              },
+              "w": 4.89,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "w": 4.89
+        },
+        {
+          "_uid": "9752009f-cf79-4d25-8e28-1295cdd8f7f3",
+          "area": "57.19 m² (2 vani)",
+          "dim": "4.23 × 3.65 m + 4.23 × 10.43 m",
+          "h": 14.2,
+          "id": "saletta-nuova",
+          "nome": "Saletta Nuova",
+          "racks": [
+            {
+              "_uid": "1d361c6f-22ad-45dd-bf6f-070c30b3a8d1",
+              "devices": [],
+              "h": 0.62,
+              "id": "SN-R01",
+              "name": "Rack SN-R01",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.55,
+              "y": 0.35
+            },
+            {
+              "_uid": "c01b89d5-27b4-4ccd-bfda-46257bef167c",
+              "devices": [],
+              "h": 0.62,
+              "id": "SN-R02",
+              "name": "Rack SN-R02",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.55,
+              "y": 1.15
+            },
+            {
+              "_uid": "0082b9fe-9f7b-452a-b473-5f57db4a930b",
+              "devices": [],
+              "h": 0.62,
+              "id": "SN-R03",
+              "name": "Rack SN-R03",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.55,
+              "y": 1.95
+            },
+            {
+              "_uid": "69b01ec3-bd99-427d-a297-1eb88ca19713",
+              "devices": [],
+              "h": 0.62,
+              "id": "SN-R04",
+              "name": "Rack SN-R04",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3.55,
+              "y": 2.75
+            },
+            {
+              "_uid": "46229a89-4089-4813-a9bb-86353b483ba2",
+              "devices": [],
+              "h": 0.62,
+              "id": "SN-R05",
+              "name": "Rack SN-R05",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 0.45,
+              "y": 1.3
+            },
+            {
+              "_uid": "6f44bf0a-cccc-4d9f-8916-027c102e977f",
+              "devices": [],
+              "h": 0.62,
+              "id": "SN-R06",
+              "name": "Rack SN-R06",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 0.45,
+              "y": 2.5
+            },
+            {
+              "_uid": "1b08a02e-98bf-4e96-be1f-f87c49709bf7",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R07",
+              "name": "Rack SN-R07",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 4.4
+            },
+            {
+              "_uid": "44113978-248c-4903-9a02-753ad3672929",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R08",
+              "name": "Rack SN-R08",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 5.0600000000000005
+            },
+            {
+              "_uid": "b63edf88-4a21-4d50-a6c9-669ca6ebc6eb",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R09",
+              "name": "Rack SN-R09",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 5.720000000000001
+            },
+            {
+              "_uid": "b101766b-b997-480c-a561-ff686ec99213",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R10",
+              "name": "Rack SN-R10",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 6.380000000000001
+            },
+            {
+              "_uid": "f4683b7e-b590-4469-8842-f0809e78f315",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R11",
+              "name": "Rack SN-R11",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 7.040000000000001
+            },
+            {
+              "_uid": "bbb9d525-e082-45e2-9ed1-81f0d059a2f6",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R12",
+              "name": "Rack SN-R12",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 7.700000000000001
+            },
+            {
+              "_uid": "a9fd761c-43ec-4c55-9ee2-60ae97ccfd15",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R13",
+              "name": "Rack SN-R13",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 8.36
+            },
+            {
+              "_uid": "0993ff79-4734-4368-8e49-4f2c5aee4954",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R14",
+              "name": "Rack SN-R14",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 9.02
+            },
+            {
+              "_uid": "01d09ae3-da5a-44c4-a3f0-704657c960f0",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R15",
+              "name": "Rack SN-R15",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 9.68
+            },
+            {
+              "_uid": "0e059487-7fbc-400d-aaad-2bf0568becd5",
+              "devices": [],
+              "h": 0.63,
+              "id": "SN-R16",
+              "name": "Rack SN-R16",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.68,
+              "x": 0.65,
+              "y": 10.34
+            },
+            {
+              "_uid": "758e65eb-68f2-43cc-a909-cd4dda85abea",
+              "devices": [],
+              "h": 0.6,
+              "id": "SN-R17",
+              "name": "Rack SN-R17",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.05,
+              "y": 4.4
+            },
+            {
+              "_uid": "52c9278a-b1b0-4f0e-abbe-6160c7cb9537",
+              "devices": [],
+              "h": 0.6,
+              "id": "SN-R18",
+              "name": "Rack SN-R18",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.05,
+              "y": 5.03
+            },
+            {
+              "_uid": "50f2ae96-e427-409d-a06a-f467c859f185",
+              "devices": [],
+              "h": 0.6,
+              "id": "SN-R19",
+              "name": "Rack SN-R19",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.05,
+              "y": 5.66
+            },
+            {
+              "_uid": "81bf7803-035a-496c-a5c4-8b038981b892",
+              "devices": [],
+              "h": 0.6,
+              "id": "SN-R20",
+              "name": "Rack SN-R20",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.05,
+              "y": 6.290000000000001
+            },
+            {
+              "_uid": "4a8d7a03-12b3-442f-ab0f-312b984904a0",
+              "devices": [],
+              "h": 0.6,
+              "id": "SN-R21",
+              "name": "Rack SN-R21",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.05,
+              "y": 6.92
+            },
+            {
+              "_uid": "106d7a9c-d11e-4372-a87d-f8a5d816dd37",
+              "devices": [],
+              "h": 0.6,
+              "id": "SN-R22",
+              "name": "Rack SN-R22",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 3.05,
+              "y": 7.550000000000001
+            },
+            {
+              "_uid": "f392c8ff-a277-46d6-825b-d923dd6d117d",
+              "devices": [],
+              "h": 0.62,
+              "id": "SN-R23",
+              "name": "Rack SN-R23",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.62,
+              "x": 0.7,
+              "y": 11.85
+            },
+            {
+              "_uid": "f9df157c-5d4c-4c70-a0bf-8ea89ea8fa7a",
+              "devices": [],
+              "h": 0.6,
+              "id": "SN-R24",
+              "name": "Rack SN-R24",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.6,
+              "x": 3,
+              "y": 11.85
+            }
+          ],
+          "segnaposto": false,
+          "vani": [
+            {
+              "h": 3.65,
+              "porta": {
+                "lato": "bottom",
+                "w": 0.9,
+                "x": 2.2
+              },
+              "w": 4.23,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 10.43,
+              "porta": {
+                "lato": "right",
+                "w": 0.96,
+                "y": 6.55
+              },
+              "w": 4.23,
+              "x": 0,
+              "y": 3.77
+            }
+          ],
+          "w": 4.23
+        }
+      ]
+    },
+    {
+      "_uid": "2e6ef8ca-bc00-45c7-8f45-105df2fca4a3",
+      "id": "pomezia-h0",
+      "nome": "Pomezia — H0",
+      "sale": [
+        {
+          "_uid": "ba5977a1-db44-4927-a9ba-bce366130605",
+          "area": "61.68 m²",
+          "dim": "7.58 × 8.18 m",
+          "h": 8.18,
+          "id": "h0",
+          "nome": "H0",
+          "racks": [
+            {
+              "_uid": "c168a897-960e-4b0f-84bc-cb35c3eda6d5",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R01",
+              "name": "Rack H0-R01",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 2.35
+            },
+            {
+              "_uid": "9218e12a-7ad8-49f5-ad79-fd16908c6760",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R02",
+              "name": "Rack H0-R02",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 3.0100000000000002
+            },
+            {
+              "_uid": "90fe4b68-d9e5-41b2-9b4b-b81be0965c4b",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R03",
+              "name": "Rack H0-R03",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 3.67
+            },
+            {
+              "_uid": "eda0cd3d-47d8-47c1-8d51-ce1bf063b2ef",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R04",
+              "name": "Rack H0-R04",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 4.33
+            },
+            {
+              "_uid": "ed23db2e-90e9-4dd7-aada-58c1b95c6205",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R05",
+              "name": "Rack H0-R05",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 4.99
+            },
+            {
+              "_uid": "de1515cd-c684-428d-8357-73943b317ffb",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R06",
+              "name": "Rack H0-R06",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 5.65
+            },
+            {
+              "_uid": "041b74ad-162b-4c4d-8481-61931010643e",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R07",
+              "name": "Rack H0-R07",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 6.3100000000000005
+            },
+            {
+              "_uid": "a61d75a8-9502-4837-8734-9b3b2c4fda15",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R08",
+              "name": "Rack H0-R08",
+              "row": "A",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 1.95,
+              "y": 6.970000000000001
+            },
+            {
+              "_uid": "98765e6e-aa2d-4064-a0f3-e3dbb2b7c244",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R09",
+              "name": "Rack H0-R09",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 2.35
+            },
+            {
+              "_uid": "f386f30a-b7a2-4b15-83d1-786e8442a06b",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R10",
+              "name": "Rack H0-R10",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 3.0100000000000002
+            },
+            {
+              "_uid": "ecf1a7b7-f05b-428f-9dac-ac1b14db82b2",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R11",
+              "name": "Rack H0-R11",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 3.67
+            },
+            {
+              "_uid": "6cda8bfa-bcc7-4066-bbc1-d8503ab83879",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R12",
+              "name": "Rack H0-R12",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 4.33
+            },
+            {
+              "_uid": "98439447-9ef5-4e21-9610-e6e566f20297",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R13",
+              "name": "Rack H0-R13",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 4.99
+            },
+            {
+              "_uid": "aff1a052-4419-4c8e-8953-544052a8167a",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R14",
+              "name": "Rack H0-R14",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 5.65
+            },
+            {
+              "_uid": "7c2549ee-8c30-4028-b4a7-4119d70fcd1e",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R15",
+              "name": "Rack H0-R15",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 6.3100000000000005
+            },
+            {
+              "_uid": "24c0808d-ba9e-495b-9ce3-406b1ab2703f",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R16",
+              "name": "Rack H0-R16",
+              "row": "B",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 3.75,
+              "y": 6.970000000000001
+            },
+            {
+              "_uid": "3d1f39b8-2342-4074-b624-99286f0280b4",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R17",
+              "name": "Rack H0-R17",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 2.35
+            },
+            {
+              "_uid": "09bc0b33-8d24-48c6-a3b1-d44eac548855",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R18",
+              "name": "Rack H0-R18",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 3.0100000000000002
+            },
+            {
+              "_uid": "e549f22d-34dd-494d-bae0-f3fe6729cb15",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R19",
+              "name": "Rack H0-R19",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 3.67
+            },
+            {
+              "_uid": "0d5171f1-0e4f-40ba-b7dc-daeafd0c65e9",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R20",
+              "name": "Rack H0-R20",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 4.33
+            },
+            {
+              "_uid": "052a7312-6733-47f3-b963-4c880045d376",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R21",
+              "name": "Rack H0-R21",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 4.99
+            },
+            {
+              "_uid": "90bcb041-caf9-4f95-9b3b-cabbaa41e883",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R22",
+              "name": "Rack H0-R22",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 5.65
+            },
+            {
+              "_uid": "40e7b14e-8207-45eb-b1e6-bddb19eb78da",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R23",
+              "name": "Rack H0-R23",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 6.3100000000000005
+            },
+            {
+              "_uid": "698b3bb3-7aac-4f8a-ad6a-95c841e450de",
+              "devices": [],
+              "h": 0.64,
+              "id": "H0-R24",
+              "name": "Rack H0-R24",
+              "row": "C",
+              "seriali": [],
+              "u": 45,
+              "w": 0.5,
+              "x": 5,
+              "y": 6.970000000000001
+            },
+            {
+              "_uid": "d5fe7f26-123f-450b-ad77-3589e9c2b3e3",
+              "devices": [],
+              "h": 1.9,
+              "id": "H0-Q01",
+              "name": "Armadio a muro",
+              "row": "—",
+              "seriali": [],
+              "u": 12,
+              "w": 0.45,
+              "x": 6.95,
+              "y": 2.3
+            }
+          ],
+          "segnaposto": false,
+          "vani": [
+            {
+              "h": 8.18,
+              "porta": {
+                "lato": "left",
+                "w": 0.8,
+                "y": 0.71
+              },
+              "porta2": {
+                "lato": "bottom",
+                "w": 3,
+                "x": 4.3
+              },
+              "w": 7.58,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "w": 7.58
+        }
+      ]
+    },
+    {
+      "_uid": "a9e8b864-01e0-41b3-85ea-a52b1fadc5b2",
+      "id": "oriolo-romano",
+      "nome": "Oriolo Romano",
+      "sale": [
+        {
+          "_uid": "84222257-5bb3-405d-bdf8-de4bf2f12e28",
+          "area": "55.20 m²",
+          "dim": "9.20 × 6.00 m",
+          "h": 6,
+          "id": "sala-oriolo",
+          "nome": "Sala Oriolo",
+          "racks": [
+            {
+              "_uid": "be71237a-7c62-4e37-b041-b93b5b196551",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-A01",
+              "name": "Rack RO-A01",
+              "row": "A",
+              "seriali": [
+                "2020047937"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 0.3,
+              "y": 0.15
+            },
+            {
+              "_uid": "6b9f9d3e-a9d0-4160-bab1-26d6ffd13223",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-A02",
+              "name": "Rack RO-A02",
+              "row": "A",
+              "seriali": [
+                "2020053938"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 0.9299999999999999,
+              "y": 0.15
+            },
+            {
+              "_uid": "a33fbb60-ad62-44ac-b9ad-d2b896c078c4",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-A03",
+              "name": "Rack RO-A03",
+              "row": "A",
+              "seriali": [
+                "2020044486"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 1.56,
+              "y": 0.15
+            },
+            {
+              "_uid": "2bee2b4f-7944-44aa-9425-6d6e3c80b6dc",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-A04",
+              "name": "Rack RO-A04",
+              "row": "A",
+              "seriali": [
+                "2020044485"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 2.19,
+              "y": 0.15
+            },
+            {
+              "_uid": "417ee265-cc29-48a7-9544-293c58afb260",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-A05",
+              "name": "Rack RO-A05",
+              "row": "A",
+              "seriali": [
+                "2006029486"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 2.82,
+              "y": 0.15
+            },
+            {
+              "_uid": "ac94bde5-5da7-48e5-bfd8-ba30a25975af",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO4066",
+              "name": "Rack RO4066",
+              "row": "A",
+              "seriali": [
+                "2006004084"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 3.4499999999999997,
+              "y": 0.15
+            },
+            {
+              "_uid": "ccde61e2-660d-4788-b7df-7821c784b2ad",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO4037",
+              "name": "Rack RO4037",
+              "row": "A",
+              "seriali": [
+                "2006004088"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 4.08,
+              "y": 0.15
+            },
+            {
+              "_uid": "abc9c98c-dfee-410b-bb45-1522de86956f",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO4067",
+              "name": "Rack RO4067",
+              "row": "A",
+              "seriali": [
+                "2006004090"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 4.71,
+              "y": 0.15
+            },
+            {
+              "_uid": "de294b33-cef3-42c1-9893-b9406c5a8ad3",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO4082",
+              "name": "Rack RO4082",
+              "row": "A",
+              "seriali": [
+                "2006004091"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 5.34,
+              "y": 0.15
+            },
+            {
+              "_uid": "53ae26cb-34f2-483a-bad3-18c63fe81b29",
+              "devices": [],
+              "h": 0.72,
+              "id": "R11024",
+              "name": "Rack R11024",
+              "row": "A",
+              "seriali": [
+                "2008034260"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 5.97,
+              "y": 0.15
+            },
+            {
+              "_uid": "16569078-1f6b-408e-a952-20c1492ef202",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-RETE",
+              "name": "Rack RO-RETE",
+              "row": "A",
+              "seriali": [
+                "2012170418"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 6.6,
+              "y": 0.15
+            },
+            {
+              "_uid": "20f424a8-967f-4f20-b125-c975ae7fac20",
+              "devices": [],
+              "h": 0.72,
+              "id": "R11115",
+              "name": "Rack R11115",
+              "row": "B",
+              "seriali": [
+                "2012170515"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 0.615,
+              "y": 5.1
+            },
+            {
+              "_uid": "120f775d-92ca-4eef-b3ac-c436986db397",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO4495",
+              "name": "Rack RO4495",
+              "row": "B",
+              "seriali": [
+                "2004126690",
+                "2020044487"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 1.245,
+              "y": 5.1
+            },
+            {
+              "_uid": "6742af57-e845-4b7f-bda6-f21868a015b2",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-B03",
+              "name": "Rack RO-B03",
+              "row": "B",
+              "seriali": [
+                "2020062936",
+                "2020062935"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 1.875,
+              "y": 5.1
+            },
+            {
+              "_uid": "c4119199-8dca-49a3-93f6-fee164c66392",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-B04",
+              "name": "Rack RO-B04",
+              "row": "B",
+              "seriali": [
+                "2006029736"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 5.655,
+              "y": 5.1
+            },
+            {
+              "_uid": "6c731e37-9f78-493e-baba-e5a81980a60b",
+              "devices": [],
+              "h": 0.72,
+              "id": "RO-B05",
+              "name": "Rack RO-B05",
+              "row": "B",
+              "seriali": [
+                "2006004089"
+              ],
+              "u": 45,
+              "w": 0.63,
+              "x": 6.285,
+              "y": 5.1
+            }
+          ],
+          "segnaposto": false,
+          "vani": [
+            {
+              "h": 6,
+              "porta": {
+                "lato": "left",
+                "w": 0.9,
+                "y": 4.9
+              },
+              "w": 9.2,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "w": 9.2
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 1
+}

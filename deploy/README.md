@@ -316,17 +316,226 @@ systemctl list-units --type=mount | grep tsm
 # srv-tsm\x2ddata.mount
 ```
 
-### 3.5 Bootstrap dell'inventario (una volta sola)
+### 3.5 Baseline di produzione (una volta sola)
 
 Non passa da HTTP e non passa dall'unità: è un'operazione esplicita
-(`BACKEND-PLAN.md` §8.17).
+(`BACKEND-PLAN.md` §8.17, §8.52). Il ruolo `tsm_api` non ha nemmeno il privilegio di
+database per inserire la riga di testa, quindi questo passo NON è una funzione
+dell'applicazione e non lo diventerà.
+
+#### Che cosa è la baseline
+
+`deploy/baseline/production-baseline.json` è lo stato da cui una installazione nuova
+deve cominciare:
+
+| contiene | non contiene |
+|---|---|
+| 3 siti, 6 sale, 102 rack | **nessun dispositivo** |
+| la geometria delle sale (`vani`, porte, misure) | nessuna scadenza, nessun seriale di apparato |
+| nomi, codici, fila e altezza (`u`) dei rack | nessuna foto e nessun riferimento a foto |
+| i 18 numeri di inventario degli ARMADI (`seriali`) | nessuna voce di manuale |
+| gli `_uid` reali, invariati | nessuna utenza, nessuna storia, nessun registro |
+
+I `seriali` sui rack **restano**: sono i numeri di inventario degli armadi, cespiti
+fisici con la loro targhetta, e non sono dati di dispositivo. Toglierli perché
+«sembrano seriali di macchine» butterebbe via metadato di produzione vero.
+
+Il risultato visibile a un operatore è: siti veri → sale vere → **rack vuoti**, pronti
+da popolare.
+
+⚠ La baseline **non dipende dal seed di sviluppo**. `fixtures/seed.json` è un file che
+qualcuno modifica per provare una cosa; se l'installazione lo leggesse, una prova di
+martedì diventerebbe la struttura di produzione di giovedì. L'artefatto è generato una
+volta, guardato, committato, e da lì appuntato a un digest.
+
+#### Il digest, e il manifesto da leggere
+
+    digest canonico    febafb7e8b9ceac5ef69ead1e66a5add7a62a79d1c8186935430754f8066a1b1
+
+Lo stesso numero sta in tre posti che devono combaciare: la costante
+`BASELINE_CANONICAL_SHA256` in `backend/app/inventory/baseline.py`,
+`deploy/baseline/MANIFEST.md`, e il test del browser. Il comando `--init` accetta
+**soltanto** il documento con quel digest: è la ragione per cui nessun altro file può
+essere installato come baseline per sbaglio.
+
+**`deploy/baseline/MANIFEST.md` va letto da una persona**, sito per sito, prima di una
+installazione nuova. Risponde a una domanda che nessun test può porre — *questa è la
+struttura giusta?* — perché un sito di prova rimasto dentro passa qualunque
+validazione di schema, e una sala vera dimenticata fuori pure. Il manifesto ha anche
+una sezione **«Da confermare»** con i nomi che contengono una parola tipica dei dati
+di prova: oggi ce n'è uno, `Rack R09 — Test`, che è un rack vero di collaudo — ma la
+differenza fra quello e un rack di sviluppo rimasto dentro non la stabilisce un
+programma.
+
+#### 1. Preflight, in sola lettura
+
+Prima di toccare niente. Non scrive nulla e risponde sì o no:
 
 ```bash
 cd /opt/tsm
+docker compose run --rm -v /opt/tsm/deploy/baseline:/baseline:ro migrate \
+  python scripts/production_baseline.py --check \
+    --baseline /baseline/production-baseline.json
+```
+
+Riporta il digest, lo schema, la struttura, i conteggi, e i sei cancelli. Esce 0 solo
+se l'inizializzazione sarebbe ammessa. `--json` aggiunge il manifesto in forma
+leggibile da un programma, **senza segreti**.
+
+I cancelli, e perché sono sei:
+
+| cancello | cosa verifica |
+|---|---|
+| schema | le tabelle attese esistono (altrimenti si ferma qui) |
+| documento | invarianti dello schema congelato + digest appuntato |
+| privilegi | chi esegue è il proprietario dello schema, o suo membro |
+| migrazioni | la revisione applicata è quella attesa dal codice |
+| ambiente | `TSM_ENV` è un valore riconosciuto |
+| stato | tabella per tabella: niente storia, niente utenze, niente dati |
+
+⚠ Il cancello dell'ambiente **non è una prova**. `TSM_ENV=test` non rende
+sacrificabile un database popolato, e `TSM_ENV=production` non autorizza niente da
+solo: una variabile si sbaglia, si eredita da una shell, si dimentica in un file. La
+prova la dà il cancello dello **stato**, che guarda il database. Gli altri cinque
+servono a rendere difficile arrivarci per sbaglio.
+
+#### 2. Inizializzazione
+
+```bash
+docker compose run --rm -v /opt/tsm/deploy/baseline:/baseline:ro migrate \
+  python scripts/production_baseline.py --init --allow-initialise \
+    --baseline /baseline/production-baseline.json
+```
+
+`--allow-initialise` è obbligatorio e si dichiara ogni volta. Il comando crea, in una
+transazione sola:
+
+    inventory_versions          una riga, versione 1
+    inventory_head              punta a quella
+    proiezione relazionale      rispecchia quella, verificata riassemblando da SQL
+    inventory_projection_state  versione, digest, mappa, metadati dello schema
+    users                       UN amministratore, provvisoria da CSPRNG
+    audit                       una riga: `bootstrap`, versione 1
+    tutto il resto              vuoto
+
+La **versione 1 è la baseline**; la prima modifica di un operatore sarà la versione 2.
+Nessuna storia di sviluppo viene importata.
+
+#### 3. La password provvisoria: si legge una volta
+
+L'ultima riga dell'output è la password provvisoria dell'amministratore. **Non esiste
+nessun altro posto da cui rileggerla**: non i log, non l'audit, non un file di
+rapporto, non il database (dove sta solo l'hash Argon2id). È generata da CSPRNG a 192
+bit e ha `must_change_pw` impostato, quindi il primo accesso obbliga a cambiarla.
+
+- si copia dal terminale e si consegna a chi deve fare il primo accesso;
+- **non** si redirige l'output di `--init` su un file. `--json` è ammesso soltanto con
+  `--check`, appunto perché il manifesto è la cosa che si salva e la provvisoria è la
+  cosa che non deve essere salvata;
+- questo comando **non legge `TSM_BOOTSTRAP_PASSWORD`**, a differenza di
+  `scripts/bootstrap.py`: una password passata dall'ambiente finisce
+  nell'automazione che la passa, cioè in un file. Se la variabile è impostata il
+  comando **si ferma** invece di ignorarla, perché un operatore che l'ha impostata
+  andrebbe a cercare una password che non è stata usata.
+
+**Se la provvisoria si perde prima del primo accesso.** L'inventario è già
+inizializzato e non va rifatto: serve solo una utenza nuova. Si disattiva quella
+esistente come proprietario dello schema e si rilancia `bootstrap.py`, che con zero
+amministratori attivi crea l'utenza, genera una provvisoria nuova, e sull'inventario
+non tocca niente (`repo.bootstrap` solleva «già inizializzato», che lo script gestisce
+e stampa):
+
+```bash
+# 1. l'utenza attuale, di cui nessuno conosce la password
+docker compose exec db psql -U tsm -d tsm \
+  -c "UPDATE users SET disabled_at = now() WHERE username = 'admin' AND disabled_at IS NULL"
+
+# 2. una utenza nuova con una provvisoria nuova. Il file passato a --seed NON viene
+#    installato: l'inventario è già in testa e lo script lo lascia stare. Si passa la
+#    baseline perché è l'unico documento sensato da nominare su questo host.
+docker compose run --rm -v /opt/tsm/deploy/baseline:/baseline:ro migrate \
+  python scripts/bootstrap.py --seed /baseline/production-baseline.json --admin admin2
+```
+
+L'output contiene la provvisoria nuova, con le stesse regole di prima: si legge una
+volta, si cambia al primo accesso. L'utenza vecchia resta **disattivata e non
+cancellata**, così l'audit di ciò che ha fatto resta attribuibile (§8.6).
+
+⚠ La baseline **non** si riesegue per questo: `--init` rifiuterebbe con
+`production_baseline_already_initialized`, che è la risposta giusta.
+
+#### 4. Verifica
+
+```bash
+docker compose run --rm migrate python scripts/project.py --verify
+curl -sk https://<host>/api/ready
+```
+
+Attesi: fedeltà OK, attualità OK, e `{"status":"ready", …}` con tutte e quattro le
+condizioni verdi.
+
+#### Perché non si riesegue, e perché è giusto così
+
+Un secondo `--init` **rifiuta** con un codice stabile:
+
+```
+RIFIUTATO [production_baseline_already_initialized]: inventario già inizializzato
+(testa: versione 7, 7 versioni in storia). La baseline è una-volta-sola: non si
+riesegue su una installazione avviata.
+Nel database non è cambiato niente.
+```
+
+Non crea una versione 2, non crea un secondo amministratore, non reimposta la
+password, non tocca i dati dell'operatore. Trovare quel codice in un log di un
+playbook rieseguito è una condizione **normale**, non un guasto.
+
+⚠ E il comando **non cancella niente, mai**. La tentazione ovvia era
+`DELETE FROM inventory_devices; DELETE FROM audit; …` contro il database esistente: è
+stata scartata perché uno script così è indistinguibile, nel momento in cui lo si
+lancia, fra un ambiente di prova e un'installazione con sei mesi di lavoro dentro. Chi
+vuole ricominciare da zero **ricrea il database**, non lo svuota da qui.
+
+#### Se l'inizializzazione si interrompe a metà
+
+Non può lasciare uno stato a metà: amministratore e inventario si creano nella stessa
+transazione, quindi un guasto annulla entrambi. I casi possibili:
+
+| sintomo | stato del database | cosa fare |
+|---|---|---|
+| rifiuto di un cancello | invariato | leggere il cancello, correggere, rieseguire |
+| errore durante la scrittura | invariato (transazione annullata) | rieseguire |
+| `⚠ VERIFICA FALLITA dopo il commit` | versione 1 scritta, proiezione non fedele | **non mettere in servizio**: `project.py --verify` per il dettaglio, poi `--rebuild` |
+
+#### Baseline ≠ fixture di qualificazione
+
+Nel repository ci sono due documenti che si assomigliano di proposito, e non devono
+potersi scambiare di posto:
+
+| | `deploy/baseline/production-baseline.json` | `fixtures/qualification/notification-scenario.json` |
+|---|---|---|
+| che cos'è | lo stato iniziale di **produzione** | dati di **prova** di forma reale |
+| dispositivi | 0 | 21, con scadenze |
+| a cosa serve | installare | qualificare il cammino degli avvisi prima del rilascio |
+| va in produzione | **sì** | **mai** |
+
+Tre barriere indipendenti impediscono lo scambio: il digest appuntato (il comando
+accetta solo quello), il cancello «zero dispositivi», e il nome del sito
+(`QUALIFICAZIONE (dati di prova) — NON è produzione`), che nessuno confonde guardando
+una schermata. Tutte e tre sono verificate da
+`backend/tests/test_qualification_fixture.py`.
+
+#### Il vecchio bootstrap dal seed
+
+Resta, e serve per gli ambienti di prova e per la migrazione di un inventario legacy:
+
+```bash
 TSM_BOOTSTRAP_PASSWORD='<password iniziale>' \
 docker compose run --rm -v /opt/tsm/fixtures:/seed:ro migrate \
   python scripts/bootstrap.py --seed /seed/seed.json --admin admin --from-legacy
 ```
+
+⚠ **Non si usa per una installazione di produzione nuova**: `fixtures/seed.json`
+contiene 86 dispositivi di sviluppo e le radici legacy del prototipo.
 
 ### 3.6 Worker delle notifiche
 

@@ -2319,6 +2319,207 @@ check("il registro del debito semantico esiste ed e' separato",
       "frontend, non scoperte una seconda volta da chi lo migra (§15 della fase 2F)")
 
 # --- cio' che la fase 2F NON fa ---
+# ==================================================================
+# 18. fase 2I: la baseline di produzione, e i suoi no (§8.52)
+# ==================================================================
+#
+# Le suite provano che il comando fa la cosa giusta su un database. Qui si copre ciò
+# che nessuna suite vede: che il comando non sia raggiungibile da fuori, che non abbia
+# imparato a CANCELLARE, che l'artefatto non contenga dati di dispositivo, e che le
+# tre barriere fra la baseline e la fixture di qualificazione siano ancora tre.
+
+BASELINE_DIR = ROOT / "deploy" / "baseline"
+BASELINE_DOC = BASELINE_DIR / "production-baseline.json"
+BASELINE_MANIFEST = BASELINE_DIR / "MANIFEST.md"
+BASELINE_MOD = ROOT / "backend" / "app" / "inventory" / "baseline.py"
+BASELINE_CLI = ROOT / "backend" / "scripts" / "production_baseline.py"
+QUAL_DIR = ROOT / "fixtures" / "qualification"
+QUAL_BUILD = QUAL_DIR / "build.py"
+
+check("l'artefatto della baseline e' committato",
+      BASELINE_DOC.is_file(),
+      "la baseline e' un artefatto di rilascio, non una vista sul seed: se non c'e' "
+      "un file, l'installazione dipende da cio' che il seed contiene quel giorno")
+check("il manifesto strutturale e' committato accanto",
+      BASELINE_MANIFEST.is_file(),
+      "e' il documento che una persona legge per rispondere a «questa e' la "
+      "struttura giusta?», che nessuna asserzione puo' porre (§19 del requisito)")
+
+if BASELINE_DOC.is_file() and BASELINE_MOD.is_file():
+    _doc_txt = BASELINE_DOC.read_text(encoding="utf-8")
+    _mod_src = code_only(BASELINE_MOD)
+    _man_txt = BASELINE_MANIFEST.read_text(encoding="utf-8") \
+        if BASELINE_MANIFEST.is_file() else ""
+
+    # --- il digest appuntato, e le tre copie che devono combaciare ---
+    import re as _re2
+    _sha_mod = _re2.findall(r"[0-9a-f]{64}", _mod_src)
+    check("il digest della baseline e' APPUNTATO nel codice",
+          len(_sha_mod) == 1,
+          f"trovati {len(_sha_mod)} digest in baseline.py: ce ne vuole esattamente "
+          f"uno, altrimenti non si sa quale sia quello approvato")
+    if _sha_mod:
+        check("il manifesto cita lo STESSO digest appuntato",
+              _sha_mod[0] in _man_txt,
+              "il manifesto cita un digest diverso: e' stato modificato l'artefatto "
+              "senza rigenerare il documento che una persona rivede")
+        # ⚠ La camera bianca ne tiene una TERZA copia, scritta a mano. Che siano tre
+        # e non una e' voluto: un test che legge la costante dal codice prova che il
+        # codice e' d'accordo con se stesso.
+        check("la camera bianca conosce lo stesso digest",
+              _sha_mod[0] in (ROOT / "tools" / "clean-room-test.py").read_text(
+                  encoding="utf-8"),
+              "il test del browser verifica un digest diverso da quello appuntato")
+
+    # --- l'artefatto non contiene dati di dispositivo ---
+    for _campo in ("garanzia", "supporto", "presenza", "serial\"", "ip\""):
+        check(f"l'artefatto non contiene il campo di dispositivo {_campo!r}",
+              f'"{_campo}' not in _doc_txt,
+              "un residuo di dispositivo in una baseline e' esattamente cio' che §6 "
+              "del requisito chiede di provare assente, e provarlo sul FILE e' "
+              "diverso dal provarlo su un albero visitato")
+    check("l'artefatto non ha nessun `devices` non vuoto",
+          '"devices": [' not in _doc_txt.replace('"devices": []', ''),
+          "ogni rack deve uscire vuoto")
+    check("l'artefatto non porta radici legacy",
+          all(f'"{k}"' not in _doc_txt for k in ("utenti", "versione", "registro",
+                                                 "notifiche", "smtp", "users")),
+          "la baseline nasce nella forma congelata del PUT normale")
+    check("l'artefatto non nomina nessuna foto",
+          '"foto"' not in _doc_txt,
+          "la tabella photos di una installazione nuova e' vuota, e il bootstrap "
+          "pretende che i riferimenti esistano: uno superstite farebbe fallire "
+          "l'inizializzazione a meta'")
+
+    # --- il modulo non dipende dal seed ---
+    check("il modulo della baseline non nomina il seed nel codice",
+          "seed" not in _mod_src.lower(),
+          "la dipendenza dal seed vive nel GENERATORE, che si esegue a mano: se "
+          "rientrasse qui, una modifica del seed cambierebbe la produzione (§20)")
+
+if BASELINE_CLI.is_file():
+    _cli_src = code_only(BASELINE_CLI)
+
+    # --- non e' raggiungibile da fuori ---
+    check("nessuna rotta importa il comando della baseline",
+          not any("production_baseline" in code_only(f)
+                  for f in (ROOT / "backend" / "app" / "api").glob("*.py")),
+          "l'API non ha nemmeno il privilegio di database per inserire la riga di "
+          "testa (§8.19): una rotta che chiamasse questo comando fallirebbe, ma la "
+          "difesa e' che la rotta non esista")
+    check("il comando non importa FastAPI",
+          all(t not in _cli_src for t in ("fastapi", "APIRouter", "Depends")),
+          "e' una CLI e non lo diventera'")
+    check("il comando vive in scripts/ e non in app/",
+          BASELINE_CLI.parent.name == "scripts",
+          "`app/` e' cio' che il processo dell'API importa")
+
+    # --- non CANCELLA: rifiuta ---
+    for _verbo in ("DELETE FROM", "TRUNCATE", "DROP TABLE", "DROP SCHEMA"):
+        check(f"il comando non contiene {_verbo!r}",
+              _verbo not in _cli_src.upper(),
+              "§1 del requisito: la baseline si COSTRUISCE su un database vuoto e su "
+              "uno non vuoto si RIFIUTA. Uno script che cancella e' indistinguibile, "
+              "nel momento in cui lo si lancia, fra un ambiente di prova e "
+              "un'installazione con sei mesi di lavoro dentro")
+
+    # --- i cancelli ci sono tutti ---
+    for _cancello in ("gate_schema", "gate_document", "gate_privilege",
+                      "gate_migrations", "gate_environment", "gate_state",
+                      "gate_no_environment_password"):
+        check(f"il cancello {_cancello} esiste",
+              f"def {_cancello}(" in _cli_src,
+              "sei salvaguardie indipendenti, e nessuna di loro da sola (§17)")
+    check("il consenso esplicito e' obbligatorio",
+          "allow_initialise" in _cli_src and "allow-initialise" in _cli_src,
+          "un comando distruttivo per natura non si esegue per sbaglio")
+    check("il codice di rifiuto del secondo giro e' quello stabile",
+          "production_baseline_already_initialized" in _cli_src,
+          "§21 lo nomina: chi automatizza deve distinguere «gia' inizializzata», che "
+          "e' normale, da «bersaglio sbagliato», che non lo e'")
+
+    # --- l'ambiente non e' una prova ---
+    check("il cancello dell'ambiente non decide da solo",
+          "gate_state" in _cli_src and "TARGET_NOT_EMPTY" in _cli_src,
+          "§17: `TSM_ENV=test` non rende sacrificabile un database popolato, e "
+          "`TSM_ENV=production` non autorizza niente. La prova la da' lo STATO")
+    check("il proprietario si riconosce dal catalogo e non da un nome scritto",
+          "pg_has_role" in _cli_src and "'tsm'" not in _cli_src,
+          "un confronto con la stringa `tsm` passerebbe su una installazione che ha "
+          "chiamato il ruolo diversamente, e passerebbe per il motivo sbagliato")
+
+    # --- la provvisoria ---
+    check("il comando genera la provvisoria e non la legge dall'ambiente",
+          "generate_temporary_password" in _cli_src,
+          "192 bit da CSPRNG (§10)")
+    check("una TSM_BOOTSTRAP_PASSWORD impostata FERMA il comando",
+          "TSM_BOOTSTRAP_PASSWORD" in _cli_src
+          and "PASSWORD_FROM_ENVIRONMENT" in _cli_src,
+          "ignorarla sarebbe peggio: l'operatore andrebbe a cercare una password che "
+          "non e' stata usata, e la troverebbe scritta da qualche parte a fare da esca")
+    check("non esiste nessun argomento --password",
+          "--password" not in _cli_src,
+          "§11: una riga di comando finisce nella cronologia della shell e "
+          "nell'elenco dei processi")
+    check("il manifesto in JSON non e' producibile da --init",
+          "solo con --check" in _cli_src,
+          "il manifesto e' la cosa che si redirige in un file, e la provvisoria e' "
+          "la cosa che non deve finire in un file: tenerli su due comandi diversi e' "
+          "cio' che rende l'affermazione verificabile a colpo d'occhio")
+
+# --- la fixture di qualificazione, e le tre barriere ---
+check("la fixture di qualificazione esiste",
+      QUAL_BUILD.is_file(),
+      "la voce 14 del registro chiede uno scenario di scadenze deterministico e di "
+      "forma reale: senza un file, quella voce resta una nota")
+if QUAL_BUILD.is_file():
+    _qual_src = code_only(QUAL_BUILD)
+    check("la fixture non legge l'orologio",
+          "date.today()" not in _qual_src and "datetime.now" not in _qual_src,
+          "le date si calcolano rispetto a una data di riferimento ESPLICITA: una "
+          "fixture che legge l'orologio produce un rosso non riproducibile (§15)")
+    check("la fixture dichiara l'atteso invece di dedurlo",
+          "notifiable" in _qual_src and "expected_notifiable" in _qual_src,
+          "l'atteso scritto a mano e' cio' che rende la qualificazione una "
+          "qualificazione: dedurlo con la funzione che si verifica proverebbe che la "
+          "funzione e' d'accordo con se stessa")
+    check("il sito della fixture si riconosce a occhio",
+          "QUALIFICAZIONE" in _qual_src,
+          "terza barriera: un nome che nessuno confonde con la produzione")
+    check("il comando della baseline non nomina la fixture di qualificazione",
+          BASELINE_CLI.is_file()
+          and "qualification" not in code_only(BASELINE_CLI).lower(),
+          "le due cose non devono potersi scambiare di posto")
+    check("il deploy non propone la fixture come sorgente di installazione",
+          "qualification" not in (ROOT / "deploy" / "README.md").read_text(
+              encoding="utf-8").lower()
+          or "NON" in (ROOT / "deploy" / "README.md").read_text(encoding="utf-8"),
+          "se la documentazione operativa la nominasse come seed, la barriera "
+          "tecnica sarebbe l'unica cosa fra lei e la produzione")
+
+# --- niente migrazioni e niente privilegi nuovi ---
+_migrazioni = sorted((ROOT / "backend" / "migrations" / "versions").glob("0*.py"))
+check("la fase 2I non aggiunge nessuna migrazione",
+      len(_migrazioni) == 13 and _migrazioni[-1].name.startswith("0013"),
+      f"trovate {len(_migrazioni)} migrazioni, l'ultima {_migrazioni[-1].name if _migrazioni else '-'}: "
+      f"una baseline e' dati, non schema, e non ha nessuna ragione di cambiare le "
+      f"tabelle o i privilegi")
+
+# --- la documentazione operativa ---
+_deploy = (ROOT / "deploy" / "README.md").read_text(encoding="utf-8")
+check("il deploy documenta il preflight della baseline",
+      "--check" in _deploy and "production_baseline" in _deploy,
+      "un comando distruttivo per natura senza una modalita' di ispezione "
+      "documentata si esegue alla cieca")
+check("il deploy documenta perche' la baseline non si riesegue",
+      "already_initialized" in _deploy,
+      "chi trova quel codice in un log deve poter leggere che e' una condizione "
+      "normale e non un guasto")
+check("il deploy distingue la baseline dalla fixture di qualificazione",
+      "qualificazione" in _deploy.lower(),
+      "§28 lo chiede per nome: sono due cose che si assomigliano di proposito")
+
+
 def _voci_registro():
     """Le righe del registro del debito semantico (§8.48), col loro numero.
 

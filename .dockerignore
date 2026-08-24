@@ -12,6 +12,10 @@ secrets/
 backend/
 tools/
 fixtures/
+# `deploy/` contiene la documentazione operativa e l'artefatto di baseline (fase 2I):
+# nessuno dei due entra nell'immagine, e l'artefatto in produzione si MONTA in sola
+# lettura dal disco dell'host — non si porta dentro un container che serve HTML.
+deploy/
 BACKEND-PLAN.md
 compose.yaml
 

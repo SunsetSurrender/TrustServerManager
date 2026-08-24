@@ -173,6 +173,77 @@ def acquire_singleton(conn: Connection) -> bool:
                              {"k": WORKER_LOCK_KEY}).scalar_one())
 
 
+#: «Questa sessione tiene ancora QUEL lock?»
+#:
+#: La chiave si ricompone dai due interi che `pg_locks` espone — un lock consultivo
+#: su `bigint` finisce in `classid` (32 bit alti) e `objid` (32 bit bassi) — e si
+#: confronta con la nostra. `pid = pg_backend_pid()` è la parte che conta: dice
+#: «nostro», non «di qualcuno».
+_LOCK_HELD = text("""
+    SELECT EXISTS (
+        SELECT 1 FROM pg_locks
+         WHERE locktype = 'advisory'
+           AND pid = pg_backend_pid()
+           AND ((classid::bigint << 32) | objid::bigint) = :k
+    )
+""")
+
+
+def holds_singleton(conn: Connection) -> bool:
+    """True solo se questa sessione è viva E tiene ancora il lock.
+
+    Le due condizioni sono una sola domanda: un lock consultivo di sessione vive
+    quanto la sessione, quindi una connessione morta significa lock perso. Se
+    l'interrogazione solleva, la risposta è no.
+    """
+    try:
+        return bool(conn.execute(_LOCK_HELD, {"k": WORKER_LOCK_KEY}).scalar_one())
+    except Exception:
+        return False
+
+
+def reassert_singleton(engine: Engine, tenuta: Connection) -> Connection | None:
+    """Riafferma l'esclusività a ogni giro. Restituisce la connessione che tiene
+    il lock, o `None` se qualcun altro lo tiene.
+
+    ⚠ Perché serve, e perché è stato un difetto vero (trovato dalla 2J).
+    Il lock si prendeva UNA volta all'avvio e non si guardava più. Un lock
+    consultivo di sessione muore con la sessione, e la sessione muore ogni volta
+    che PostgreSQL riparte — un riavvio del contenitore, un aggiornamento, un OOM.
+    Il worker però continuava a girare, perché i suoi giri usano il pool (con
+    `pool_pre_ping`, che riconnette) e non questa connessione: restava «healthy»,
+    il battito diceva `running`, e nei log non compariva niente.
+    Misurato: `docker compose restart db` portava i lock consultivi da 1 a 0, e un
+    secondo worker lanciato dopo PARTIVA invece di uscire con 3.
+    La conseguenza non era la posta doppia — `claim_run` è transazionale e regge
+    comunque — ma la perdita SILENZIOSA della garanzia dichiarata, che è la
+    proprietà peggiore per un meccanismo di sicurezza: assente e indistinguibile
+    da presente.
+    Riprenderlo a ogni giro costa una query e rende la garanzia vera quanto
+    l'ultimo giro invece che quanto l'avvio.
+    """
+    if holds_singleton(tenuta):
+        return tenuta
+
+    # La sessione non c'è più (o il lock è stato rilasciato): se ne apre un'altra e
+    # si riprova. `invalidate()` prima di chiudere: restituire al pool una
+    # connessione morta la farebbe riusare da qualcun altro.
+    log.warning("il lock del worker non è più tenuto da questa sessione "
+                "(PostgreSQL è ripartito?): lo riprendo")
+    try:
+        tenuta.invalidate()
+        tenuta.close()
+    except Exception:                                       # pragma: no cover
+        pass
+
+    nuova = engine.connect()
+    if acquire_singleton(nuova):
+        log.info("lock del worker ripreso")
+        return nuova
+    nuova.close()
+    return None
+
+
 def release_singleton(conn: Connection) -> None:
     """Rilascia il lock ESPLICITAMENTE.
 
@@ -569,6 +640,19 @@ def main() -> int:                                # pragma: no cover
     heartbeat(engine, state="running", detail=f"pid {os.getpid()}")
 
     while not _stop:
+        # L'esclusività si riafferma PRIMA di ogni giro, non solo all'avvio: vedi
+        # `reassert_singleton`. Se il lock è di qualcun altro si esce, e Compose
+        # riavvia — dove il tentativo fallirà di nuovo, in modo visibile nei log,
+        # invece di lasciare due worker a lavorare sugli stessi avvisi.
+        riafferrato = reassert_singleton(engine, lock_conn)
+        if riafferrato is None:
+            log.error("il lock del worker è tenuto da un ALTRO processo: esco. "
+                      "Un solo worker deve esistere (§8.41).")
+            heartbeat(engine, state="refused",
+                      detail="lock del worker passato a un altro processo")
+            return 3
+        lock_conn = riafferrato
+
         try:
             result = run_once(engine, now_utc=datetime.now(timezone.utc))
             heartbeat(engine, state="running", run_date=result.run_date,

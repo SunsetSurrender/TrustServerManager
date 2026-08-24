@@ -780,6 +780,99 @@ def test_the_singleton_is_released_when_the_worker_goes_away(db):
         second.dispose()
 
 
+def test_holds_singleton_distingue_nostro_da_di_qualcuno(db):
+    """`holds_singleton` deve dire «nostro», non «di qualcuno».
+
+    È la distinzione su cui si regge la riaffermazione: una query che chiedesse
+    soltanto «esiste un lock consultivo su questa chiave» risponderebbe sì anche
+    quando il lock è di un ALTRO processo, e allora il worker che l'ha perso
+    continuerebbe a credere di averlo — cioè il controllo non servirebbe a
+    niente proprio nel caso per cui esiste."""
+    a = create_engine(DSN, future=True)
+    b = create_engine(DSN, future=True)
+    try:
+        ca, cb = a.connect(), b.connect()
+        assert wk.acquire_singleton(ca) is True
+        assert wk.holds_singleton(ca) is True, "la sessione che l'ha preso lo tiene"
+        assert wk.holds_singleton(cb) is False, (
+            "una sessione che NON l'ha preso non deve credere di tenerlo, "
+            "nemmeno se il lock esiste")
+        ca.close(); cb.close()
+    finally:
+        a.dispose(); b.dispose()
+
+
+def test_il_lock_perso_viene_RIPRESO_al_giro_successivo(db):
+    """Il difetto trovato dalla qualificazione 2J, in una suite.
+
+    Un lock consultivo di sessione muore con la sessione, e la sessione muore ogni
+    volta che PostgreSQL riparte. Il worker prendeva il lock UNA volta all'avvio e
+    non lo guardava più: dopo un riavvio del database restava «healthy» con il
+    battito su `running`, e la garanzia «un solo worker» era falsa senza che niente
+    lo dicesse. Misurato sull'installazione: `docker compose restart db` portava i
+    lock consultivi da 1 a 0, e un secondo worker lanciato dopo PARTIVA.
+
+    Qui la morte della sessione si simula terminando il backend, che è ciò che un
+    riavvio di PostgreSQL fa a ogni sessione aperta."""
+    motore = create_engine(DSN, future=True)
+    altro = create_engine(DSN, future=True)
+    try:
+        tenuta = motore.connect()
+        assert wk.acquire_singleton(tenuta) is True
+        pid = tenuta.execute(text("SELECT pg_backend_pid()")).scalar_one()
+
+        # La sessione muore sotto i piedi, come in un riavvio del database.
+        with altro.connect() as k:
+            k.execute(text("SELECT pg_terminate_backend(:p)"), {"p": pid})
+            k.commit()
+        assert wk.holds_singleton(tenuta) is False, (
+            "con la sessione morta il lock non c'è più: se `holds_singleton` "
+            "dicesse sì, la riaffermazione non scatterebbe mai")
+
+        ripresa = wk.reassert_singleton(motore, tenuta)
+        assert ripresa is not None, "il lock era libero: va ripreso"
+        assert wk.holds_singleton(ripresa) is True
+        # E ora è davvero esclusivo di nuovo.
+        with altro.connect() as k:
+            assert wk.acquire_singleton(k) is False, (
+                "dopo la ripresa un altro processo non deve poterlo prendere")
+        wk.release_singleton(ripresa)
+        ripresa.close()
+    finally:
+        motore.dispose(); altro.dispose()
+
+
+def test_se_il_lock_e_di_UN_ALTRO_la_riaffermazione_RINUNCIA(db):
+    """L'altro esito, e è quello che impedisce due worker.
+
+    Se fra un giro e l'altro qualcun altro ha preso il lock, riprenderlo a forza
+    sarebbe peggio del difetto: due processi convinti di essere l'unico. La
+    riaffermazione deve rispondere «no», e il chiamante esce."""
+    motore = create_engine(DSN, future=True)
+    intruso = create_engine(DSN, future=True)
+    try:
+        tenuta = motore.connect()
+        assert wk.acquire_singleton(tenuta) is True
+        pid = tenuta.execute(text("SELECT pg_backend_pid()")).scalar_one()
+
+        conn_intruso = intruso.connect()
+        # Prima si uccide la nostra sessione, poi l'intruso prende il lock: è
+        # l'ordine reale (il database riparte, un secondo worker parte).
+        with intruso.connect() as k:
+            k.execute(text("SELECT pg_terminate_backend(:p)"), {"p": pid})
+            k.commit()
+        assert wk.acquire_singleton(conn_intruso) is True, "il lock era libero"
+
+        assert wk.reassert_singleton(motore, tenuta) is None, (
+            "con il lock in mano a un altro processo la riaffermazione deve "
+            "rinunciare, non strapparlo")
+
+        wk.release_singleton(conn_intruso)
+        conn_intruso.close()
+    finally:
+        motore.dispose(); intruso.dispose()
+
+
 def test_two_workers_cannot_claim_the_same_reminder(db, engine, smtp):
     """Anche senza il lock: la corsa fra due giri concorrenti si risolve nel
     database, dove `claim_run` è un `INSERT` sulla chiave primaria della data.

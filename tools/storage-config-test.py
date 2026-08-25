@@ -436,6 +436,28 @@ def corpo_di(path, nome: str) -> str:
     return ""
 
 
+def senza_commenti_shell(testo: str) -> str:
+    """Uno script di shell senza le righe di commento.
+
+    ⚠ È la TERZA volta che questo file cade nella stessa trappola, e le prime due
+    sono già scritte nella docstring di `code_only`: la prosa spiega proprio ciò che
+    il codice fa o non fa, quindi contiene le parole che si stanno cercando. Per i
+    sorgenti Python la soluzione è `ast.unparse`, che i commenti li perde. Gli script
+    di shell non hanno un ast, e finora venivano letti grezzi.
+
+    Il caso concreto: il controllo «il loop si stacca quando si prende l'istantanea»
+    cercava `losetup -d` nel ramo dell'istantanea, e una mutazione che TOLTO il
+    codice è sfuggita — perché tre righe sopra c'è il commento che spiega perché
+    quel codice serve, e dice «`losetup -d` più `sync` chiudono il buco».
+
+    Si toglie solo la riga interamente di commento: un `#` a metà riga può stare
+    dentro una stringa, e distinguere i due casi richiederebbe un parser di shell
+    per un guadagno che non c'è.
+    """
+    return chr(10).join(r for r in testo.splitlines()
+                        if not r.lstrip().startswith("#"))
+
+
 def blocco_shell(testo: str, inizio: str, fine: str) -> str:
     """Il pezzo di uno script di shell fra due marcatori, estremi compresi.
 
@@ -2689,9 +2711,15 @@ check("nessuna semantica delle scadenze e' stata riconciliata",
 _ident = code_only(ROOT / "tools" / "release-identity.py")
 _qual = code_only(ROOT / "tools" / "release-qualification.py")
 _inie = code_only(ROOT / "tools" / "failure-injection-test.py")
-_riav = (ROOT / "tools" / "reboot-restart-test.sh").read_text(encoding="utf-8")
-_back = (ROOT / "tools" / "backup-restore-test.sh").read_text(encoding="utf-8")
-_notif = (ROOT / "tools" / "notification-qualification.sh").read_text(encoding="utf-8")
+# ⚠ Senza i commenti: vedi `senza_commenti_shell`. Un controllo che cerca una
+# parola in uno script letto grezzo trova la prosa che spiega perché quella parola
+# serve, e resta verde anche quando il codice non c'è più.
+_riav = senza_commenti_shell(
+    (ROOT / "tools" / "reboot-restart-test.sh").read_text(encoding="utf-8"))
+_back = senza_commenti_shell(
+    (ROOT / "tools" / "backup-restore-test.sh").read_text(encoding="utf-8"))
+_notif = senza_commenti_shell(
+    (ROOT / "tools" / "notification-qualification.sh").read_text(encoding="utf-8"))
 _sink = code_only(ROOT / "tools" / "smtp-sink.py")
 
 # ------------------------------------------------------------------ identita'
@@ -2821,15 +2849,22 @@ check("il riavvio si verifica con un CURSORE del journal, non con un orario",
       "--after-cursor" in _riav and "--show-cursor" in _riav,
       "l'orologio dell'host non e' monotono fra un avvio e l'altro: un filtro "
       "temporale seleziona un insieme che non corrisponde a niente")
+# Un'ASSENZA si verifica come assenza. Il primo tentativo cercava la spiegazione
+# nel commento («NON si usa boot_id») e con i commenti esclusi non la trovava piu' —
+# ma soprattutto sarebbe restato verde se qualcuno avesse RIMESSO boot_id nel codice
+# lasciando il commento al suo posto.
 check("e NON usa boot_id per decidere se l'avvio e' nuovo",
-      "boot_id" in _riav and "NON si usa" in _riav,
-      "su una distribuzione WSL il kernel e' condiviso e il boot_id non cambia")
+      "boot_id" not in _riav,
+      "su una distribuzione WSL il kernel e' condiviso e il boot_id non cambia: "
+      "direbbe «stesso avvio» dopo un riavvio completo dello spazio utente")
 check("il riavvio pretende che i dati siano IDENTICI",
       "identico dopo il riavvio" in _riav)
 check("e che il preflight sia girato in quell'avvio",
       "PREFLIGHT SUPERATO" in _riav)
+# La proprieta' e' «esiste un'attesa E viene usata»: due occorrenze almeno, la
+# definizione e una chiamata. `start_period` stava solo nel commento.
 check("gli healthcheck si ASPETTANO, non si contano subito",
-      "tutti_sani" in _riav and "start_period" in _riav,
+      "tutti_sani()" in _riav and _riav.count("tutti_sani") >= 3,
       "contarli subito dopo un riavvio di PostgreSQL misura la fretta di chi "
       "misura, non la salute del servizio")
 
@@ -2867,8 +2902,11 @@ check("il ripristino verifica fedelta' e attualita' della proiezione",
       "project.py --verify" in _back)
 
 # ------------------------------------------------------------------ notifiche
+# Il nome del rifiuto (`identity_replacement`) sta nella spiegazione, non nel
+# codice: era prosa. La proprieta' verificabile e' che si usi il seme e che non ci
+# sia nessun PUT dell'inventario.
 check("la fixture di qualificazione si installa come SEME, non con un PUT",
-      "bootstrap.py --seed" in _notif and "identity_replacement" in _notif,
+      "bootstrap.py --seed" in _notif and "PUT" not in _notif,
       "scambiare l'intero documento cambia ogni UID, e la guardia sull'identita' "
       "esiste per non lasciarlo passare come una modifica")
 check("la data di riferimento e' INIETTATA, non quella di sistema",

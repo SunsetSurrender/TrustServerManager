@@ -52,8 +52,15 @@ INTERCETTATORI = {
 
 
 def _comando_pg(selezione: str) -> list[str]:
-    """La suite su PostgreSQL gira nel container, come sempre in questo progetto."""
-    return ["powershell", "-NoProfile", "-Command",
+    """La suite su PostgreSQL gira nel container, come sempre in questo progetto.
+
+    ⚠ `-ExecutionPolicy Bypass`: lanciato da un altro processo, PowerShell rifiuta
+    di caricare uno `.ps1` del repository con «running scripts is disabled on this
+    system». La passata di controllo l'ha preso subito — che è esattamente il suo
+    scopo: senza, ogni mutazione sarebbe risultata «intercettata» per un errore di
+    politica di esecuzione, cioè per la ragione sbagliata.
+    """
+    return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
             f".\\tools\\run-backend-tests.ps1 -KeepDb -- -q --no-header "
             f"-p no:warnings --tb=no -k '{selezione}'"]
 

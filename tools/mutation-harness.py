@@ -171,12 +171,20 @@ MUTAZIONI: list[dict] = [
      "dopo": '    "0000000000000000000000000000000000000000000000000000000000000000"',
      "perche": "il digest appuntato è ciò che impedisce a un documento qualunque "
                "di essere installato come baseline"},
-    {"nome": "conteggio-dispositivi", "tipo": "puro",
+    # ⚠ L'intercettatore è STATICO, non la suite pura, e la ragione è strutturale.
+    # I test confrontano l'esito con la COSTANTE (`bl.BASELINE_HAS_DEVICES`), che in
+    # un test è la cosa giusta da fare — ma allora cambiare il VALORE della costante
+    # è invisibile: il test confronta il codice con se stesso. Questa mutazione è
+    # sfuggita a tutta la suite pura, e non perché i test siano scritti male.
+    # Un codice d'errore è un contratto verso l'esterno, quindi il letterale si
+    # pinna dove non può essere d'accordo con se stesso: nei controlli statici.
+    {"nome": "conteggio-dispositivi", "tipo": "statico",
      "file": "backend/app/inventory/baseline.py",
      "prima": 'BASELINE_HAS_DEVICES = "baseline_has_devices"',
      "dopo": 'BASELINE_HAS_DEVICES = "baseline_ok_devices"',
      "perche": "il codice del rifiuto è il contratto: cambiandolo, chi cerca quel "
-               "codice nei log non lo trova più"},
+               "codice nei log non lo trova più — e i test, che usano la costante, "
+               "non possono accorgersene"},
 
     # ---------------------------------------------------------- worker (§7, 2J)
     {"nome": "lock-mai-riafferrato", "tipo": "pg", "selezione": "singleton or RIPRESO or RINUNCIA",

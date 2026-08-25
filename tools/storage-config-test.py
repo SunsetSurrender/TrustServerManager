@@ -413,6 +413,43 @@ check("la configurazione di sviluppo ha lo STESSO limite di quella di produzione
       "le due configurazioni devono differire solo nei listener "
       "(tools/sync-nginx-dev.py)")
 
+def corpo_di(path, nome: str) -> str:
+    """Il sorgente della sola funzione `nome` dentro `path`.
+
+    ⚠ Serve a smettere di CONTARE. Due controlli della sezione 19 pretendevano che
+    una parola comparisse «almeno due volte», e sono sfuggiti a mutazioni che ne
+    toglievano una su tre: la soglia era sotto il numero rimasto. Contare le
+    occorrenze di una parola in un file misura quante volte la parola c'e', non se
+    la cosa funziona — e per sceglierne la soglia bisognerebbe sapere in anticipo
+    quante ce ne saranno domani.
+
+    Guardare DENTRO il posto che conta è una domanda diversa e non ha soglie: la
+    chiave la deve scrivere il produttore, e se il produttore non la scrive più il
+    dato non arriva a nessuno, per quante volte i lettori la nominino ancora.
+    """
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == nome:
+            return ast.unparse(node)
+    return ""
+
+
+def blocco_shell(testo: str, inizio: str, fine: str) -> str:
+    """Il pezzo di uno script di shell fra due marcatori, estremi compresi.
+
+    Stessa ragione di `corpo_di`: per sapere se il device di loop viene staccato
+    QUANDO SI PRENDE l'istantanea non serve contare i `losetup -d` del file, serve
+    guardare in quel ramo.
+    """
+    i = testo.find(inizio)
+    if i < 0:
+        return ""
+    j = testo.find(fine, i + len(inizio))
+    return testo[i:j + len(fine)] if j > i else testo[i:]
+
+
 def senza_apici(testo: str) -> str:
     """Il testo senza nessun apice, singolo o doppio.
 
@@ -2662,14 +2699,17 @@ check("l'identita' del rilascio si calcola dai BLOB del commit, non dal disco",
       "ls-tree" in _ident and "git blob ids at HEAD" in _ident,
       "il repository si modifica su Windows e si esegue su Linux: un digest "
       "calcolato sulla copia di lavoro vale solo sulla macchina che l'ha stampato")
-# ⚠ Non basta che la parola compaia: deve comparire dove si PRODUCE e dove si
-# CONSUMA. Una mutazione che rinominava la chiave nel dizionario e lasciava intatto
-# il lettore e' SFUGGITA a un controllo scritto come «la parola c'e' da qualche
-# parte» — che e' vero anche quando il dato non arriva piu' a nessuno.
+# ⚠ Si guarda DENTRO IL PRODUTTORE, non si contano le occorrenze nel file.
+# Il primo tentativo cercava la parola «da qualche parte» ed e' sfuggito a una
+# mutazione che rinominava la chiave nel dizionario lasciando intatti i lettori; il
+# secondo pretendeva «almeno due volte» ed e' sfuggito allo stesso modo, perche' le
+# occorrenze erano tre e ne restavano due. La domanda giusta non ha soglie: la
+# chiave la scrive `identita_albero`, o il dato non esiste.
 check("e dichiara quali file del disco divergono dal commit",
-      _ident.count("worktree_differs") >= 2,
-      f"trovata {_ident.count('worktree_differs')} volta: la chiave va scritta dal "
-      f"produttore e letta dal consumatore, altrimenti il dato si perde per strada")
+      "worktree_differs" in corpo_di(ROOT / "tools" / "release-identity.py",
+                                    "identita_albero"),
+      "la chiave non e' prodotta da `identita_albero`: i lettori possono nominarla "
+      "quanto vogliono, il dato non arriva")
 check("ogni immagine di base deve essere pinnata per DIGEST",
       "@sha256:" in _ident and "pinnata per TAG" in _ident,
       "un tag mobile fa costruire due immagini diverse dallo stesso commit")
@@ -2794,15 +2834,26 @@ check("gli healthcheck si ASPETTANO, non si contano subito",
       "misura, non la salute del servizio")
 
 # ------------------------------------------------------------------ ripristino
-# ⚠ Il loop va staccato in DUE cammini: quando si prende l'istantanea e quando si
-# ripristina. Un controllo su una sola occorrenza e' SFUGGITO a una mutazione che
-# lo togliva dal solo cammino dell'istantanea — quello che ha prodotto il «PANIC:
-# could not locate a valid checkpoint record».
-check("il loop si stacca in ENTRAMBI i cammini (istantanea e ripristino)",
-      _back.count("losetup -d") >= 2 and "sync" in _back,
-      f"trovato {_back.count('losetup -d')} volte: un `umount` scarica il "
-      f"filesystem sul DEVICE; la scrittura del device verso il file e' un'altra "
-      f"cosa, e `cp` legge il file")
+# ⚠ Si guarda nei DUE RAMI, uno per uno, invece di contare i `losetup -d` del file.
+# Contarli e' sfuggito a una mutazione che lo toglieva dal solo ramo
+# dell'istantanea: le occorrenze erano tre, ne restavano due, e la soglia era due.
+# E' precisamente il ramo che ha prodotto il «PANIC: could not locate a valid
+# checkpoint record», cioe' l'unico posto in cui l'assenza fa danno.
+_ramo_snap = blocco_shell(_back, 'if [ "$MODO" = "snapshot" ]', "exit 0")
+# ⚠ Il marcatore di fine e' la COPIA, non un `mount`: `mount "$MNT"` compare come
+# sottostringa dentro `umount "$MNT"`, e il blocco finiva prima di arrivare al
+# distacco del loop. La proprieta' da provare e' proprio «il loop e' staccato PRIMA
+# che il file del volume venga sovrascritto», quindi il pezzo giusto e' quello che
+# finisce con la copia.
+_ramo_rest = blocco_shell(_back, "== ripristino:", 'cp --sparse=always "$SNAP" "$IMG"')
+check("il loop si stacca quando si PRENDE l'istantanea",
+      "losetup -d" in _ramo_snap and "sync" in _ramo_snap,
+      "un `umount` scarica il filesystem sul DEVICE; la scrittura del device verso "
+      "il file e' un'altra cosa, e `cp` legge il file: l'immagine viene copiata a meta'")
+check("e prima di sovrascrivere il volume, quando si RIPRISTINA",
+      "losetup -d" in _ramo_rest,
+      "con il loop ancora attaccato il kernel serve la vista vecchia, PostgreSQL "
+      "parte sui dati di prima e li riscrive sopra quelli ripristinati")
 check("e si verifica che la copia sia identica al volume",
       "copia identica al volume" in _back)
 check("e che il filesystem dell'istantanea sia coerente",

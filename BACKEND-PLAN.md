@@ -6717,9 +6717,12 @@ Poi è arrivata la domanda più interessante: **su che cosa si calcola un digest
 dell'albero?** Sui file su disco, la prima risposta. Sbagliata: il repository si
 modifica su Windows e si esegue su Linux, `core.autocrlf` è attivo, e
 `.gitattributes` impone LF a `.sh`, `.service`, `.conf` e `Dockerfile` — non a `.py`,
-`.json`, `.js`, `.css`, `.html`. **39 dei 117 file del rilascio differiscono fra
-copia di lavoro e commit, per il solo `\r`.** Un digest calcolato sul disco vale
-soltanto sulla macchina che l'ha stampato, presentato come se valesse per tutti.
+`.json`, `.js`, `.css`, `.html`. **Una quarantina dei 117 file del rilascio
+differisce fra copia di lavoro e commit, per il solo `\r`** — 39 alla prima misura,
+37 a una successiva, perché il numero dipende da quali file git ha normalizzato per
+ultimo nella copia di lavoro e non dal commit. Un digest calcolato sul disco vale
+soltanto sulla macchina che l'ha stampato, presentato come se valesse per tutti — e
+quel numero che si muove da solo è la dimostrazione più diretta del perché.
 
 Da qui due decisioni che si tengono per mano:
 

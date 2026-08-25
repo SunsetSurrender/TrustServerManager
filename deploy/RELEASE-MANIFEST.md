@@ -24,7 +24,7 @@ Si rigenera con `python tools/release-identity.py`, e `--check` la giudica.
 
 | che cosa | valore |
 |---|---|
-| commit | `23d47dc1bd952e3b87282bb0e088d4771d409266` |
+| commit qualificato | `23d47dc1bd952e3b87282bb0e088d4771d409266` |
 | **albero del rilascio** | `18f712556844e6ba21b32603d2aa431f06569da60cbf5ea4f2197b292dd387cb` |
 | file distribuiti | 117 |
 | digest canonico della baseline | `febafb7e8b9ceac5ef69ead1e66a5add7a62a79d1c8186935430754f8066a1b1` |
@@ -37,6 +37,13 @@ Si rigenera con `python tools/release-identity.py`, e `--check` la giudica.
 | base del database | `postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193` |
 | React (vendorizzato) | `d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd` |
 | React DOM (vendorizzato) | `35f4f974f4b2bcd44da73963347f8952e341f83909e4498227d4e26b98f66f0d` |
+
+> **Verificato.** Sei commit dopo quello qualificato — la porta della suite XLSX, la
+> qualificazione stessa, tre giri di correzioni alle mutazioni — l'albero del rilascio
+> è ancora `18f7125…`, byte per byte, e `git diff --name-only 23d47dc..HEAD` sui
+> percorsi distribuiti non elenca **niente**. La frase «la documentazione e gli
+> strumenti aggiunti dopo non cambiano ciò che è stato qualificato» non è una
+> promessa: è un confronto che si rifà con un comando.
 
 **L'albero del rilascio** è il digest dei soli 117 file che finiscono su un host —
 `backend/app`, `backend/migrations`, `backend/scripts`, i due Dockerfile,
@@ -52,8 +59,11 @@ rilascio; l'albero dice **che cosa** verrebbe installato. Un commit che tocca so
 ⚠ Il digest si calcola sui **blob del commit**, non sui file su disco. Il
 repository si modifica su Windows e si esegue su Linux, `core.autocrlf` è attivo, e
 `.gitattributes` impone LF a `.sh`, `.service`, `.conf` e `Dockerfile` — non a
-`.py`, `.json`, `.js`, `.css`, `.html`. **39 dei 117 file differiscono fra copia di
-lavoro Windows e commit, per il solo `\r`.** Conseguenza dichiarata: le immagini del
+`.py`, `.json`, `.js`, `.css`, `.html`. **Una quarantina dei 117 file differisce fra
+copia di lavoro Windows e commit, per il solo `\r`** — 39 alla prima misura, 37 a
+una successiva: il numero esatto dipende da quali file git ha normalizzato per ultimo
+nella copia di lavoro, non dal commit, ed è proprio questa instabilità la ragione per
+cui il digest non si calcola sul disco. Conseguenza dichiarata: le immagini del
 rilascio si costruiscono su un host Linux a partire da `git archive`, non dalla copia
 di lavoro Windows. Un'immagine costruita là contiene i CRLF e non è l'immagine che
 questo commit produce in produzione. È una caratteristica dichiarata, non un
@@ -146,7 +156,7 @@ un secondo disco.
 | suite | esito |
 |---|---|
 | Python (`backend/tests`, 39 file) | **3246 / 3246** |
-| controlli statici e di configurazione | **433 / 433** |
+| controlli statici e di configurazione | **479 / 479** |
 | contratto di dominio (JavaScript) | **560 / 560** |
 | client delle interrogazioni (JavaScript) | **45 / 45** |
 | identità (JavaScript) | **120 / 120** |
@@ -175,7 +185,7 @@ un secondo disco.
 | installazione completa **senza internet** | **25 / 25** |
 | backup e ripristino | **15 / 15** (due esecuzioni) |
 | notifiche end-to-end con la fixture di qualificazione | **18 / 18** |
-| mutazioni | **18 / 18 intercettate** |
+| mutazioni (16 statiche e pure + 2 su PostgreSQL) | **18 / 18 intercettate** |
 
 Nessuno salto non giustificato. Le uniche cose non esercitate sono dichiarate in §3
 (SELinux, pressione di swap, capacità dei dischi) e in §6 (voce 14B).
@@ -326,7 +336,7 @@ software.
 **B. SOFTWARE QUALIFICATO — RESTANO CANCELLI OPERATIVI.**
 
 Tutti i cancelli del software e della candidata al rilascio sono superati: 3246 test
-Python, 433 controlli statici, 725 controlli di contratto in JavaScript, 17 suite
+Python, 479 controlli statici, 725 controlli di contratto in JavaScript, 17 suite
 committate tutte verdi, 112 controlli di qualificazione del rilascio, 73 iniezioni
 di guasto, 34 controlli di riavvio, 25 di funzionamento offline, 15 di ripristino, 18
 di notifica, 18 mutazioni su 18 intercettate. L'installazione nasce dalla baseline

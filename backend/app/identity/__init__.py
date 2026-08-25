@@ -5,7 +5,7 @@ endpoint, sessioni, modelli SQLAlchemy o transazioni. L'aggancio all'API
 (autorizzazione per ambito, commit atomico, audit) è un commit successivo,
 punti 5 e 6 di BACKEND-PLAN.md §9.
 
-Il contratto con il frontend (handoff/identity.js) è verificato dalle fixture
+Il contratto con il frontend (frontend/identity.js) è verificato dalle fixture
 condivise in fixtures/identity/, consumate da entrambe le suite di test.
 """
 from .canonical import (

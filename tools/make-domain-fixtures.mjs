@@ -32,7 +32,7 @@
 //   docker run --rm -v "$PWD":/w -w /w node:22-alpine node tools/make-domain-fixtures.mjs
 // ============================================================
 import { mkdirSync, writeFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
-import { parseAddress, parseAddressQuery } from '../handoff/domain.js';
+import { parseAddress, parseAddressQuery } from '../frontend/domain.js';
 
 const OUT = 'fixtures/domain';
 
@@ -866,7 +866,7 @@ for (const t of inputs) {
   };
 }
 emit('addresses-fuzz', {
-  _nota: "CORPUS DIFFERENZIALE. Attese CALCOLATE da handoff/domain.js, non scritte a "
+  _nota: "CORPUS DIFFERENZIALE. Attese CALCOLATE da frontend/domain.js, non scritte a "
        + "mano: qui non si giudica un comportamento, si pretende che le due "
        + "implementazioni non divergano su nessuna forma. I casi che portano una "
        + "DECISIONE stanno in addresses.json, con le attese a mano. Seme fisso: "

@@ -3,7 +3,7 @@
 Verifica che l'applicazione parta con OGNI accesso di rete esterno bloccato.
 
 Requisito di rete chiusa: `support.js` scarica React da unpkg.com se
-`window.React`/`window.ReactDOM` non esistono già. `handoff/vendor/` li fornisce
+`window.React`/`window.ReactDOM` non esistono già. `frontend/vendor/` li fornisce
 localmente e il runtime salta la CDN da solo. Questo test lo dimostra.
 
 Metodo
@@ -12,7 +12,7 @@ Chrome reale (installato, headless) carica l'app da un server statico locale.
 Ogni richiesta verso un host diverso da localhost viene ABORTITA a livello di
 browser e registrata. Girano due casi:
 
-  fixed   = handoff/ come sta adesso
+  fixed   = frontend/ come sta adesso
   control = copia identica senza i tag <script> di vendor/ e senza vendor/
 
 Il control serve a dimostrare che il blocco è reale e che il segnale di successo
@@ -27,7 +27,7 @@ fallito resta <x-dc> e #dc-root non esiste.
 Uso
 ---
     pip install playwright
-    python tools/offline-boot-test.py [--handoff PERCORSO] [--port 8137]
+    python tools/offline-boot-test.py [--frontend PERCORSO] [--port 8137]
 
 Chrome deve essere installato (usa il canale "chrome", non scarica browser).
 Su Windows tenere il percorso di lavoro corto: i path lunghi rompono pip.
@@ -60,10 +60,10 @@ VENDOR_TAGS = (
 )
 
 
-def build_tree(handoff: Path, root: Path) -> None:
+def build_tree(frontend: Path, root: Path) -> None:
     """fixed = copia fedele; control = copia senza vendor (stato pre-fix)."""
-    shutil.copytree(handoff, root / "fixed")
-    shutil.copytree(handoff, root / "control")
+    shutil.copytree(frontend, root / "fixed")
+    shutil.copytree(frontend, root / "control")
     shutil.rmtree(root / "control" / "vendor")
 
     page = root / "control" / PAGE_FILE
@@ -139,17 +139,17 @@ def run_case(browser, base: str, case: str) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--handoff", default=str(Path(__file__).resolve().parent.parent / "handoff"))
+    ap.add_argument("--frontend", default=str(Path(__file__).resolve().parent.parent / "frontend"))
     ap.add_argument("--port", type=int, default=8137)
     args = ap.parse_args()
 
-    handoff = Path(args.handoff).resolve()
-    if not (handoff / PAGE_FILE).is_file():
-        return sys.exit(f"non trovo {PAGE_FILE} in {handoff}")
+    frontend = Path(args.frontend).resolve()
+    if not (frontend / PAGE_FILE).is_file():
+        return sys.exit(f"non trovo {PAGE_FILE} in {frontend}")
 
     with tempfile.TemporaryDirectory(prefix="tsm-offline-") as tmp:
         root = Path(tmp)
-        build_tree(handoff, root)
+        build_tree(frontend, root)
         httpd = serve(root, args.port)
         base = f"http://localhost:{args.port}"
         try:
@@ -165,7 +165,7 @@ def main() -> int:
 
     # react-dom@18.3.1 dichiara "18.3.1-next-f1338f8080-20240426": è il valore
     # dell'artefatto ufficiale. La provenienza esatta la pinnano gli SHA in
-    # handoff/vendor/README.md, non questa stringa.
+    # frontend/vendor/README.md, non questa stringa.
     checks = [
         ("fixed: zero richieste esterne",      f["blocked_external_requests"] == []),
         ("fixed: React 18.3.1 presente",       f["reactVersion"] == "18.3.1"),

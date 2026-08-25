@@ -6,7 +6,7 @@ migrazione tecnica sarebbe stato peggio che conservarne i difetti. Quella scelta
 fatto il suo lavoro e adesso scade: questo modulo è la sede della semantica
 INTENZIONALE, e tre implementazioni la condividono invece di dedurla ognuna per sé.
 
-    handoff/domain.js          la stessa semantica in JavaScript, per il frontend
+    frontend/domain.js          la stessa semantica in JavaScript, per il frontend
     fixtures/domain/*.json     il CONTRATTO, in dati, indipendente dal linguaggio
     questo modulo              Python, e per estensione SQL
 

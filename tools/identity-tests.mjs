@@ -24,7 +24,7 @@ import {
   checkSchemaVersion, CURRENT_SCHEMA_VERSION,
   SCHEMA_VERSION_MISSING, SCHEMA_VERSION_TOO_OLD,
   SCHEMA_VERSION_TOO_NEW, SCHEMA_VERSION_INVALID,
-} from '../handoff/identity.js';
+} from '../frontend/identity.js';
 
 let pass = 0;
 const failures = [];

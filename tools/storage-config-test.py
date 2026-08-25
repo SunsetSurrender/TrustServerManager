@@ -834,12 +834,12 @@ check("dalla fase 2C `--verify` fallisce anche su una proiezione vecchia",
       "una proiezione fedele a una versione vecchia è lo stato in cui l'API rifiuta "
       "le scritture: in 2B era normale, adesso è un guasto (§8.44)")
 
-handoff = ""
-for path in sorted((ROOT / "handoff").rglob("*.js")):
-    handoff += path.read_text(encoding="utf-8")
+js_frontend = ""
+for path in sorted((ROOT / "frontend").rglob("*.js")):
+    js_frontend += path.read_text(encoding="utf-8")
 check("il frontend non sa che la proiezione esista",
-      all(t not in handoff for t in NORMALISED_TABLES)
-      and "garanzia_date" not in handoff,
+      all(t not in js_frontend for t in NORMALISED_TABLES)
+      and "garanzia_date" not in js_frontend,
       "il contratto del frontend è il documento (§8.22), e questo commit non lo "
       "cambia di una riga")
 
@@ -1166,7 +1166,7 @@ check("la rotta non duplica la lunghezza minima",
       "due numeri divergerebbero — il 10 rimasto nella rotta ne era la prova. "
       "`max_length` resta: è un limite di dimensione su un input non attendibile, "
       "molto sopra il massimo consentito, perché a rifiutare deve essere la politica")
-frontend = (ROOT / "handoff" / "Sala Server v2.dc.html").read_text(encoding="utf-8")
+frontend = (ROOT / "frontend" / "Sala Server v2.dc.html").read_text(encoding="utf-8")
 check("il suggerimento del frontend coincide con la politica",
       f"min. {min_length} caratteri" in frontend
       and f"nuova.length < {min_length}" in frontend
@@ -1362,8 +1362,8 @@ check("nessun endpoint di query è stato aggiunto",
 # conoscerne la FORMA: nessun nome di tabella, nessun nome di colonna derivata,
 # nessuna versione di mappa. Il suo contratto resta il documento più tre risposte.
 check("il frontend non conosce la FORMA della proiezione",
-      all(t not in handoff for t in NORMALISED_TABLES)
-      and "garanzia_date" not in handoff and "mapper_version" not in handoff,
+      all(t not in js_frontend for t in NORMALISED_TABLES)
+      and "garanzia_date" not in js_frontend and "mapper_version" not in js_frontend,
       "il contratto del frontend è il documento più le tre risposte (§8.22): un nome "
       "di tabella nel browser legherebbe l'interfaccia allo schema, e la proiezione è "
       "ricostruibile per definizione")
@@ -1635,10 +1635,10 @@ check("non è stato aggiunto nessun endpoint di ricerca o di capacità",
 # `projection_inconsistent` per dire a chi guarda quale delle due è, e per non
 # ricalcolare i numeri in silenzio (§12 del requisito).
 check("il frontend non conosce la forma della proiezione, ma sa quando è rotta",
-      all(t not in handoff for t in NORMALISED_TABLES)
-      and all(t not in handoff for t in ("garanzia_date", "supporto_date",
+      all(t not in js_frontend for t in NORMALISED_TABLES)
+      and all(t not in js_frontend for t in ("garanzia_date", "supporto_date",
                                          "mapper_version"))
-      and "projection_not_current" in handoff,
+      and "projection_not_current" in js_frontend,
       "conoscere i due codici di guasto è ciò che permette di dire «serve una "
       "ricostruzione» invece di mostrare numeri calcolati nel browser")
 check("la risposta del GET ha ancora le quattro chiavi di sempre",
@@ -2028,7 +2028,7 @@ def js_code_only(text: str) -> str:
     return "".join(out)
 
 
-FRONTEND_APP = ROOT / "handoff" / "Sala Server v2.dc.html"
+FRONTEND_APP = ROOT / "frontend" / "Sala Server v2.dc.html"
 check("il sorgente dell'applicazione frontend è dove ci si aspetta",
       FRONTEND_APP.is_file(),
       "senza, non c'è niente da confrontare con il contratto")
@@ -2055,7 +2055,7 @@ def html_script_code(text: str) -> str:
 #: Il solo JavaScript, senza commenti: è su questo che si cercano i frammenti VIETATI.
 frontend_code = html_script_code(frontend_app)
 
-DOMAIN_JS = ROOT / "handoff" / "domain.js"
+DOMAIN_JS = ROOT / "frontend" / "domain.js"
 check("esiste il gemello JavaScript del modello di dominio", DOMAIN_JS.is_file())
 domain_js = DOMAIN_JS.read_text(encoding="utf-8") if DOMAIN_JS.is_file() else ""
 domain_js_code = js_code_only(domain_js)
@@ -2123,7 +2123,7 @@ check("il frontend CHIAMA il modello di dominio",
 # funziona — e nasconderebbe un guasto della proiezione proprio a chi lo può riparare.
 # È anche il modo esatto in cui la duplicazione tornerebbe: nessuno scriverebbe «una
 # seconda semantica», tutti scriverebbero «una rete di sicurezza».
-queries_js = ROOT / "handoff" / "queries.js"
+queries_js = ROOT / "frontend" / "queries.js"
 queries_js_code = js_code_only(queries_js.read_text(encoding="utf-8")) \
     if queries_js.is_file() else ""
 
@@ -2152,12 +2152,12 @@ check("il frontend passa dal client e non da `fetch` a mano",
       "revisione e di risposta vecchia")
 check("le richieste di interrogazione sono annullabili",
       "signal: opts.signal" in js_code_only(
-          (ROOT / "handoff" / "api.js").read_text(encoding="utf-8"))
+          (ROOT / "frontend" / "api.js").read_text(encoding="utf-8"))
       and "AbortController" in queries_js_code,
       "senza `AbortSignal` l'annullamento eviterebbe di USARE la risposta ma non di "
       "aspettarla: undici richieste per «srv-web-01» restano undici")
 check("i due stati della proiezione hanno un messaggio proprio",
-      all(t in js_code_only((ROOT / "handoff" / "api.js").read_text(encoding="utf-8"))
+      all(t in js_code_only((ROOT / "frontend" / "api.js").read_text(encoding="utf-8"))
           for t in ("projection_not_current", "projection_inconsistent")),
       "«Servizio non disponibile» non dice a un sistemista che serve una ricostruzione, "
       "e non distingue una manutenzione dimenticata da un dato incoerente")
@@ -2213,7 +2213,7 @@ check("il worker non usa le interrogazioni interattive come sorgente",
 # chiamano le nomina, e cercarle nel testo grezzo trova la propria spiegazione. Quarta
 # volta nel progetto, e la soluzione è sempre la stessa — guardare il codice.
 check("il frontend è ricablato alle rotte, e le chiama tutte e tre",
-      all(t in js_code_only(handoff) + frontend_code
+      all(t in js_code_only(js_frontend) + frontend_code
           for t in ("/api/inventory/search", "/api/inventory/capacity",
                     "/api/inventory/expiries")),
       "se una delle tre non fosse chiamata, quella vista starebbe ancora calcolando "

@@ -1,7 +1,7 @@
 // ============================================================
 // domain-contract-tests.mjs — il lato JavaScript del contratto di dominio (fase 2G)
 //
-// Esegue fixtures/domain/*.json contro handoff/domain.js. La suite Python
+// Esegue fixtures/domain/*.json contro frontend/domain.js. La suite Python
 // (backend/tests/test_domain_contract.py) esegue le STESSE fixture contro
 // backend/app/domain.py, e i test su PostgreSQL le eseguono contro lo SQL.
 //
@@ -14,7 +14,7 @@
 //   docker run --rm -v "$PWD":/w -w /w node:22-alpine node tools/domain-contract-tests.mjs
 // ============================================================
 import { readFileSync } from 'node:fs';
-import * as D from '../handoff/domain.js';
+import * as D from '../frontend/domain.js';
 
 const DIR = 'fixtures/domain';
 const load = (name) => JSON.parse(readFileSync(`${DIR}/${name}.json`, 'utf8'));

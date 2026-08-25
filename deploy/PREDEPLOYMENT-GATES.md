@@ -68,12 +68,48 @@ verifiche che **non** toccano il database sono già coperte altrove:
 
 `--allow-initialise` non è stato eseguito e non va eseguito in 2K-A.
 
-### §15 — i commit di questa fase NON sono un nuovo rilascio
+### ⚠ AGGIORNAMENTO — il rename di `handoff/` in `frontend/` HA cambiato l'identità
+
+Dopo la stesura di questo documento la directory `handoff/` è stata
+rinominata in `frontend/`. **L'identità del rilascio è cambiata**, e le
+due sezioni che seguono vanno lette alla luce di questo.
+
+| | prima | dopo il rename |
+|---|---|---|
+| albero del rilascio | `18f7125…` | **`5e36a7915da677e45791f7bd5d0984f6ce888d19695fbce45066027525ebc8ef`** |
+| file | 117 | 117 (20 sotto `frontend/`) |
+
+Perché cambia: il digest è calcolato su coppie *(percorso, blob-id)*. I
+blob sono **tutti identici** — `git diff --stat 23d47dc..HEAD` sui 25
+file rinominati dice `0 insertions(+), 0 deletions(-)` — ma venti
+percorsi sono diversi, e il percorso fa parte dell'identità di proposito:
+un file servito da un URL diverso è un'installazione diversa.
+
+**Ciò che NON è cambiato**, e che è stato misurato ricostruendo
+l'immagine web e confrontandone il contenuto file per file: i **20 file
+serviti da `/srv/app` sono byte-identici** a quelli dell'immagine
+qualificata. Il rename sposta i file nel repository; non cambia una
+virgola di ciò che il browser riceve.
+
+Conseguenza operativa: `23d47dc` con albero `18f7125…` resta il rilascio
+**qualificato e distribuibile** — le immagini già costruite da quel
+commit sono valide. HEAD è un rilascio **diverso e non qualificato**. Per
+distribuire da HEAD serve rieseguire i cancelli di qualificazione che
+dipendono dall'albero; per distribuire ora si usa `23d47dc`.
+
+I commenti interni a tre file serviti (`Sala Server v2.dc.html`,
+`identity.js`, `vendor/THIRD-PARTY-NOTICES.md`) **continuano a citare
+`handoff/`**. È deliberato: correggerli avrebbe cambiato i byte serviti,
+e l'identità del contenuto vale più di un commento aggiornato. Si
+sistemano al prossimo cambiamento che tocchi comunque quei file.
+
+### §15 — i commit di strumentazione NON sono un nuovo rilascio
 
 **Dichiarazione esplicita.** I commit di pre-distribuzione e di
-strumentazione — quelli della Fase 2J dopo `23d47dc`, e i tre di questa
-fase — **non costituiscono un nuovo rilascio applicativo.** L'identità
-del rilascio resta:
+strumentazione — quelli della Fase 2J dopo `23d47dc`, e i tre della Fase
+2K-A — **non costituiscono un nuovo rilascio applicativo.** Valeva fino
+al rename; il rename, invece, un nuovo rilascio lo crea. L'identità
+qualificata resta:
 
 | | |
 |---|---|
@@ -82,17 +118,16 @@ del rilascio resta:
 | baseline (documento) | `febafb7e8b9ceac5ef69ead1e66a5add7a62a79d1c8186935430754f8066a1b1` |
 | migrazione · mapper · schemaVersion | `0013_domain` · 2 · 1 |
 
-**I percorsi distribuiti restano byte-identici all'albero qualificato.**
-Non è una promessa: è una misura, e si rifà a ogni commit.
+Per quei tre commit i percorsi distribuiti restavano byte-identici
+all'albero qualificato, ed era una misura, non una promessa: sono
+**puramente additivi** — due nuovi file in `tools/`, due nuovi documenti
+in `deploy/`, nessuna modifica a un file esistente, quindi nessun modo di
+alterare un byte distribuito.
 
-Verificato al momento della scrittura: l'albero del rilascio calcolato su
-HEAD coincide con `18f7125…` su 117 file, e nessuno dei tre commit di
-questa fase tocca un percorso distribuito — zero, per tutti e tre.
-
-Tutti e tre sono **puramente additivi**: due nuovi file in `tools/`, due
-nuovi documenti in `deploy/`, nessuna modifica a un file esistente.
-Quindi non hanno alcun modo di alterare un byte distribuito, e la cosa si
-vede dal `--stat` senza bisogno di fidarsi di questa frase.
+Il rename successivo è di natura diversa: non aggiunge, **sposta**. Il
+contenuto resta identico, i percorsi no, e l'albero cambia. È esattamente
+il caso che questa sezione esiste per distinguere — e la distinzione va
+fatta col comando, non a memoria.
 
 Qui non ci sono SHA a mano di proposito: un documento che li elenca
 diventa falso al primo riscrittura della cronologia — è già accaduto
@@ -102,7 +137,7 @@ Da rifare — non da assumere — a ogni ripresa della fase:
 
 ```bash
 python tools/release-identity.py --json     # albero == 18f7125…, 117 file
-git diff --name-only 23d47dc..HEAD -- compose.yaml backend/ web/ handoff/ \
+git diff --name-only 23d47dc..HEAD -- compose.yaml backend/ web/ frontend/ \
     deploy/preflight.sh deploy/tsm.service \
     deploy/baseline/production-baseline.json     # deve essere vuoto
 ```

@@ -1,5 +1,5 @@
 # Il contesto di build dell'immagine web è la radice del repository (serve
-# handoff/). Senza questo file il daemon riceverebbe anche i SECRET, che non
+# frontend/). Senza questo file il daemon riceverebbe anche i SECRET, che non
 # devono nemmeno entrare nel contesto — non solo non finire nell'immagine.
 secrets/
 !secrets/*.example
@@ -30,8 +30,8 @@ venv/
 
 # Esclusi dall'allowlist dei file statici (§6): elencati qui perché non
 # raggiungano nemmeno il contesto di build.
-handoff/Sale Server Pomezia (standalone).html
-handoff/inventario.js
-handoff/README.md
-handoff/vendor/README.md
-handoff/vendor/SHA256SUMS
+frontend/Sale Server Pomezia (standalone).html
+frontend/inventario.js
+frontend/README.md
+frontend/vendor/README.md
+frontend/vendor/SHA256SUMS

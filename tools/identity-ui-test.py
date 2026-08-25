@@ -39,7 +39,7 @@ except ImportError:
     sys.exit("serve playwright:  pip install playwright")
 
 ROOT = Path(__file__).resolve().parent.parent
-HANDOFF = ROOT / "handoff"
+FRONTEND = ROOT / "frontend"
 PAGE = "Sala%20Server%20v2.dc.html"
 PORT = 8138
 LOCAL = {"localhost", "127.0.0.1"}
@@ -96,7 +96,7 @@ def export_json(page, tmpdir: Path, label: str) -> dict:
 def main() -> int:
     tmpdir = ROOT / ".identity-ui-tmp"
     tmpdir.mkdir(exist_ok=True)
-    httpd = serve(HANDOFF, PORT)
+    httpd = serve(FRONTEND, PORT)
     blocked, console_errors, dialogs = [], [], []
 
     try:

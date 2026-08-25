@@ -3,14 +3,14 @@
 Decisioni prese: **host Docker singolo + Compose**, **rete chiusa senza internet**,
 **Postgres in container**, **utenze locali nel DB**.
 
-Riferimenti al prototipo: `handoff/` (vedi `handoff/README.md`).
+Riferimenti al prototipo: `frontend/` (vedi `frontend/README.md`).
 
 ---
 
 ## 1. Strategia: due fasi, frontend toccato una volta sola
 
 Il prototipo consegna l'intero documento a ogni modifica (`persist(next, azione)`,
-[Sala Server v2.dc.html:1391](handoff/Sala%20Server%20v2.dc.html#L1391)). Sfruttiamo questo fatto
+[Sala Server v2.dc.html:1391](frontend/Sala%20Server%20v2.dc.html#L1391)). Sfruttiamo questo fatto
 invece di combatterlo: fissiamo subito il **contratto HTTP** (`GET`/`PUT /api/inventory` con
 versione) e cambiamo lo storage sottostante in un secondo momento, senza che il frontend se ne accorga.
 
@@ -246,21 +246,21 @@ più l'autorità. Va autorizzato per ambito e verbalizzato per differenza — ve
 
 Otto punti, tutti localizzati:
 
-1. **`componentDidMount`** ([:1120](handoff/Sala%20Server%20v2.dc.html#L1120)) — non carica più
+1. **`componentDidMount`** ([:1120](frontend/Sala%20Server%20v2.dc.html#L1120)) — non carica più
    i dati direttamente: prima `GET /api/auth/me`, e **solo se autenticato** `GET /api/inventory`
    (§8.1). `inventario.js` sopravvive solo come seed per lo script di import iniziale.
-2. **`persist(data, azione)`** ([:1391](handoff/Sala%20Server%20v2.dc.html#L1391)) — resta
+2. **`persist(data, azione)`** ([:1391](frontend/Sala%20Server%20v2.dc.html#L1391)) — resta
    ottimistica (`setState` immediato), ma le scritture passano da una **coda serializzata**
    con una sola `PUT` in volo (§8.2). Su 409: avviso "modificato da un altro utente" +
    ricarica. `dirty` passa da "non esportato" a "salvataggio in corso / fallito".
-3. **`_doLogin()`** ([:1351](handoff/Sala%20Server%20v2.dc.html#L1351)) — `POST /api/auth/login`.
+3. **`_doLogin()`** ([:1351](frontend/Sala%20Server%20v2.dc.html#L1351)) — `POST /api/auth/login`.
    Va **rimosso** il confronto password lato client e il fallback che concede `admin`
-   quando l'elenco utenze è vuoto ([:1358](handoff/Sala%20Server%20v2.dc.html#L1358)).
-4. **`saveDraft` dei dispositivi** ([:2925](handoff/Sala%20Server%20v2.dc.html#L2925)) — oggi
+   quando l'elenco utenze è vuoto ([:1358](frontend/Sala%20Server%20v2.dc.html#L1358)).
+4. **`saveDraft` dei dispositivi** ([:2925](frontend/Sala%20Server%20v2.dc.html#L2925)) — oggi
    ricostruisce l'oggetto da zero (`const dev = { id, name, ... }`) e sostituisce il
    precedente: **distruggerebbe lo `uid` assegnato dal server a ogni modifica**. Va cambiato
    in uno spread dell'originale (§8.4). Il salvataggio dei rack invece usa
-   `Object.assign(t, …)` ([:2809](handoff/Sala%20Server%20v2.dc.html#L2809)) e i campi
+   `Object.assign(t, …)` ([:2809](frontend/Sala%20Server%20v2.dc.html#L2809)) e i campi
    sconosciuti li conserva già: va bene così.
 5. **Foto rack** — `POST /api/photos`, `foto` diventa un id/URL invece di un dataURL.
 6. **Registro** — legge da `/api/audit` invece che da `data.registro`.
@@ -272,15 +272,15 @@ Otto punti, tutti localizzati:
 ## 5. Rete chiusa: dipendenze eliminate ✔ FATTO
 
 `support.js` caricava React da unpkg.com a runtime
-([support.js:1143-1146](handoff/support.js#L1143)): in rete chiusa l'app **non partiva**.
+([support.js:1143-1146](frontend/support.js#L1143)): in rete chiusa l'app **non partiva**.
 
-Risolto vendorizzando i due file in `handoff/vendor/`, caricati **prima** di `support.js`.
+Risolto vendorizzando i due file in `frontend/vendor/`, caricati **prima** di `support.js`.
 Il runtime controlla `if (w.React && w.ReactDOM) return Promise.resolve()`
-([support.js:1840](handoff/support.js#L1840)) e salta la CDN da sé: **`support.js` non è
+([support.js:1840](frontend/support.js#L1840)) e salta la CDN da sé: **`support.js` non è
 stato modificato**. `@babel/standalone` non serve — è richiesto solo da `x-import`, che
 l'applicazione non usa.
 
-Provenienza, SHA-256 e corrispondenza SRI: [handoff/vendor/README.md](handoff/vendor/README.md).
+Provenienza, SHA-256 e corrispondenza SRI: [frontend/vendor/README.md](frontend/vendor/README.md).
 Verifica automatica dell'avvio offline: `python tools/offline-boot-test.py`.
 
 ⚠ **`Sale Server Pomezia (standalone).html` è solo-sviluppo.** Non è stato toccato e continua
@@ -288,7 +288,7 @@ a dipendere da unpkg: offline **non parte**. Finché non viene rigenerato con Re
 inlinizzato *e* riverificato con la stessa procedura di §5, vale che:
 
 - non va distribuito né descritto come "offline" o "doppio click": la dicitura nel
-  `handoff/README.md` è oggi inesatta;
+  `frontend/README.md` è oggi inesatta;
 - non entra in nessuna immagine e non è raggiungibile via nginx (allowlist, §6) — a maggior
   ragione perché contiene l'inventario completo inline e quindi scavalca auth e ruoli;
 - non è sulla strada del deploy, quindi non blocca niente: è un artefatto di consultazione
@@ -299,7 +299,7 @@ come l'applicazione normale, con il suo caso di controllo. «Sembra che funzioni
 verifica: era già la situazione da cui siamo partiti.
 
 Da verificare in fase di hardening: il runtime valuta la logica dell'app con `new Function`
-([support.js:844](handoff/support.js#L844)), quindi una CSP stretta richiede `'unsafe-eval'`
+([support.js:844](frontend/support.js#L844)), quindi una CSP stretta richiede `'unsafe-eval'`
 su `script-src` e `'unsafe-inline'` su `style-src` (la UI usa style object inline in modo
 massiccio). Eliminarli richiede un passo di precompilazione del blocco `text/x-dc`: fattibile,
 ma non in fase 1.
@@ -318,7 +318,7 @@ ma non in fase 1.
 
 ### Allowlist dei file statici
 
-L'immagine web **non** contiene `handoff/`. Contiene un elenco chiuso di file, copiati uno
+L'immagine web **non** contiene `frontend/`. Contiene un elenco chiuso di file, copiati uno
 per uno. Servire la cartella così com'è pubblicherebbe cose che non devono stare su un
 server raggiungibile.
 
@@ -360,7 +360,7 @@ esso non parte. Nell'immagine di sviluppo intermedia c'è, in quella di produzio
 
 ### Note di licenza
 
-`handoff/vendor/THIRD-PARTY-NOTICES.md` copre React, ReactDOM e `scheduler` (quest'ultimo
+`frontend/vendor/THIRD-PARTY-NOTICES.md` copre React, ReactDOM e `scheduler` (quest'ultimo
 incorporato nel bundle UMD di ReactDOM, quindi redistribuito anche se non è un file a sé).
 Tutti MIT, Meta Platforms.
 
@@ -368,12 +368,12 @@ La licenza MIT richiede che avviso di copyright e testo accompagnino le copie de
 l'immagine Docker **è** la copia distribuita, quindi il file va nell'immagine e in allowlist.
 Non è una formalità che si può rimandare a un wiki interno.
 
-Da chiudere separatamente: le licenze dei font in `handoff/fonts/` (Public Sans, Roboto Mono)
+Da chiudere separatamente: le licenze dei font in `frontend/fonts/` (Public Sans, Roboto Mono)
 non sono ancora documentate.
 
 Stack: FastAPI + SQLAlchemy + Alembic. Motivo: i tre lavori non-CRUD di questa
 applicazione sono tutti terreno Python — round-trip XLSX (`openpyxl`, o si riusa
-`handoff/xlsx.js` lato client), SMTP con il cron scadenze, e in prospettiva la
+`frontend/xlsx.js` lato client), SMTP con il cron scadenze, e in prospettiva la
 vettorizzazione delle planimetrie da PDF citata in fondo al README.
 
 Job scadenze: APScheduler **dentro** il container api, replica singola. Compose non ha
@@ -439,15 +439,15 @@ Essendo in rete chiusa, conservare anche il tar delle immagini della versione in
 - rate limit su `/api/auth/login` (l'unico endpoint non autenticato che tocca il DB)
 - argon2id per le password; sessioni server-side revocabili
 - TLS obbligatorio: il cookie di sessione è `Secure`, senza HTTPS non si entra
-- rimuovere l'utenza di bootstrap `admin/admin` (`handoff/inventario.js:39`) — l'import
+- rimuovere l'utenza di bootstrap `admin/admin` (`frontend/inventario.js:39`) — l'import
   iniziale crea il primo admin con password provvisoria e `must_change_pw = true`
 
 ---
 
 ## 7. Dati di seed: buco da colmare presto
 
-`handoff/inventario.js` non popola `stato`, `garanzia`, `supporto`, `note` (l'helper `D()`
-non li imposta, [inventario.js:10](handoff/inventario.js#L10)), e non contiene le chiavi
+`frontend/inventario.js` non popola `stato`, `garanzia`, `supporto`, `note` (l'helper `D()`
+non li imposta, [inventario.js:10](frontend/inventario.js#L10)), e non contiene le chiavi
 `notifiche`, `smtp`, `manuale`, `registro`.
 
 Conseguenza: la vista *Scadenze*, i KPI urgenze e **l'intero job email di priorità 3** non
@@ -488,7 +488,7 @@ del cookie.
 ### 8.2 `PUT` dell'inventario serializzate e coalescate
 
 `persist()` è chiamata anche durante drag e resize dei rack
-([:1707](handoff/Sala%20Server%20v2.dc.html#L1707), [:1735](handoff/Sala%20Server%20v2.dc.html#L1735)):
+([:1707](frontend/Sala%20Server%20v2.dc.html#L1707), [:1735](frontend/Sala%20Server%20v2.dc.html#L1735)):
 decine di eventi al secondo. E la versione è una sequenza stretta — due `PUT` in parallelo
 dallo stesso client fanno **409 contro sé stessi**.
 
@@ -550,7 +550,7 @@ slot, rack dentro i limiti della sala, `tipo`/`stato` fra i valori ammessi, id u
 ### 8.4 Ciclo di vita degli `_uid`
 
 Gli id di business sono rinominabili: `dr.id` del form rack finisce diretto nell'oggetto
-([:2809](handoff/Sala%20Server%20v2.dc.html#L2809)), con `_orig` che tiene il vecchio.
+([:2809](frontend/Sala%20Server%20v2.dc.html#L2809)), con `_orig` che tiene il vecchio.
 Se l'identità è il codice, **rinominare `R01` in `R02` è una cancellazione più un
 inserimento**: storico perso, audit bugiardo, foto orfana.
 
@@ -612,7 +612,7 @@ li hanno: migrazione Alembic, non `PUT`.
 
 #### Fix necessario nel frontend
 
-`saveDraft` dei dispositivi ([:2925](handoff/Sala%20Server%20v2.dc.html#L2925)) costruisce
+`saveDraft` dei dispositivi ([:2925](frontend/Sala%20Server%20v2.dc.html#L2925)) costruisce
 un oggetto nuovo e sostituisce il precedente:
 
 ```js
@@ -630,14 +630,14 @@ if (!dev._uid) dev._uid = crypto.randomUUID();
 ```
 
 Il percorso dei rack usa `Object.assign(t, …)`
-([:2809](handoff/Sala%20Server%20v2.dc.html#L2809)) su un oggetto esistente e conserva già
+([:2809](frontend/Sala%20Server%20v2.dc.html#L2809)) su un oggetto esistente e conserva già
 i campi sconosciuti: per la modifica va bene così, ma la **creazione** di rack, sale e siti
 va comunque integrata con la generazione dell'`_uid` (rispettivamente
-[:2110](handoff/Sala%20Server%20v2.dc.html#L2110) per i siti e
-[:2136](handoff/Sala%20Server%20v2.dc.html#L2136) per le sale).
+[:2110](frontend/Sala%20Server%20v2.dc.html#L2110) per i siti e
+[:2136](frontend/Sala%20Server%20v2.dc.html#L2136) per le sale).
 
 Attenzione anche all'import tabellare CSV/XLSX
-([:2751](handoff/Sala%20Server%20v2.dc.html#L2751)): crea e aggiorna dispositivi in blocco,
+([:2751](frontend/Sala%20Server%20v2.dc.html#L2751)): crea e aggiorna dispositivi in blocco,
 quindi deve generare `_uid` per i nuovi e **preservarli** per gli aggiornati. È il percorso
 che tocca più righe in una volta, quindi quello dove un `_uid` perso fa più danno.
 
@@ -678,7 +678,7 @@ arbitraria:
 
 | Cosa | Dove |
 |---|---|
-| logica di identità (generazione, validazione, match, mappatura colonne) | `handoff/identity.js` |
+| logica di identità (generazione, validazione, match, mappatura colonne) | `frontend/identity.js` |
 | migrazione una-volta-sola del seed | `tools/migrate-seed-uids.mjs` (197 entità) |
 | verifica durevole del seed | `tools/verify-seed-migration.mjs` + `tools/seed-migration.expected.json` |
 | fixture neutre rispetto al linguaggio | `fixtures/identity/*.json` (32) |
@@ -743,7 +743,7 @@ test che chiudano il giro:
 1. **modifica dispositivo** — carica documento, modifica un dispositivo via `saveDraft`,
    `PUT`, ricarica: `_uid` identico, l'evento è `update` e non `add`+`delete`
 2. **rinomina rack** — cambia `id` di un rack: `_uid` identico, evento `rename`
-3. **spostamento dispositivo** fra rack (drag, [:1832](handoff/Sala%20Server%20v2.dc.html#L1832)):
+3. **spostamento dispositivo** fra rack (drag, [:1832](frontend/Sala%20Server%20v2.dc.html#L1832)):
    `_uid` identico, evento `move`
 4. **creazione** di sito, sala, rack, dispositivo: `_uid` presente, conforme a UUID, unico
 5. **import tabellare** su righe esistenti: nessun `_uid` cambiato, nessun `add` spurio
@@ -758,7 +758,7 @@ un bug del frontend, e un test che esercita solo l'API non lo vedrebbe.
 #### Deep link
 
 I deep link (`#rack=loc/room/rackid`,
-[:1124](handoff/Sala%20Server%20v2.dc.html#L1124)) andranno spostati su `_uid`, altrimenti
+[:1124](frontend/Sala%20Server%20v2.dc.html#L1124)) andranno spostati su `_uid`, altrimenti
 si rompono al primo rinomino. Non è bloccante per la fase 1, ma va fatto prima di
 distribuire link salvati agli utenti.
 
@@ -928,7 +928,7 @@ registro esiste per impedire.
 che è esattamente il motivo per cui l'audit è stato spostato sul server.
 
 Quindi: nessun `DELETE`, solo `disabled_at`. L'azione «Rimossa utenza» della UI
-([:2329](handoff/Sala%20Server%20v2.dc.html#L2329)) diventa una disattivazione. Disattivare
+([:2329](frontend/Sala%20Server%20v2.dc.html#L2329)) diventa una disattivazione. Disattivare
 **revoca subito tutte le sessioni** dell'utente, altrimenti resta operativo fino alla
 scadenza del cookie. Il login rifiuta gli utenti disabilitati.
 
@@ -997,7 +997,7 @@ deve vedere dal nome che non è attendibile.
 Il vantaggio pratico è che il diff serve già all'autorizzazione (§8.3), quindi l'audit
 verbalizza *quello che è cambiato davvero* invece di quello che il client sostiene, e costa
 quasi zero in più. Sparisce anche il limite FIFO a 500 righe
-([:1401](handoff/Sala%20Server%20v2.dc.html#L1401)): su tabella la retention è per data.
+([:1401](frontend/Sala%20Server%20v2.dc.html#L1401)): su tabella la retention è per data.
 
 ### 8.10 Motore di diff identity-aware
 
@@ -1055,7 +1055,7 @@ Precisazioni che evitano ambiguità in implementazione:
   e l'autorizzazione lavora per evento.
 - **`reorder` si emette solo se non c'è nessun `add`/`delete` fra i fratelli**, altrimenti
   l'ordine è cambiato come conseguenza e segnalarlo è rumore. Serve al caso reale
-  «Riordinata sala» ([:1426](handoff/Sala%20Server%20v2.dc.html#L1426)).
+  «Riordinata sala» ([:1426](frontend/Sala%20Server%20v2.dc.html#L1426)).
 - **`vani`, `notifiche`, `smtp`** non hanno `_uid`: si confrontano per valore e producono un
   `update` sul genitore (la sala) o sulla chiave di impostazione. Le **voci di manuale**
   invece hanno `_uid` e sono entità a pieno titolo (`entity: 'manual'`, ambito `manuale`):
@@ -1179,9 +1179,9 @@ significherebbe scoprirla durante la migrazione.
 #### `vani` → **value object posseduti dalla sala**, senza `_uid`
 
 Non è una preferenza estetica, è quello che dice il codice. I vani nascono con la sala
-([:2176](handoff/Sala%20Server%20v2.dc.html#L2176), un unico vano che copre la stanza) e da
-lì in poi vengono **soltanto disegnati** ([:1565](handoff/Sala%20Server%20v2.dc.html#L1565)
-e [:1589](handoff/Sala%20Server%20v2.dc.html#L1589)). Non esiste interfaccia per aggiungerne,
+([:2176](frontend/Sala%20Server%20v2.dc.html#L2176), un unico vano che copre la stanza) e da
+lì in poi vengono **soltanto disegnati** ([:1565](frontend/Sala%20Server%20v2.dc.html#L1565)
+e [:1589](frontend/Sala%20Server%20v2.dc.html#L1589)). Non esiste interfaccia per aggiungerne,
 rimuoverne o modificarne uno: non hanno codice, non hanno nome, l'utente non può nominarne
 uno né distinguerlo da un altro.
 
@@ -1201,7 +1201,7 @@ Il contrario, per ragioni simmetriche: gli admin le creano, modificano ed elimin
 una, hanno un `id` e un titolo, la fase 2 le normalizza in `manual_entries`, e la UI le
 indirizza singolarmente.
 
-E soprattutto `manSave` ([:1336](handoff/Sala%20Server%20v2.dc.html#L1336)) ricostruiva
+E soprattutto `manSave` ([:1336](frontend/Sala%20Server%20v2.dc.html#L1336)) ricostruiva
 l'oggetto da zero e lo sostituiva nell'array — **esattamente la stessa classe di bug di
 `saveDraft`**, trovata solo perché la domanda è stata posta. Senza `_uid` ogni modifica di
 una voce di manuale sarebbe stata un delete+add.
@@ -1242,7 +1242,7 @@ Nota sul campo `versione: 3` presente nel seed: era un contatore informale del p
 senza semantica applicata da nessuna parte. Resta dov'è per non alterare i dati, ma **non** è
 la versione di schema.
 
-Implementazione: `backend/app/identity/schema.py`, `handoff/identity.js`.
+Implementazione: `backend/app/identity/schema.py`, `frontend/identity.js`.
 
 ### 8.14 Forma canonica: i default documentati, materializzati
 
@@ -1272,7 +1272,7 @@ Proprietà garantite, con test dedicati:
   Solo `None`/`undefined` viene sostituito.
 
 Le due tabelle di default (`ENTITY_DEFAULTS`, `SETTINGS_DEFAULTS`) esistono in doppia copia —
-`backend/app/identity/canonical.py` e `handoff/identity.js` — e vanno tenute allineate. Ogni
+`backend/app/identity/canonical.py` e `frontend/identity.js` — e vanno tenute allineate. Ogni
 voce corrisponde a un `|| default` che l'applicazione già applica in lettura: materializzarlo
 non cambia il significato del documento, lo rende esplicito.
 
@@ -2002,7 +2002,7 @@ Le ultime due si distinguono, e la distinzione è il punto:
 
 ### 8.33 Frontend: integrazione con l'API
 
-`handoff/api.js` — client con URL **sempre relative** (`/api/...`). L'app è servita
+`frontend/api.js` — client con URL **sempre relative** (`/api/...`). L'app è servita
 dallo stesso nginx che fa da proxy, quindi non esiste un host da configurare; un URL
 assoluto sarebbe un valore da tenere allineato fra ambienti e, con `SameSite=strict`,
 farebbe anche cadere il cookie. `credentials: 'same-origin'`, mai `'include'`.
@@ -5320,7 +5320,7 @@ esatto che trovava la macchina sbagliata.
 #### 8.50.1 Come è fatto: un modello, tre implementazioni, un contratto in dati
 
     backend/app/domain.py        Python, e per estensione SQL
-    handoff/domain.js            JavaScript, per il frontend
+    frontend/domain.js            JavaScript, per il frontend
     fixtures/domain/*.json       il CONTRATTO: dati, non codice
 
 ⚠ **Le attese delle fixture sono scritte a mano**, e questo è il cardine. Il generatore
@@ -5904,7 +5904,7 @@ ricerca per `presenza` e per `stato` trova il dispositivo marcato; `?stato=disme
 plurale è 422; tutte le percentuali coincidono con l'aritmetica intera HALF-UP; il rack
 `CS-Q01` la cui fila **è** «—» esce come gruppo `assigned: true` distinto.
 
-⚠ Un passo dimenticato che vale la pena scrivere: `handoff/domain.js` non era
+⚠ Un passo dimenticato che vale la pena scrivere: `frontend/domain.js` non era
 nell'allowlist di nginx né nella `COPY` del `Dockerfile` del web. Il modulo sarebbe
 stato 404 nel browser — l'applicazione non è servita da un bundler, ma da un elenco di
 file esplicito (§6), e un file nuovo va aggiunto a mano in tre posti. Trovato provando
@@ -6020,7 +6020,7 @@ passi. Il diff è di 376 righe aggiunte e 20 togliete, e le aggiunte sono quasi 
 `presenza: "presente"` — la canonicalizzazione della 2G, che quei corpora non avevano mai
 visto perché non erano stati rigenerati allora.
 
-#### 8.51.2 Le due regole, in un posto solo: `handoff/queries.js`
+#### 8.51.2 Le due regole, in un posto solo: `frontend/queries.js`
 
 Chiedere un calcolo a un server mentre l'utente continua a lavorare introduce due
 problemi che non esistevano quando il calcolo era locale. Nessuno dei due è difficile;
@@ -6888,7 +6888,7 @@ suo, che è ciò che §26 della 2I intendeva con «un altro ambiente».
 §32 chiede di eseguire **ogni** suite committata, non un sottoinsieme scelto. È il
 requisito che ha prodotto il ritrovamento più imbarazzante e più utile della fase.
 
-`tools/xlsx-roundtrip-test.py` serviva `handoff/` con un `http.server` locale ed
+`tools/xlsx-roundtrip-test.py` serviva `frontend/` con un `http.server` locale ed
 entrava con `admin`/`admin`. Quella era la forma dell'applicazione **prima** che
 arrivasse l'autenticazione: il test risale al terzo commit del progetto, l'autenticazione
 al sesto. Da allora il login non passava, il pannello di accesso restava sopra la
@@ -6991,7 +6991,7 @@ produzione.
 3. ~~**Generazione degli `_uid` lato client** (§8.4, §8.12): `crypto.randomUUID()` sui
    percorsi di creazione, fix di `saveDraft` e `manSave`, identità nell'import tabellare,
    rifiuto dei backup JSON legacy, migrazione una-volta-sola del seed, test~~
-   ✔ **fatto** — `handoff/identity.js`, `tools/migrate-seed-uids.mjs`,
+   ✔ **fatto** — `frontend/identity.js`, `tools/migrate-seed-uids.mjs`,
    `tools/identity-tests.mjs`, `tools/identity-ui-test.py`
 4. ~~**Motore di diff identity-aware** (§8.10) e validatore, puri, con fixture condivise e
    test~~ ✔ **fatto** — `backend/app/identity/`, `fixtures/identity/`, `backend/tests/`.
@@ -7018,7 +7018,7 @@ produzione.
    `backend/app/api/users.py`, `backend/app/auth/users.py`
 6-quater. ~~Correzioni di confine (porte standard §8.31, codice `password_change_required`
    in minuscolo, semantica transazionale §8.32) e **integrazione del frontend** con
-   l'API (§8.33)~~ ✔ **fatto** — `handoff/api.js`, `tools/browser-e2e-test.py`.
+   l'API (§8.33)~~ ✔ **fatto** — `frontend/api.js`, `tools/browser-e2e-test.py`.
    Da qui in avanti i dati dell'utente sono durevoli e passano dal server.
 6-quinquies. ~~Regressione sulle intestazioni `X-Forwarded-*` (§8.34): nginx le
    sovrascrive, l'API si fida solo del proxy, e la porta dell'API non è più pubblicata~~
@@ -7103,7 +7103,7 @@ produzione.
     di consegna di `test_worker_pg.py` passano **non modificati**: è la prova che solo
     la sorgente è cambiata.
 19. ~~**Fase 2G — debito semantico**: una semantica sola~~ ✔ **fatto** (§8.50) —
-    `app/domain.py`, `handoff/domain.js`, `fixtures/domain/*.json`, migrazione
+    `app/domain.py`, `frontend/domain.js`, `fixtures/domain/*.json`, migrazione
     `0013_domain`, `MAPPER_VERSION` 2. Chiuse le voci da 1 a 9 del registro più la 11:
     `presenza` separata da `stato`, una definizione di «U usate», percentuale HALF-UP
     intera, gruppi di fila strutturali, indirizzo esatto e IPv6, un interprete di date
@@ -7115,7 +7115,7 @@ produzione.
     `deploy/README.md`): la versione della mappa è cambiata.
 
 20. ~~**Fase 2H — migrazione del frontend** alle rotte nuove, più la vista
-    Dismessi~~ ✔ **fatto** (§8.51) — `handoff/queries.js`, `tools/queries-ui-test.py`,
+    Dismessi~~ ✔ **fatto** (§8.51) — `frontend/queries.js`, `tools/queries-ui-test.py`,
     `tools/query-client-tests.mjs`, `tools/queries-perf.py`. Ricerca, capacità e
     scadenze non si calcolano più nel browser; resta UNA implementazione locale di
     capacità (pannello del rack, dashboard, export), dichiarata e legata al contratto

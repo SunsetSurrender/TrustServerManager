@@ -1014,7 +1014,7 @@ cambia soltanto CHI le chiama. Se si viene dalla 2G non c'è nessun passo sul da
 C'è però un passo che non si può saltare, e che rompe tutto invece di una parte:
 
 ```bash
-# L'immagine web COPIA i file statici al build. `handoff/queries.js` è nuovo:
+# L'immagine web COPIA i file statici al build. `frontend/queries.js` è nuovo:
 # senza ricostruire, il browser riceve 404 sull'import e l'applicazione NON PARTE.
 docker compose build web && docker compose up -d web
 

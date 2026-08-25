@@ -2,7 +2,7 @@
 // make-query-fixtures.mjs — genera fixtures/query/*.json
 //
 // Le fixture sono il CONTRATTO di PARITÀ fra:
-//   - l'implementazione ESISTENTE, che è il frontend (handoff/Sala Server v2.dc.html)
+//   - l'implementazione ESISTENTE, che è il frontend (frontend/Sala Server v2.dc.html)
 //   - le query SQL della fase 2E (backend/app/inventory/queries.py)
 //
 // ⚠ Perché qui le attese si CALCOLANO, al contrario di make-identity-fixtures.mjs.
@@ -45,7 +45,7 @@ const U = (prefix) => {
 // «VERBATIM» sono confrontate carattere per carattere dal controllo statico: non
 // vanno riformattate, nemmeno per allinearle meglio.
 
-// --- handoff/Sala Server v2.dc.html, `static ipToNum(ip)` ---
+// --- frontend/Sala Server v2.dc.html, `static ipToNum(ip)` ---
 function ipToNum(ip) {
   /* VERBATIM */ const m = String(ip || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   /* VERBATIM */ if (!m) return null;
@@ -54,7 +54,7 @@ function ipToNum(ip) {
   /* VERBATIM */ return ((p[0] * 256 + p[1]) * 256 + p[2]) * 256 + p[3];
 }
 
-// --- handoff/Sala Server v2.dc.html, `static parseIpQuery(q)` ---
+// --- frontend/Sala Server v2.dc.html, `static parseIpQuery(q)` ---
 function parseIpQuery(q) {
   q = String(q || '').trim();
   let m = q.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/(\d{1,2})$/);

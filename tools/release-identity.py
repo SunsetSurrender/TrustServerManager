@@ -322,9 +322,9 @@ def identita_frontend() -> dict:
 # 7. le dipendenze vendorizzate del frontend
 # ==================================================================
 def identita_vendor() -> dict:
-    somme = ROOT / "handoff" / "vendor" / "SHA256SUMS"
+    somme = ROOT / "frontend" / "vendor" / "SHA256SUMS"
     if not somme.is_file():
-        problema("handoff/vendor/SHA256SUMS assente")
+        problema("frontend/vendor/SHA256SUMS assente")
         return {}
     fuori: dict[str, dict] = {}
     # `utf-8-sig`: il file ha un BOM, e senza questo il primo digest arriverebbe
@@ -338,7 +338,7 @@ def identita_vendor() -> dict:
             problema(f"riga di SHA256SUMS non interpretabile: {riga!r}")
             continue
         atteso, nome = pezzi
-        path = ROOT / "handoff" / "vendor" / nome
+        path = ROOT / "frontend" / "vendor" / nome
         if not path.is_file():
             problema(f"dipendenza vendorizzata assente: {nome}")
             continue

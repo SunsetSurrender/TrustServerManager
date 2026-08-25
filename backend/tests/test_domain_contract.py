@@ -1,7 +1,7 @@
 """Il lato Python del contratto di dominio (fase 2G, §8.50).
 
 Esegue `fixtures/domain/*.json` contro `app/domain.py`. Le stesse fixture le esegue
-`tools/domain-contract-tests.mjs` contro `handoff/domain.js`, e
+`tools/domain-contract-tests.mjs` contro `frontend/domain.js`, e
 `test_domain_sql_pg.py` contro lo SQL.
 
 ⚠ Le attese NON si aggiornano perché un test è rosso. Sono decisioni di prodotto
@@ -481,7 +481,7 @@ FUZZ = load("addresses-fuzz")
 
 
 def test_il_corpus_differenziale_degli_indirizzi():
-    """⚠ Attese CALCOLATE da `handoff/domain.js`, e qui sta la loro utilità.
+    """⚠ Attese CALCOLATE da `frontend/domain.js`, e qui sta la loro utilità.
 
     Non è un giudizio di prodotto — quelli stanno in `addresses.json`, scritti a mano
     — è la pretesa che le DUE implementazioni non divergano su nessuna delle forme

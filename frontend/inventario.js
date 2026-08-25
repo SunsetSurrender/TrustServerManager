@@ -6,7 +6,7 @@
 // Ogni location, sala, rack, dispositivo e voce di manuale porta un `_uid`:
 // UUID v4 immutabile che è la vera identità dell'entità. I codici (`id`:
 // R01, srv-db-01) sono rinominabili e NON sono identità.
-// Vedi BACKEND-PLAN.md §8.4 e handoff/identity.js.
+// Vedi BACKEND-PLAN.md §8.4 e frontend/identity.js.
 //
 // I `vani` non hanno `_uid`: sono la geometria della sala, non entità.
 //

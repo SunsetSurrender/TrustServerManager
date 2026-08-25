@@ -1,5 +1,5 @@
 // ============================================================
-// query-client-tests.mjs — le due regole di handoff/queries.js (fase 2H)
+// query-client-tests.mjs — le due regole di frontend/queries.js (fase 2H)
 //
 // Prova le due proprietà su cui poggia tutta la migrazione del frontend, e le prova
 // SENZA browser: sono logica, non interfaccia, e un test che le verifica in un
@@ -15,7 +15,7 @@
 // ============================================================
 import {
   ERROR, MISMATCH, OK, QueryClient, STALE, debounce, revisionOf, sameRevision,
-} from '../handoff/queries.js';
+} from '../frontend/queries.js';
 
 let pass = 0;
 const failures = [];

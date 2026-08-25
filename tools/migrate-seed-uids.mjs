@@ -18,19 +18,19 @@
 // Uso (node non serve installato sulla macchina: gira in container)
 //   docker run --rm -v "$PWD":/w -w /w node:22-alpine node tools/migrate-seed-uids.mjs
 //
-// Scrive handoff/inventario.js. Il file diventa un letterale esplicito invece
+// Scrive frontend/inventario.js. Il file diventa un letterale esplicito invece
 // di un generatore: una volta che ogni entità ha un'identità stabile da
 // versionare, il seed è dato, non codice.
 // ============================================================
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 
-const SEED_URL = new URL('../handoff/inventario.js', import.meta.url);
-const SEED_OUT = 'handoff/inventario.js';
+const SEED_URL = new URL('../frontend/inventario.js', import.meta.url);
+const SEED_OUT = 'frontend/inventario.js';
 
 const { DATI: doc } = await import(SEED_URL.href);
 const { validateDocument, CURRENT_SCHEMA_VERSION, checkSchemaVersion } =
-  await import(new URL('../handoff/identity.js', import.meta.url).href);
+  await import(new URL('../frontend/identity.js', import.meta.url).href);
 
 // La migrazione è anche l'unico posto che può PORTARE il documento alla versione
 // di schema corrente: il percorso normale rifiuta e rimanda qui (§8.13).
@@ -68,7 +68,7 @@ doc.locations = (doc.locations || []).map((L) => {
       return uidFirst(K);
     });
     // I `vani` non vengono toccati: value object posseduti dalla sala, senza
-    // identità propria. Motivazione in fondo a handoff/identity.js.
+    // identità propria. Motivazione in fondo a frontend/identity.js.
     return uidFirst(R);
   });
   return uidFirst(L);
@@ -100,7 +100,7 @@ const header = `// ============================================================
 // Ogni location, sala, rack, dispositivo e voce di manuale porta un \`_uid\`:
 // UUID v4 immutabile che è la vera identità dell'entità. I codici (\`id\`:
 // R01, srv-db-01) sono rinominabili e NON sono identità.
-// Vedi BACKEND-PLAN.md §8.4 e handoff/identity.js.
+// Vedi BACKEND-PLAN.md §8.4 e frontend/identity.js.
 //
 // I \`vani\` non hanno \`_uid\`: sono la geometria della sala, non entità.
 //

@@ -1,4 +1,4 @@
-"""Validazione dell'identità. Rispecchia handoff/identity.js, stessi codici.
+"""Validazione dell'identità. Rispecchia frontend/identity.js, stessi codici.
 
 Puro: nessuna dipendenza da FastAPI o dal database.
 
@@ -19,7 +19,7 @@ from typing import Any
 from .model import Entity, walk
 
 #: Codici di errore stabili. Sono un contratto: le fixture in fixtures/identity/
-#: li usano e li usa anche il frontend (handoff/identity.js).
+#: li usano e li usa anche il frontend (frontend/identity.js).
 MISSING_UID = "missing_uid"
 MALFORMED_UID = "malformed_uid"
 DUPLICATE_UID = "duplicate_uid"

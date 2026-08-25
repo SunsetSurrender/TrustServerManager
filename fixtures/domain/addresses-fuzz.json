@@ -1,5 +1,5 @@
 {
- "_nota": "CORPUS DIFFERENZIALE. Attese CALCOLATE da handoff/domain.js, non scritte a mano: qui non si giudica un comportamento, si pretende che le due implementazioni non divergano su nessuna forma. I casi che portano una DECISIONE stanno in addresses.json, con le attese a mano. Seme fisso: nessun test deve dipendere da quale numero casuale e uscito oggi.",
+ "_nota": "CORPUS DIFFERENZIALE. Attese CALCOLATE da frontend/domain.js, non scritte a mano: qui non si giudica un comportamento, si pretende che le due implementazioni non divergano su nessuna forma. I casi che portano una DECISIONE stanno in addresses.json, con le attese a mano. Seme fisso: nessun test deve dipendere da quale numero casuale e uscito oggi.",
  "_generato": "tools/make-domain-fixtures.mjs",
  "count": 4567,
  "verdicts": {

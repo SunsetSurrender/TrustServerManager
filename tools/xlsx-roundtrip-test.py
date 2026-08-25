@@ -26,7 +26,7 @@ tre controlli fallivano parlando di altezze.
 
 ⚠ PORTATO ALLO STACK VERO DALLA FASE 2J.
 
-La prima stesura serviva `handoff/` con un `http.server` locale ed entrava con
+La prima stesura serviva `frontend/` con un `http.server` locale ed entrava con
 `admin`/`admin`. Quella era la forma dell'applicazione PRIMA che arrivasse
 l'autenticazione: da allora il frontend prende i dati dall'API e non esiste piu'
 nessun `admin/admin`, quindi il login non passava, il pannello di accesso restava
@@ -37,7 +37,7 @@ committata invece di un sottoinsieme scelto (§32 del requisito della 2J).
 
 Che cosa protegge, e perche' valeva portarlo: un giro export->import che azzera le
 altezze a 1 e riporta ogni stato ad "attivo" e' PERDITA DI DATI su una funzione che
-viene distribuita (`handoff/xlsx.js` e' nell'allowlist dell'immagine web). Nessuna
+viene distribuita (`frontend/xlsx.js` e' nell'allowlist dell'immagine web). Nessuna
 altra suite copre quella semantica.
 
 ⚠ SCRIVE SUL SERVER, e la prima stesura del commento diceva il contrario.

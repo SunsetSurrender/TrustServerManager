@@ -1,7 +1,7 @@
 """Il lato SQL del contratto di dominio (fase 2G, §8.50). PostgreSQL vero.
 
 Terza implementazione, stesse fixture. `test_domain_contract.py` le esegue contro
-`app/domain.py`, `tools/domain-contract-tests.mjs` contro `handoff/domain.js`, e questo
+`app/domain.py`, `tools/domain-contract-tests.mjs` contro `frontend/domain.js`, e questo
 file contro le interrogazioni su PostgreSQL.
 
 ⚠ Perché serve un file a parte, invece di fidarsi di `test_queries_pg.py`.

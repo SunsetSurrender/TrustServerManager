@@ -28,12 +28,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import {
   validateDocument, walkEntities, isUid,
   canonicalise, canonicalSort, stripUids, checkSchemaVersion, CURRENT_SCHEMA_VERSION,
-} from '../handoff/identity.js';
+} from '../frontend/identity.js';
 
 const EXPECTED = 'tools/seed-migration.expected.json';
 const update = process.argv.includes('--update');
 
-const { DATI: seed } = await import(new URL('../handoff/inventario.js', import.meta.url).href);
+const { DATI: seed } = await import(new URL('../frontend/inventario.js', import.meta.url).href);
 
 // Forma canonica per l'hash: default materializzati (§8.14), `_uid` rimossi,
 // chiavi ordinate. Canonicalizzare PRIMA di calcolare l'hash rende il controllo

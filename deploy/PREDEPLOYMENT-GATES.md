@@ -76,8 +76,17 @@ due sezioni che seguono vanno lette alla luce di questo.
 
 | | prima | dopo il rename |
 |---|---|---|
-| albero del rilascio | `18f7125…` | **`5e36a7915da677e45791f7bd5d0984f6ce888d19695fbce45066027525ebc8ef`** |
+| albero del rilascio | `18f7125…` | **`fb8391889a87feb566043030d70a36fdd4ae8047eaf29abef515126af0246506`** |
 | file | 117 | 117 (20 sotto `frontend/`) |
+
+⚠ Una prima stesura di questa tabella riportava `5e36a791…`. Era
+sbagliato: l'ho misurato con l'albero di lavoro **sporco**, mentre
+`web/Dockerfile` era corretto su disco ma non ancora committato — e
+`release-identity --check` lo aveva detto in chiaro, «albero di lavoro
+SPORCO: la qualificazione non identificherebbe niente di ricostruibile».
+Un digest misurato su una scrivania non identifica un rilascio. Il valore
+qui sopra è stato preso ad albero pulito e verificato stabile su due
+misure consecutive.
 
 Perché cambia: il digest è calcolato su coppie *(percorso, blob-id)*. I
 blob sono **tutti identici** — `git diff --stat 23d47dc..HEAD` sui 25

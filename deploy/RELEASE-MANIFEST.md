@@ -26,7 +26,7 @@ percorsi che avevano in `23d47dc`; nel repository di oggi stanno sotto
 `frontend/`. I **blob sono identici** (rename puro, `0 insertions, 0
 deletions`) e il contenuto servito dall'immagine web è byte-identico —
 ma i percorsi fanno parte dell'identità, quindi **l'albero calcolato su
-HEAD non è `18f7125…`**: è `5e36a791…`. Questo manifesto descrive il
+HEAD non è `18f7125…`**: è `fb839188…`. Questo manifesto descrive il
 rilascio **qualificato**, che resta `23d47dc` / `18f7125…` e resta
 distribuibile. Dettagli e conseguenze in
 [PREDEPLOYMENT-GATES.md](PREDEPLOYMENT-GATES.md).

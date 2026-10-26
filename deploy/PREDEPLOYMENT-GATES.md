@@ -54,7 +54,7 @@ dipendono dal codice: `tools/run-backend-tests.ps1` (PostgreSQL),
 | # | cancello | stato al 2026-10-26 |
 |---|---|---|
 | §1A | «Rack R09 — Test» | **CHIUSO** — resta, decisione di Matteo Zandonella |
-| §2 | VM `tsm-prd-01` | **ESISTE** — da misurare con `preinstall-acceptance.sh` |
+| §2 | VM | **ESISTE** con hostname definitivo **`tsm-prd`** (non `tsm-prd-01`: i riferimenti più sotto sono storici) — da misurare con `preinstall-acceptance.sh` |
 | §2b | swap 8 GiB | **DA FARE** — README §2.7 |
 | §4 | SELinux | **NON APPLICABILE** — non in uso per decisione; `--senza-selinux` |
 | §7 | certificato TLS | **SOSTITUITO** — CA interna, `deploy/make-internal-tls.sh` (README §3.4); la CA va distribuita ai client |

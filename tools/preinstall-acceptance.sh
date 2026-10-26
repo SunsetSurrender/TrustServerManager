@@ -2,7 +2,7 @@
 # =====================================================================
 # Fase 2K-A — accettazione PRIMA dell'installazione, sull'host reale.
 #
-# Misura tsm-prd-01 e lo confronta con il rilascio QUALIFICATO. Non
+# Misura tsm-prd e lo confronta con il rilascio QUALIFICATO. Non
 # installa niente, non avvia lo stack, non crea stato applicativo:
 # nessun cluster PostgreSQL, nessun amministratore, nessuna versione
 # di inventario, nessuna cronologia di audit.
@@ -37,7 +37,7 @@ set -uo pipefail
 # Valori PINNATI dal rilascio qualificato. Sono scritti qui perché il
 # compito di questo script è confrontare l'host con ciò che è stato
 # qualificato: la costante È il riferimento, non un'ipotesi.
-ATTESO_HOSTNAME="tsm-prd-01"
+ATTESO_HOSTNAME="tsm-prd"          # nome definitivo (2026-10-26)
 ATTESI_VCPU=4
 ATTESA_RAM_GIB=8
 ATTESO_SWAP_GIB=8          # ⚠ 8, non i 2 dell'host WSL di qualificazione
@@ -112,7 +112,7 @@ VIETATI=(
 
 MANIFESTO=""
 ESERCITA_SELINUX=0
-# SELinux non in uso su tsm-prd-01: è una DECISIONE dell'amministratore
+# SELinux non in uso su tsm-prd: è una DECISIONE dell'amministratore
 # (2026-10-26), non un requisito mancato. Si dichiara con --senza-selinux, così
 # resta scritta nel manifesto invece di sparire in un controllo saltato.
 SENZA_SELINUX=0
@@ -170,7 +170,7 @@ if [ "$H" = "$ATTESO_HOSTNAME" ]; then
     ok "hostname: $H"
 else
     ko "hostname: '${H:-?}', atteso '$ATTESO_HOSTNAME'" \
-       "questo script è per tsm-prd-01: su un'altra macchina i risultati non valgono"
+       "questo script è per tsm-prd: su un'altra macchina i risultati non valgono"
 fi
 fatto "hostname=${H:-?}"
 

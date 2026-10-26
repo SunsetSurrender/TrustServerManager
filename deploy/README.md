@@ -1,4 +1,4 @@
-# Messa in produzione — `tsm-prd-01`
+# Messa in produzione — `tsm-prd`
 
 Archiviazione, avvio del servizio e cosa fare quando il disco dei dati non c'è.
 Riferimento di progetto: `BACKEND-PLAN.md` §8.40.
@@ -14,7 +14,7 @@ servizio.
 
 | | |
 |---|---|
-| hostname | `tsm-prd-01` |
+| hostname | `tsm-prd` |
 | vCPU | 4 |
 | RAM | 8 GB |
 | swap | 8 GB, **file di swap sul disco 1** |
@@ -57,7 +57,7 @@ ripristino.
 
 Da verificare nella configurazione del job:
 
-- la VM `tsm-prd-01` è inclusa;
+- la VM `tsm-prd` è inclusa;
 - **nessuna esclusione di dischi** (in Veeam: *VM object → Disks → All disks*);
 - il ripristino viene provato almeno una volta, e dopo il ripristino
   `findmnt -M /srv/tsm-data` mostra ancora un filesystem dedicato.
@@ -173,7 +173,7 @@ propri, ext4 ha `lost+found` — e `initdb` rifiuta una directory non vuota.
 
 ### 2.6 SELinux: etichetta **persistente** (solo se SELinux è attivo)
 
-> **Su `tsm-prd-01` SELinux non è in uso** (decisione del 2026-10-26): questa sezione
+> **Su `tsm-prd` SELinux non è in uso** (decisione del 2026-10-26): questa sezione
 > si salta. Il preflight esegue i controlli 27/28 solo quando `getenforce` risponde
 > `Enforcing`, e l'accettazione registra la scelta con `--senza-selinux`. Se un giorno
 > SELinux viene attivato, questa sezione va eseguita **prima** di riavviare TSM.
@@ -230,7 +230,7 @@ mescolerebbe traffico di paginazione con l'I/O del database.
 Il percorso, in ordine:
 
 ```text
-macchina di build (Linux/WSL, con rete)          tsm-prd-01
+macchina di build (Linux/WSL, con rete)          tsm-prd
 ---------------------------------------          ---------------------------------
 3.1 tools/build-release.sh --save <dir>
     git commit deploy/release.pin
@@ -326,7 +326,7 @@ CA interna di cui i client si fidano. Lo script crea la CA (una volta), il
 certificato server con i nomi giusti, e sistema proprietario e permessi per nginx:
 
 ```bash
-deploy/make-internal-tls.sh --name tsm-prd-01.par-tec.it --name tsm-prd-01 --ip <IP della VM>
+deploy/make-internal-tls.sh --name tsm-prd.telecomitalia.it --name tsm-prd --ip <IP della VM>
 ```
 
 - `--name` va ripetuto per **ogni** nome con cui gli operatori aprono TSM: un nome
@@ -355,7 +355,7 @@ segreto e cambia da un'installazione all'altra:
 cat > /opt/tsm/.env <<'ENV'
 # Origine pubblica: lo schema e il nome con cui gli operatori aprono TSM.
 # Più di una separate da virgola. Deve combaciare con i --name del certificato.
-TSM_PUBLIC_ORIGIN=https://tsm-prd-01.par-tec.it
+TSM_PUBLIC_ORIGIN=https://tsm-prd.telecomitalia.it
 
 # Relay SMTP — si compila quando il relay è deciso (vedi sotto).
 TSM_SMTP_HOST=
@@ -385,7 +385,7 @@ Poi l'invio di prova dalla pagina Impostazioni dell'applicazione.
 ### 3.5 Accettazione e preflight, prima di systemd
 
 Prima l'accettazione, che misura la macchina contro il pin del rilascio (vCPU,
-RAM, swap, mount del disco dati, immagini, artefatti, segreti). Su `tsm-prd-01`
+RAM, swap, mount del disco dati, immagini, artefatti, segreti). Su `tsm-prd`
 SELinux non è in uso, e lo si dichiara:
 
 ```bash
@@ -1300,7 +1300,7 @@ findmnt -M /srv/tsm-data -o OPTIONS -n | grep -qw rw \
   || alert "TSM: /srv/tsm-data in sola lettura"
 
 # 3. readiness dell'applicazione
-curl -fsk https://tsm-prd-01/api/ready >/dev/null || alert "TSM: not ready"
+curl -fsk https://tsm-prd/api/ready >/dev/null || alert "TSM: not ready"
 
 # 4. occupazione (vedi soglie sotto)
 df --output=pcent /srv/tsm-data | tail -1

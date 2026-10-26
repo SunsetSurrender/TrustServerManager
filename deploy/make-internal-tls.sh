@@ -20,7 +20,7 @@
 # finito il lavoro, conviene spostarla fuori dalla macchina.
 #
 # Uso (come root, sull'host):
-#   deploy/make-internal-tls.sh --name tsm-prd-01.par-tec.it --name tsm-prd-01 [--ip 10.1.2.3]
+#   deploy/make-internal-tls.sh --name tsm-prd.telecomitalia.it --name tsm-prd [--ip 10.1.2.3]
 #   deploy/make-internal-tls.sh ... --force     # rinnovo: sostituisce il certificato server
 #
 # Opzioni: --dir /opt/tsm  --ca-dir /root/tsm-ca  --days 825

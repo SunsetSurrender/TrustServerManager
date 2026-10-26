@@ -2,7 +2,7 @@
 # =====================================================================
 # Fase 2K-A §6 — pacchetto di trasferimento verso l'host reale.
 #
-# Costruisce ciò che va su tsm-prd-01 e NIENTE altro. Due proprietà che
+# Costruisce ciò che va su tsm-prd e NIENTE altro. Due proprietà che
 # un `scp -r` non ha:
 #
 # 1. I file si estraggono da GIT, non dalla copia di lavoro.

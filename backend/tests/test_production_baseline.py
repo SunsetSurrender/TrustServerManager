@@ -345,14 +345,20 @@ def test_i_seriali_degli_ARMADI_sono_CONSERVATI(doc, seed):
     esattamente l'errore contro cui il requisito mette in guardia, e toglierli
     avrebbe buttato metadato di produzione vero.
     """
+    correzioni = GEN.carica_correzioni()
     da_seed = {e.uid: tuple(e.obj.get("seriali") or [])
                for e in walk(seed) if e.kind == "rack"}
+    # I seriali del seed restano, TRANNE quelli sostituiti dal rilievo
+    # (deploy/baseline/rack-serials.json): lì valgono quelli della targhetta.
+    attesi = {uid: tuple(correzioni[uid]["seriali"]) if uid in correzioni else ser
+              for uid, ser in da_seed.items()}
     da_base = {e.uid: tuple(e.obj.get("seriali") or [])
                for e in walk(doc) if e.kind == "rack"}
-    assert da_base == da_seed
-    assert sum(len(v) for v in da_base.values()) == 18, (
-        "18 seriali di armadio nel seed: se il numero cambia, è cambiata la "
-        "struttura e va rivisto il manifesto")
+    assert da_base == attesi
+    if not correzioni:
+        assert sum(len(v) for v in da_base.values()) == 18, (
+            "18 seriali di armadio nel seed: se il numero cambia, è cambiata la "
+            "struttura e va rivisto il manifesto")
 
 
 def test_la_geometria_delle_sale_e_CONSERVATA(doc, seed):
@@ -425,7 +431,7 @@ def test_il_generatore_riproduce_ESATTAMENTE_l_artefatto_committato(seed, doc):
     Se un domani qualcuno modificasse l'artefatto a mano — per aggiungere una sala
     «solo per adesso» — questo test lo prenderebbe.
     """
-    generato, _r, _c, _s = GEN.build(copy.deepcopy(seed))
+    generato, _r, _c, _s = GEN.build(copy.deepcopy(seed), GEN.carica_correzioni())
     assert generato == doc
 
 
@@ -506,3 +512,52 @@ def test_il_rilevamento_prende_un_sito_di_prova(seed):
     })
     _doc, _r, _c, sospetti = GEN.build(alterato)
     assert any("Sito DEMO" in s for s in sospetti)
+
+
+# ==================================================================
+# 7. correzioni dei seriali degli armadi dal rilievo
+# ==================================================================
+
+def _un_rack(seed, indice=0):
+    racks = [e for e in walk(seed) if e.kind == "rack"]
+    return racks[indice].obj
+
+
+def test_una_correzione_SOSTITUISCE_i_seriali_e_finisce_nel_manifesto(seed):
+    K = _un_rack(seed)
+    corr = {K["_uid"]: {"rack": K["id"], "seriali": ["TARGA-1", "TARGA-2"]}}
+    doc, rimozioni, conteggi, sospetti = GEN.build(copy.deepcopy(seed), corr)
+    dopo = next(e.obj for e in walk(doc) if e.kind == "rack" and e.uid == K["_uid"])
+    assert dopo["seriali"] == ["TARGA-1", "TARGA-2"]
+    assert len(conteggi["correzioni"]) == 1
+    testo = GEN.manifest_text(doc, "x" * 64, conteggi, rimozioni, sospetti)
+    assert "Seriali degli armadi corretti dal rilievo" in testo
+    assert "TARGA-1, TARGA-2" in testo
+    # tutto il resto è invariato
+    altri = {e.uid: e.obj.get("seriali") for e in walk(doc) if e.kind == "rack" and e.uid != K["_uid"]}
+    base, *_ = GEN.build(copy.deepcopy(seed), {})
+    assert altri == {e.uid: e.obj.get("seriali") for e in walk(base) if e.kind == "rack" and e.uid != K["_uid"]}
+
+
+def test_una_correzione_per_un_rack_INESISTENTE_ferma(seed):
+    corr = {"00000000-0000-4000-8000-000000000000": {"rack": "X", "seriali": ["1"]}}
+    with pytest.raises(GEN.CorrezioneNonValida):
+        GEN.build(copy.deepcopy(seed), corr)
+
+
+def test_una_correzione_per_un_codice_DIVERSO_ferma(seed):
+    K = _un_rack(seed)
+    with pytest.raises(GEN.CorrezioneNonValida):
+        GEN.build(copy.deepcopy(seed), {K["_uid"]: {"rack": "ALTRO", "seriali": ["1"]}})
+
+
+@pytest.mark.parametrize("seriali", [["a", "b", "c"], [""], [" a"], [1], "a"])
+def test_il_file_delle_correzioni_rifiuta_seriali_malformati(tmp_path, seriali):
+    f = tmp_path / "rack-serials.json"
+    f.write_text(json.dumps({"schema": 1, "rack": {"u": {"rack": "R", "seriali": seriali}}}), encoding="utf-8")
+    with pytest.raises(GEN.CorrezioneNonValida):
+        GEN.carica_correzioni(f)
+
+
+def test_senza_file_nessuna_correzione(tmp_path):
+    assert GEN.carica_correzioni(tmp_path / "assente.json") == {}

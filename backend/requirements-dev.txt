@@ -9,3 +9,7 @@ playwright==1.62.0
 
 pytest==9.1.1
 httpx==0.28.1
+
+# openpyxl: il modello Excel di compilazione (tools/make-import-template.py) e la
+# lettura del rilievo dei seriali degli armadi (tools/apply-rack-serials.py).
+openpyxl==3.1.5

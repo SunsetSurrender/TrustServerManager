@@ -15,6 +15,13 @@
 # rileva prima, si ripristina in un trap, e il ripristino viene
 # VERIFICATO — non dato per fatto.
 #
+# Opzioni:
+#   --dir <dir>        progetto installato (default /opt/tsm)
+#   --pin <file>       pin del rilascio (default <dir>/deploy/release.pin)
+#   --senza-selinux    SELinux non in uso per decisione: lo si registra
+#   --selinux-gate     esercita i codici 27/28 (solo con SELinux enforcing)
+#   --manifest <file>  scrive il manifesto di accettazione
+#
 # Uscita:
 #   0   pronto per la distribuzione controllata
 #   1   bloccato: almeno un requisito pre-installazione non è soddisfatto
@@ -60,6 +67,33 @@ DIGEST_DB="sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b722521
 TAG_API="tsm-api:0.2.0"
 TAG_WEB="tsm-web:0.2.0"
 
+# Il pin del rilascio (deploy/release.pin, scritto da tools/build-release.sh)
+# prevale sulle costanti qui sopra, che restano quelle del rilascio 23d47dc.
+# Lettura del pin SENZA `source`: è un file di dati, e un file di dati che
+# viene eseguito è un modo di far girare codice come root sull'host. Si
+# accettano solo chiavi note, ognuna con la propria forma.
+carica_pin() { # file
+    local f="$1" riga k v forma
+    [ -f "$f" ] || return 1
+    while IFS= read -r riga || [ -n "$riga" ]; do
+        riga="${riga%$'\r'}"
+        case "$riga" in ''|'#'*) continue ;; esac
+        k="${riga%%=*}"; v="${riga#*=}"
+        case "$k" in
+            COMMIT_QUALIFICATO)            forma='^[0-9a-f]{40}$' ;;
+            ALBERO_RILASCIO|BASELINE_FILE|BASELINE_DOC) forma='^[0-9a-f]{64}$' ;;
+            ID_API|ID_WEB|DIGEST_DB)       forma='^sha256:[0-9a-f]{64}$' ;;
+            TAG_API)                       forma='^tsm-api:[0-9A-Za-z._-]+$' ;;
+            TAG_WEB)                       forma='^tsm-web:[0-9A-Za-z._-]+$' ;;
+            MIGRAZIONE)                    forma='^[0-9]{4}_[a-z0-9_]+$' ;;
+            *) printf 'pin %s: chiave sconosciuta %s\n' "$f" "$k" >&2; exit 2 ;;
+        esac
+        [[ "$v" =~ $forma ]] || { printf 'pin %s: valore non valido per %s\n' "$f" "$k" >&2; exit 2; }
+        printf -v "$k" '%s' "$v"
+    done < "$f"
+    return 0
+}
+
 # §6 — ciò che NON deve arrivare sull'host. Un elenco meccanico: la
 # memoria dell'operatore non è un controllo.
 VIETATI=(
@@ -78,6 +112,11 @@ VIETATI=(
 
 MANIFESTO=""
 ESERCITA_SELINUX=0
+# SELinux non in uso su tsm-prd-01: è una DECISIONE dell'amministratore
+# (2026-10-26), non un requisito mancato. Si dichiara con --senza-selinux, così
+# resta scritta nel manifesto invece di sparire in un controllo saltato.
+SENZA_SELINUX=0
+PIN=""
 JSON=0
 
 while [ $# -gt 0 ]; do
@@ -85,11 +124,20 @@ while [ $# -gt 0 ]; do
         --manifest)  MANIFESTO="${2:?--manifest richiede un percorso}"; shift 2 ;;
         --dir)       DIR_PROGETTO="${2:?--dir richiede un percorso}"; shift 2 ;;
         --selinux-gate) ESERCITA_SELINUX=1; shift ;;
+        --senza-selinux) SENZA_SELINUX=1; shift ;;
+        --pin)       PIN="${2:?--pin richiede un percorso}"; shift 2 ;;
         --json)      JSON=1; shift ;;
-        -h|--help)   sed -n '2,30p' "$0"; exit 0 ;;
+        -h|--help)   sed -n '2,37p' "$0"; exit 0 ;;
         *) printf 'argomento non riconosciuto: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
+
+PIN="${PIN:-$DIR_PROGETTO/deploy/release.pin}"
+if carica_pin "$PIN"; then
+    printf 'rilascio dal pin %s: %s\n' "$PIN" "${COMMIT_QUALIFICATO:0:12}"
+else
+    printf 'pin %s assente: valgono le costanti del rilascio %s\n' "$PIN" "${COMMIT_QUALIFICATO:0:12}"
+fi
 
 # ---------------------------------------------------------------- esito
 OK=0; KO=0; APERTI=0
@@ -337,6 +385,10 @@ if [ "$SEL" = "Enforcing" ]; then
     else
         ko "semanage non disponibile: la persistenza dell'etichetta non è verificabile"
     fi
+elif [ "$SENZA_SELINUX" = 1 ]; then
+    ok "SELinux: $SEL — non in uso per decisione dichiarata (--senza-selinux)" \
+       "i codici 27/28 del preflight non si applicano: il preflight salta i controlli di contesto"
+    fatto "selinux_decisione=non in uso, dichiarato con --senza-selinux"
 else
     # ⚠ Qui sta la differenza con la fase 2J. Là questo era un salto
     #   legittimo (WSL non fa girare SELinux enforcing) e i codici 27 e 28
@@ -404,6 +456,8 @@ if [ "$ESERCITA_SELINUX" = 1 ]; then
         fi
         trap - EXIT
     fi
+elif [ "$SENZA_SELINUX" = 1 ]; then
+    fatto "selinux_27_28=non applicabili (SELinux non in uso)"
 else
     aperto "percorsi di guasto SELinux 27/28 non esercitati" "richiede --selinux-gate sull'host reale"
 fi

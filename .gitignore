@@ -29,3 +29,10 @@ fixtures/query/_raw.json
 fixtures/query/_canonical.json
 fixtures/query/_documents.json
 fixtures/query/_expiry.json
+
+# Impostazioni locali di Claude Code: per macchina, non per il repository.
+.claude/settings.local.json
+
+# Modelli di compilazione e le loro copie compilate: si rigenerano con
+# tools/make-import-template.py, e una copia compilata contiene dati reali.
+compilazione/

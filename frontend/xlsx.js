@@ -119,6 +119,38 @@ export function creaXlsx(fogli) {
   return zip(files);
 }
 
+// Entità XML, decodificate UNA volta sola. `&amp;` per ultima: altrimenti
+// `&amp;lt;` (un «&lt;» scritto davvero nella cella) diventerebbe `<`.
+// `&apos;` e le numeriche le scrivono LibreOffice e alcuni esportatori.
+const decodifica = (t) => String(t)
+  .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+  .replace(/&amp;/g, '&');
+
+// Il PRIMO foglio è il primo di xl/workbook.xml, non il primo file `sheetN.xml`
+// che compare nell'archivio: l'ordine delle voci nello ZIP lo sceglie chi
+// scrive il file (LibreOffice, per esempio, non mette sheet1 per primo), e
+// prenderlo per buono importava il foglio delle istruzioni.
+function primoFoglio(parts) {
+  const wb = parts['xl/workbook.xml'] || '';
+  const rels = parts['xl/_rels/workbook.xml.rels'] || '';
+  const sheet = wb.match(/<sheet\b[^>]*\br:id="([^"]+)"/) || wb.match(/<sheet\b[^>]*\bid="([^"]+)"/);
+  if (sheet) {
+    for (const rel of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = (rel[0].match(/\bId="([^"]+)"/) || [])[1];
+      let target = (rel[0].match(/\bTarget="([^"]+)"/) || [])[1];
+      if (id !== sheet[1] || !target) continue;
+      target = target.startsWith('/') ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '');
+      if (parts[target]) return target;
+    }
+  }
+  // Ripiego: il foglio col numero più basso, non il primo nell'archivio.
+  const fogli = Object.keys(parts).filter(k => /^xl\/worksheets\/sheet\d+\.xml$/.test(k));
+  fogli.sort((a, b) => parseInt(a.match(/(\d+)\.xml$/)[1], 10) - parseInt(b.match(/(\d+)\.xml$/)[1], 10));
+  return fogli[0];
+}
+
 // ---- Lettura: restituisce { intestazioni, righe } del primo foglio ----
 export async function leggiXlsx(buffer) {
   const parts = await unzip(buffer);
@@ -128,16 +160,23 @@ export async function leggiXlsx(buffer) {
     const items = ss.split(/<si[ >]/).slice(1);
     for (const it of items) {
       const texts = [...it.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(m => m[1]);
-      shared.push(texts.join('').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+      shared.push(decodifica(texts.join('')));
     }
   }
-  const sheetName = Object.keys(parts).find(k => /^xl\/worksheets\/sheet\d+\.xml$/.test(k));
+  const sheetName = primoFoglio(parts);
   if (!sheetName) throw new Error('nessun foglio trovato');
   const xml = parts[sheetName];
   const rows = [];
-  for (const rm of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+  // Anche la riga può essere auto-chiusa (`<row r="5"/>`, riga vuota formattata):
+  // la si salta, invece di lasciare che si mangi la riga successiva.
+  for (const rm of xml.matchAll(/<row(?:\s[^>]*?)?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+    if (rm[1] == null) continue;
     const cells = [];
-    for (const cm of rm[1].matchAll(/<c r="([A-Z]+)\d+"([^>]*)>([\s\S]*?)<\/c>/g)) {
+    // Una cella può essere AUTO-CHIUSA (`<c r="B2" s="1"/>`): Excel la scrive così
+    // quando è vuota ma formattata. Con la sola forma `<c …>…</c>` il `[^>]*`
+    // inghiottiva lo `/`, e il contenuto della cella SUCCESSIVA finiva in questa
+    // colonna: ogni campo della riga scivolava di un posto.
+    for (const cm of rm[1].matchAll(/<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       let col = 0;
       for (const ch of cm[1]) col = col * 26 + (ch.charCodeAt(0) - 64);
       col--;
@@ -151,7 +190,9 @@ export async function leggiXlsx(buffer) {
       } else {
         val = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1] || '';
       }
-      cells[col] = String(val).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+      // Le stringhe condivise sono già decodificate: decodificarle di nuovo
+      // trasformerebbe un «&lt;» scritto nella cella in «<».
+      cells[col] = /t="s"/.test(attrs) ? String(val) : decodifica(val);
     }
     rows.push(Array.from(cells, x => x == null ? '' : x));
   }

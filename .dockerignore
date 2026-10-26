@@ -35,3 +35,8 @@ frontend/inventario.js
 frontend/README.md
 frontend/vendor/README.md
 frontend/vendor/SHA256SUMS
+
+# Altri artefatti locali che non devono entrare nel contesto di build.
+.photos-ui-tmp/
+.claude/
+compilazione/

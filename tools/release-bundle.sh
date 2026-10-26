@@ -19,7 +19,11 @@
 # Uso:
 #   tools/release-bundle.sh --out /tmp/tsm-2k              # costruisce
 #   tools/release-bundle.sh --out /tmp/tsm-2k --with-images
-#   tools/release-bundle.sh --verify /opt/tsm              # sull'host
+#   accettazione/release-bundle.sh --verify /opt/tsm       # sull'host
+#
+# Il rilascio da impacchettare lo dice `deploy/release.pin`, scritto da
+# tools/build-release.sh quando costruisce le immagini e committato. Senza
+# pin valgono le costanti qui sotto, che sono quelle del rilascio 23d47dc.
 # =====================================================================
 set -uo pipefail
 
@@ -38,6 +42,35 @@ BASELINE_DOC="febafb7e8b9ceac5ef69ead1e66a5add7a62a79d1c8186935430754f8066a1b1"
 ID_API="sha256:54061db1d26a56e5235029d3852ba640106a9bfd5589d029b06ed80c8fb9a168"
 ID_WEB="sha256:2d22b6e27bb3d3f3036a485ead23a26a20b5a780ac9bca44448ba208a325c541"
 DIGEST_DB="sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
+TAG_API="tsm-api:0.2.0"
+TAG_WEB="tsm-web:0.2.0"
+ALBERO_RILASCIO="18f712556844e6ba21b32603d2aa431f06569da60cbf5ea4f2197b292dd387cb"
+MIGRAZIONE="0013_domain"
+
+# Lettura del pin SENZA `source`: è un file di dati, e un file di dati che
+# viene eseguito è un modo di far girare codice come root sull'host. Si
+# accettano solo chiavi note, ognuna con la propria forma.
+carica_pin() { # file
+    local f="$1" riga k v forma
+    [ -f "$f" ] || return 1
+    while IFS= read -r riga || [ -n "$riga" ]; do
+        riga="${riga%$'\r'}"
+        case "$riga" in ''|'#'*) continue ;; esac
+        k="${riga%%=*}"; v="${riga#*=}"
+        case "$k" in
+            COMMIT_QUALIFICATO)            forma='^[0-9a-f]{40}$' ;;
+            ALBERO_RILASCIO|BASELINE_FILE|BASELINE_DOC) forma='^[0-9a-f]{64}$' ;;
+            ID_API|ID_WEB|DIGEST_DB)       forma='^sha256:[0-9a-f]{64}$' ;;
+            TAG_API)                       forma='^tsm-api:[0-9A-Za-z._-]+$' ;;
+            TAG_WEB)                       forma='^tsm-web:[0-9A-Za-z._-]+$' ;;
+            MIGRAZIONE)                    forma='^[0-9]{4}_[a-z0-9_]+$' ;;
+            *) printf 'pin %s: chiave sconosciuta %s\n' "$f" "$k" >&2; exit 2 ;;
+        esac
+        [[ "$v" =~ $forma ]] || { printf 'pin %s: valore non valido per %s\n' "$f" "$k" >&2; exit 2; }
+        printf -v "$k" '%s' "$v"
+    done < "$f"
+    return 0
+}
 
 # Due elenchi, e la distinzione è la sostanza di §4.
 #
@@ -66,6 +99,18 @@ DOCUMENTAZIONE=(
     deploy/README.md
     deploy/baseline/MANIFEST.md
     deploy/RELEASE-MANIFEST.md
+    deploy/PREDEPLOYMENT-GATES.md
+    deploy/release.pin
+    deploy/make-internal-tls.sh
+)
+
+# Gli strumenti di accettazione viaggiano CON il pacchetto, ma in
+# `accettazione/`, non in `tools/`: `tools/` sull'host è vietato (contiene i
+# generatori di sviluppo), e questi due servono proprio sull'host — per
+# verificare l'arrivo e per misurare la macchina prima dell'installazione.
+ACCETTAZIONE=(
+    tools/release-bundle.sh
+    tools/preinstall-acceptance.sh
 )
 
 # §6 — ciò che non deve arrivare. Se uno di questi finisce nel pacchetto
@@ -97,6 +142,8 @@ ko() { KO=$((KO+1)); printf '  \033[31mKO\033[0m    %s\n' "$1"; [ -n "${2:-}" ] 
 # ---------------------------------------------------------------- verifica
 if [ "$MODO" = verify ]; then
     printf '\033[1m== verifica del pacchetto arrivato in %s ==\033[0m\n' "$DEST"
+    carica_pin "$DEST/deploy/release.pin" \
+        || printf '  nota: %s/deploy/release.pin assente, valgono le costanti di %s\n' "$DEST" "${COMMIT_QUALIFICATO:0:12}"
     S="$DEST/SHA256SUMS"
     [ -f "$S" ] || { printf 'SHA256SUMS assente in %s: non c'\''è niente da verificare\n' "$DEST" >&2; exit 1; }
     while read -r atteso percorso; do
@@ -123,6 +170,15 @@ if [ "$MODO" = verify ]; then
 fi
 
 # ---------------------------------------------------------------- costruzione
+# Il pin si legge dal COMMIT (HEAD), non dal disco: è la stessa regola di
+# tutto il resto del pacchetto.
+PIN_TMP="$(mktemp)"
+trap 'rm -f "$PIN_TMP"' EXIT
+if git show HEAD:deploy/release.pin > "$PIN_TMP" 2>/dev/null; then
+    carica_pin "$PIN_TMP"
+else
+    printf '  nota: deploy/release.pin assente in HEAD, valgono le costanti di %s\n' "${COMMIT_QUALIFICATO:0:12}"
+fi
 printf '\033[1m== pacchetto del rilascio %s ==\033[0m\n' "${COMMIT_QUALIFICATO:0:12}"
 
 # Lo stato dell'albero di lavoro si REGISTRA, non blocca: ogni file esce
@@ -135,9 +191,10 @@ if [ "$SPORCO" != 0 ]; then
     printf '        irrilevante per il pacchetto: si estrae da %s, non dal disco.\n' "${COMMIT_QUALIFICATO:0:12}"
 fi
 
-# Il commit da cui si estrae. Se HEAD non è quello qualificato lo si dice:
-# i commit successivi alla qualificazione hanno lasciato l'albero del
-# rilascio identico, ma è una cosa da VERIFICARE, non da assumere.
+# Il commit da cui si estrae. Se HEAD non è quello del pin lo si dice, e si
+# VERIFICA che i commit successivi non abbiano toccato i file dell'identità:
+# un commit di sola documentazione è normale (il pin stesso arriva dopo il
+# commit che descrive), uno che cambia compose.yaml no.
 HEAD_SHA="$(git rev-parse HEAD)"
 if [ "$HEAD_SHA" = "$COMMIT_QUALIFICATO" ]; then
     ok "HEAD è il commit qualificato"
@@ -173,7 +230,18 @@ printf '  file dell'\''identità, dal commit qualificato:\n'
 for f in "${IDENTITA[@]}";      do estrai "$COMMIT_QUALIFICATO" "$f" identità; done
 printf '  documentazione, da HEAD (fuori dall'\''identità del rilascio):\n'
 for f in "${DOCUMENTAZIONE[@]}"; do estrai "$HEAD_SHA" "$f" doc; done
-chmod +x "$DEST/deploy/preflight.sh" 2>/dev/null || true
+printf '  strumenti di accettazione, da HEAD, in accettazione/:\n'
+mkdir -p "$DEST/accettazione"
+for f in "${ACCETTAZIONE[@]}"; do
+    if git show "${HEAD_SHA}:${f}" > "$DEST/accettazione/$(basename "$f")" 2>/dev/null; then
+        sha="$(sha256sum < "$DEST/accettazione/$(basename "$f")" | awk '{print $1}')"
+        printf '%s  %s\n' "$sha" "accettazione/$(basename "$f")" >> "$DEST/SHA256SUMS"
+        ok "$(printf '%-9s' strumento) accettazione/$(basename "$f")  ${sha:0:12}…"
+    else
+        ko "non presente in ${HEAD_SHA:0:12}: $f"
+    fi
+done
+chmod +x "$DEST/deploy/preflight.sh" "$DEST/deploy/make-internal-tls.sh" "$DEST"/accettazione/*.sh 2>/dev/null || true
 
 # La baseline estratta DEVE avere il digest pinnato. È il controllo che
 # rende falsificabile tutto il resto.
@@ -199,15 +267,15 @@ printf '        i segreti si generano sull'\''host; il certificato aziendale si 
 # ---------------------------------------------------------------- immagini
 if [ "$IMMAGINI" = 1 ]; then
     printf '\n  immagini:\n'
-    A="$(docker image inspect --format '{{.Id}}' tsm-api:0.2.0 2>/dev/null || echo assente)"
-    W="$(docker image inspect --format '{{.Id}}' tsm-web:0.2.0 2>/dev/null || echo assente)"
+    A="$(docker image inspect --format '{{.Id}}' "$TAG_API" 2>/dev/null || echo assente)"
+    W="$(docker image inspect --format '{{.Id}}' "$TAG_WEB" 2>/dev/null || echo assente)"
     if [ "$A" != "$ID_API" ] || [ "$W" != "$ID_WEB" ]; then
         ko "le immagini locali non sono quelle qualificate" \
            "api $A / web $W — le immagini del rilascio si costruiscono su Linux da git archive"
         printf '        non le impacchetto: un archivio con immagini sbagliate è peggio di nessun archivio.\n'
     else
         docker save -o "$DEST/tsm-images.tar" \
-            "postgres@${DIGEST_DB}" tsm-api:0.2.0 tsm-web:0.2.0 \
+            "postgres@${DIGEST_DB}" "$TAG_API" "$TAG_WEB" \
             && ok "tsm-images.tar ($(du -h "$DEST/tsm-images.tar" | cut -f1))" \
             || ko "docker save fallito"
         if [ -f "$DEST/tsm-images.tar" ]; then
@@ -218,8 +286,8 @@ fi
 
 printf '\n'
 if [ "$KO" = 0 ]; then
-    printf '  pacchetto pronto in %s — %d file, SHA256SUMS incluso.\n' "$DEST" "$(( ${#IDENTITA[@]} + ${#DOCUMENTAZIONE[@]} ))"
-    printf '  sull'\''host: tools/release-bundle.sh --verify /opt/tsm\n'
+    printf '  pacchetto pronto in %s — %d file, SHA256SUMS incluso.\n' "$DEST" "$(( ${#IDENTITA[@]} + ${#DOCUMENTAZIONE[@]} + ${#ACCETTAZIONE[@]} ))"
+    printf '  sull'\''host: /opt/tsm/accettazione/release-bundle.sh --verify /opt/tsm\n'
     exit 0
 fi
 printf '  %d problemi: il pacchetto NON è utilizzabile.\n' "$KO"

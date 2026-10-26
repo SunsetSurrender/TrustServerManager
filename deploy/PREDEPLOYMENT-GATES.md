@@ -28,6 +28,41 @@ settimana.
 
 ---
 
+## ⟶ AGGIORNAMENTO 2026-10-26 — decisioni e nuovo rilascio
+
+Questa sezione prevale sul resto del documento dove lo contraddice.
+
+**Si distribuisce da HEAD, non da `23d47dc`.** Dopo la qualificazione sono
+cambiati file che finiscono nelle immagini: il rename di `handoff/`, i commenti
+di tre moduli del backend (`5d62666`), e due correzioni fatte oggi —
+il lettore XLSX dell'import (celle vuote formattate che spostavano le colonne,
+foglio sbagliato con i file di LibreOffice, entità `&apos;`) e il controllo del
+`Referer` (confronto per prefisso: `https://tsm.example.evil.test` passava).
+Le immagini di `23d47dc` non sono più quelle giuste da installare. Il tag è
+passato a `0.3.0` perché non si confondano con quelle qualificate.
+
+Il rilascio nuovo si identifica con il **pin** (`deploy/release.pin`), scritto
+da `tools/build-release.sh` quando costruisce le immagini da `git archive`. Gli
+strumenti di questa fase (`release-bundle.sh`, `preinstall-acceptance.sh`)
+leggono il pin; senza pin valgono ancora le costanti di `23d47dc`, e quindi
+falliscono — è voluto.
+
+Prima del build vanno rieseguite sulla macchina di sviluppo le suite che
+dipendono dal codice: `tools/run-backend-tests.ps1` (PostgreSQL),
+`node tools/xlsx-reader-tests.mjs` e gli altri test `.mjs`.
+
+| # | cancello | stato al 2026-10-26 |
+|---|---|---|
+| §1A | «Rack R09 — Test» | **CHIUSO** — resta, decisione di Matteo Zandonella |
+| §2 | VM `tsm-prd-01` | **ESISTE** — da misurare con `preinstall-acceptance.sh` |
+| §2b | swap 8 GiB | **DA FARE** — README §2.7 |
+| §4 | SELinux | **NON APPLICABILE** — non in uso per decisione; `--senza-selinux` |
+| §7 | certificato TLS | **SOSTITUITO** — CA interna, `deploy/make-internal-tls.sh` (README §3.4); la CA va distribuita ai client |
+| §10/§10b | Veeam | **FUORI DA TSM** — backup a livello di VM a cura di un collega; restano valide le avvertenze del README §1 (entrambi i dischi nel job) |
+| §11 | relay SMTP | **RINVIATO** — notifiche spente finché non si compila `.env` (README §3.4). Il relay NON si configura dall'interfaccia |
+| §13 | baseline `--check` | sull'host, dopo il primo avvio (README §3.7) |
+| §1C | seriali degli armadi | **DA FARE prima della build** — rilievo nel foglio «Seriali rack», poi `apply-rack-serials.py` e baseline rigenerata (README §3.7). Cambia il digest della baseline: è previsto |
+
 ## Registro dei cancelli
 
 | # | cancello | stato | chi lo chiude |

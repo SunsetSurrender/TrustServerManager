@@ -15,6 +15,7 @@ vera dimenticata fuori pure. Quindi va letta da una persona, sito per sito.
 - voci di manuale: **0** (chiave `manuale` assente: è il manuale vuoto canonico)
 - seriali di armadio conservati: **18**
 - vani (geometria) conservati: **7**
+- seriali corretti dal rilievo (`rack-serials.json`): **0** rack
 
 ## ⚠ Da confermare
 

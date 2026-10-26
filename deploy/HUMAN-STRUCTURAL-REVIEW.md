@@ -22,7 +22,15 @@ che «Test» significhi sviluppo — né che significhi produzione.
 
 ## 1A — «Rack R09 — Test»
 
-**Stato: NON CONFERMATO — in attesa di CED operations.**
+**Stato: CONFERMATO — resta nella baseline.**
+
+Risposta: Matteo Zandonella, 2026-10-26. Il rack resta nella struttura iniziale
+così com'è; la baseline non cambia (digest invariato). La struttura (piante e
+rack) è quella reale, i dispositivi si compileranno a mano dopo l'installazione.
+
+---
+
+Registro della domanda, com'era stata posta:
 
 Il fatto misurato:
 
@@ -96,8 +104,7 @@ corretto.
 
 ## Conseguenza per la distribuzione
 
-1A aperto ⇒ il cancello §1 non è chiuso ⇒ Fase 2K-A resta **BLOCCATA**
-su questa voce, indipendentemente dallo stato dell'infrastruttura.
+1A e 1B confermati (2026-10-26) ⇒ il cancello §1 è **chiuso**.
 
 Alla chiusura: aggiornare lo stato qui sopra, indicare chi ha risposto e
 quando, e riportare la voce nel manifesto di accettazione

@@ -95,6 +95,17 @@ def _self_origin(request: Request) -> str:
     return f"{scheme}://{host}".rstrip("/")
 
 
+def _referer_is_from(referer: str, origin: str) -> bool:
+    """`Referer` appartiene a `origin`? Solo l'origine esatta o un suo percorso.
+
+    NON `referer.startswith(origin)`: con `origin = https://tsm.example` lo
+    passerebbero anche `https://tsm.example.evil.test/…` e
+    `https://tsm.example:8443/…`, cioè un altro host e un'altra origine.
+    """
+    origin = origin.rstrip("/")
+    return referer.rstrip("/") == origin or referer.startswith(origin + "/")
+
+
 def origin_is_acceptable(request: Request) -> tuple[bool, str]:
     """L'origine della richiesta è la nostra? Restituisce (ok, motivo).
 
@@ -135,11 +146,11 @@ def origin_is_acceptable(request: Request) -> tuple[bool, str]:
     referer = request.headers.get("referer")
     if referer:
         for candidate in (allowed or ()):
-            if referer.startswith(candidate + "/") or referer.rstrip("/") == candidate:
+            if _referer_is_from(referer, candidate):
                 return True, ""
         if not allowed:
             expected = _self_origin(request)
-            return (referer.startswith(expected),
+            return (_referer_is_from(referer, expected),
                     f"Referer {referer!r} non combacia con {expected!r}")
         return False, f"Referer {referer!r} non è fra le origini consentite"
 

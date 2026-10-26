@@ -171,7 +171,12 @@ dei dati ha permessi più larghi di `0750`.
 stesso. Un filesystem appena creato non è vuoto — XFS e ext4 hanno metadati
 propri, ext4 ha `lost+found` — e `initdb` rifiuta una directory non vuota.
 
-### 2.6 SELinux: etichetta **persistente**
+### 2.6 SELinux: etichetta **persistente** (solo se SELinux è attivo)
+
+> **Su `tsm-prd-01` SELinux non è in uso** (decisione del 2026-10-26): questa sezione
+> si salta. Il preflight esegue i controlli 27/28 solo quando `getenforce` risponde
+> `Enforcing`, e l'accettazione registra la scelta con `--senza-selinux`. Se un giorno
+> SELinux viene attivato, questa sezione va eseguita **prima** di riavviare TSM.
 
 Su Oracle Linux SELinux è enforcing per default. Un container non può scrivere in
 una directory dell'host che non ha un tipo adatto, anche con permessi perfetti.
@@ -201,6 +206,11 @@ Se `semanage` non c'è: `dnf install -y policycoreutils-python-utils`.
 
 ### 2.7 File di swap da 8 GB sul disco 1
 
+Prima di crearlo, verificare che non ce ne sia già uno (l'installazione di Oracle
+Linux spesso crea una partizione o un volume LVM di swap): `swapon --show`. Il totale
+atteso è **8 GiB**; se ne esiste già uno più piccolo, si toglie da `/etc/fstab` e si
+spegne con `swapoff` prima di aggiungere il file, invece di sommare i due.
+
 ```bash
 fallocate -l 8G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=8192
 chmod 0600 /swapfile
@@ -217,23 +227,80 @@ mescolerebbe traffico di paginazione con l'I/O del database.
 
 ## 3. Installazione del servizio
 
-```bash
-# il contenuto del repository va in /opt/tsm
-install -d -m 0755 /opt/tsm
-# (copia del repository, oppure git clone in rete raggiungibile)
+Il percorso, in ordine:
 
-cd /opt/tsm
-chmod 0750 deploy/preflight.sh
+```text
+macchina di build (Linux/WSL, con rete)          tsm-prd-01
+---------------------------------------          ---------------------------------
+3.1 tools/build-release.sh --save <dir>
+    git commit deploy/release.pin
+3.2 tools/release-bundle.sh --out <dir> \
+        --with-images                    ──────► 3.3 verifica, docker load
+                                                 3.4 secret, TLS, .env
+                                                 3.5 accettazione + preflight
+                                                 3.6 systemd
 ```
 
-### 3.1 Secret e TLS
+⚠ **Non si copia il repository sull'host** (né `scp -r`, né `git clone`). Porterebbe
+con sé gli override di sviluppo, il sink SMTP e i generatori di certificati di
+sviluppo, e da una copia di lavoro Windows la baseline arriverebbe con i CRLF e il
+suo digest non tornerebbe. Sull'host va **solo** il pacchetto di §3.2.
+
+### 3.1 Build delle immagini, da git
+
+Su una macchina Linux con Docker e accesso a internet (WSL va bene; anche la VM, se
+raggiunge i registry). L'albero di lavoro deve essere pulito: si costruisce un
+commit, non una scrivania.
+
+```bash
+bash tools/build-release.sh --save /tmp/tsm-img
+git add deploy/release.pin
+git commit -m "release: pin $(git rev-parse --short HEAD)"
+```
+
+Lo script estrae il commit con `git archive` (i blob, con i fine-riga del
+repository), costruisce `tsm-api` e `tsm-web`, e scrive in `deploy/release.pin`
+commit, albero del rilascio, Id delle immagini e digest della baseline. Il pin è ciò
+che gli strumenti di §3.2 e §3.5 confrontano con l'host: due build della stessa
+sorgente danno Id diversi, quindi **le immagini da trasferire sono quelle costruite
+in questo passo**, non una ricostruzione successiva.
+
+### 3.2 Il pacchetto
+
+```bash
+bash tools/release-bundle.sh --out /tmp/tsm-rc --with-images
+```
+
+Contenuto: `compose.yaml`, `deploy/preflight.sh`, `deploy/tsm.service`, la
+baseline (dal commit del pin), la documentazione e `deploy/make-internal-tls.sh`
+(da HEAD), gli strumenti di accettazione in `accettazione/`, `tsm-images.tar` e
+`SHA256SUMS`. Niente segreti, niente `tools/`, niente `.git`.
+
+### 3.3 Sull'host: verifica e immagini
+
+```bash
+install -d -m 0755 /opt/tsm
+# copiare il contenuto di /tmp/tsm-rc in /opt/tsm (scp, chiavetta, share)
+cd /opt/tsm
+accettazione/release-bundle.sh --verify /opt/tsm      # deve dire «pacchetto integro»
+docker load -i tsm-images.tar
+docker compose config --images                        # i tag del pin, nessun pull
+```
+
+Il preflight rifiuta l'avvio se un'immagine attesa non è presente in locale, e non
+tenta di scaricarla per conto proprio.
+
+### 3.4 Secret, TLS e configurazione
 
 I secret sono file montati, mai variabili d'ambiente (`backend/README.md`). Devono
 essere leggibili **solo** dal proprietario, e il proprietario è l'utente del
-container che li legge (uid 10001 per l'API).
+container che li legge (uid 10001 per l'API). Le immagini sono già caricate (§3.3),
+quindi l'uid si legge dall'immagine invece di assumerlo.
 
 ```bash
-API_UID=$(docker image inspect --format '{{.Config.User}}' tsm-api:0.2.0 | cut -d: -f1)
+cd /opt/tsm
+install -d -m 0750 secrets
+API_UID=$(docker image inspect --format '{{.Config.User}}' "$(docker compose config --images | grep '^tsm-api:')" | cut -d: -f1)
 
 openssl rand -base64 24 | tr -d '\n+/=' > secrets/postgres_password
 openssl rand -base64 24 | tr -d '\n+/=' > secrets/api_db_password
@@ -252,36 +319,81 @@ chmod 0400 $SECRETS
 > L'uid è lo stesso per API e worker: girano dalla stessa immagine. Sono i
 > **privilegi nel database** a distinguerli, non l'utente del sistema operativo.
 
-Certificato aziendale, con la chiave leggibile dall'utente di nginx (uid 101):
+#### Certificato: CA interna
+
+TSM non è esposto su internet, quindi non serve un certificato pubblico: basta una
+CA interna di cui i client si fidano. Lo script crea la CA (una volta), il
+certificato server con i nomi giusti, e sistema proprietario e permessi per nginx:
 
 ```bash
-install -d -m 0755 secrets/tls
-cp /percorso/fullchain.pem secrets/tls/fullchain.pem
-cp /percorso/privkey.pem   secrets/tls/privkey.pem
-
-WEB_UID=$(docker image inspect --format '{{.Config.User}}' tsm-web:0.2.0 | cut -d: -f1)
-chown "${WEB_UID}:${WEB_UID}" secrets/tls/privkey.pem
-chmod 0444 secrets/tls/fullchain.pem
-chmod 0400 secrets/tls/privkey.pem
+deploy/make-internal-tls.sh --name tsm-prd-01.par-tec.it --name tsm-prd-01 --ip <IP della VM>
 ```
 
-### 3.2 Immagini in rete chiusa
+- `--name` va ripetuto per **ogni** nome con cui gli operatori aprono TSM: un nome
+  assente dal certificato dà errore nel browser anche con la CA installata.
+- La CA da distribuire è `secrets/tls/ca-interna.crt`: sui PC Windows va in
+  «Autorità di certificazione radice attendibili» (GPO, oppure doppio clic →
+  Installa certificato → Computer locale). Firefox usa il proprio archivio, a meno
+  di `security.enterprise_roots.enabled`.
+- La **chiave della CA** resta in `/root/tsm-ca` (0700). Chi la possiede può emettere
+  certificati di cui i client si fidano: dopo l'installazione conviene spostarla
+  fuori dalla VM e riportarla solo per i rinnovi.
+- Rinnovo (il certificato server dura 825 giorni): stesso comando con `--force`,
+  poi `docker compose restart web`. La CA non cambia, i client non si toccano.
+- nginx invia HSTS: finché la CA non è installata su un client, quel browser mostra
+  l'avviso a ogni visita. Distribuire la CA **prima** di aprire TSM agli operatori.
 
-La macchina non raggiunge internet: le immagini si trasferiscono, non si scaricano.
+Se un giorno arriva un certificato della PKI aziendale, si sostituiscono i due file
+(`fullchain.pem`, `privkey.pem`) con gli stessi permessi e si riavvia `web`.
+
+#### Variabili: `/opt/tsm/.env`
+
+`docker compose` legge da solo `/opt/tsm/.env`. È il posto per ciò che **non** è un
+segreto e cambia da un'installazione all'altra:
 
 ```bash
-# su una macchina con rete
-docker compose pull && docker compose build
-docker save -o tsm-images.tar postgres@sha256:742f... tsm-api:0.2.0 tsm-web:0.2.0
+cat > /opt/tsm/.env <<'ENV'
+# Origine pubblica: lo schema e il nome con cui gli operatori aprono TSM.
+# Più di una separate da virgola. Deve combaciare con i --name del certificato.
+TSM_PUBLIC_ORIGIN=https://tsm-prd-01.par-tec.it
 
-# su tsm-prd-01
-docker load -i tsm-images.tar
+# Relay SMTP — si compila quando il relay è deciso (vedi sotto).
+TSM_SMTP_HOST=
+TSM_SMTP_PORT=587
+TSM_SMTP_TLS_MODE=starttls
+TSM_SMTP_SENDER=
+TSM_SMTP_USERNAME=
+ENV
+chmod 0640 /opt/tsm/.env
 ```
 
-Il preflight rifiuta l'avvio se un'immagine attesa non è presente in locale, e non
-tenta di scaricarla per conto proprio.
+**Non** si mettono in `.env` `TSM_ENV` né `TSM_COOKIE_SECURE`: i default di
+`compose.yaml` sono quelli di produzione, e una deroga scritta qui verrebbe fermata
+dal preflight (codice 40). La password SMTP **non** va in `.env`: sta in
+`secrets/smtp_password`.
 
-### 3.3 Preflight a mano, prima di systemd
+⚠ **Il relay SMTP non si configura dall'interfaccia.** Dall'applicazione si decidono
+destinatari, soglie e orari degli avvisi; host, porta, TLS, mittente e credenziali
+sono infrastruttura (§8.38) e si cambiano solo qui. Dopo una modifica:
+
+```bash
+cd /opt/tsm && docker compose up -d api worker      # ricrea i due container con i nuovi valori
+```
+
+Poi l'invio di prova dalla pagina Impostazioni dell'applicazione.
+
+### 3.5 Accettazione e preflight, prima di systemd
+
+Prima l'accettazione, che misura la macchina contro il pin del rilascio (vCPU,
+RAM, swap, mount del disco dati, immagini, artefatti, segreti). Su `tsm-prd-01`
+SELinux non è in uso, e lo si dichiara:
+
+```bash
+/opt/tsm/accettazione/preinstall-acceptance.sh --dir /opt/tsm --senza-selinux \
+    --manifest /root/accettazione-tsm.md
+```
+
+Poi il preflight, che è lo stesso controllo che systemd eseguirà a ogni avvio:
 
 ```bash
 /opt/tsm/deploy/preflight.sh --dir /opt/tsm
@@ -296,7 +408,7 @@ Codici di uscita: vedi l'intestazione di `deploy/preflight.sh`. In breve:
 `20`–`28` archiviazione, `30`–`31` secret e TLS, `40`–`42` configurazione non di
 produzione, `10`–`12` Docker.
 
-### 3.4 Unità systemd
+### 3.6 Unità systemd
 
 ```bash
 cp /opt/tsm/deploy/tsm.service /etc/systemd/system/tsm.service
@@ -316,7 +428,7 @@ systemctl list-units --type=mount | grep tsm
 # srv-tsm\x2ddata.mount
 ```
 
-### 3.5 Baseline di produzione (una volta sola)
+### 3.7 Baseline di produzione (una volta sola)
 
 Non passa da HTTP e non passa dall'unità: è un'operazione esplicita
 (`BACKEND-PLAN.md` §8.17, §8.52). Il ruolo `tsm_api` non ha nemmeno il privilegio di
@@ -537,7 +649,41 @@ docker compose run --rm -v /opt/tsm/fixtures:/seed:ro migrate \
 ⚠ **Non si usa per una installazione di produzione nuova**: `fixtures/seed.json`
 contiene 86 dispositivi di sviluppo e le radici legacy del prototipo.
 
-### 3.6 Worker delle notifiche
+#### Seriali degli armadi: rilievo PRIMA del deploy
+
+Molti rack della baseline non hanno ancora il seriale della targhetta, e sulla
+pianta mostrano il codice (`R01`, `SN-R05`…). I seriali veri entrano nella
+baseline **prima** della build, così al primo avvio sono già lì:
+
+1. Nel modello Excel, foglio «Seriali rack»: si riconosce il rack dall'«etichetta
+   sulla pianta» e si scrive il numero della targhetta in «seriale effettivo 1»
+   (e 2). Vuoto = invariato; `NESSUNO` = senza seriale.
+2. Sulla macchina di sviluppo (servono le dipendenze di `backend/requirements-dev.txt`):
+
+   ```bash
+   python tools/apply-rack-serials.py "compilazione/Modello dispositivi sale.xlsx"
+   python tools/make-production-baseline.py          # rigenera, mostra il digest nuovo
+   # leggere deploy/baseline/MANIFEST.md, sezione «Seriali degli armadi corretti»
+   python tools/make-production-baseline.py --aggiorna-digest
+   ```
+
+3. Commit di `deploy/baseline/` e dei file con il digest, test, poi la build (§3.1).
+
+Il rilievo si può fare a più riprese: ogni giro si aggiunge a
+`deploy/baseline/rack-serials.json`. Le correzioni **dopo** il deploy si fanno
+dalla scheda del rack («⚙ Rack», amministratore), non da questo foglio: dopo
+l'installazione la baseline non si rilegge più.
+
+#### Popolare i dispositivi: il modello Excel
+
+Dopo la baseline TSM ha siti, sale e rack, e nessun dispositivo. I dispositivi si
+compilano a mano in `compilazione/Modello dispositivi sale.xlsx` (si rigenera dalla
+baseline con `tools/make-import-template.py`) e si importano dall'applicazione:
+modalità Editing (Ctrl+E) → Importa dati. L'anteprima dice per ogni riga se è nuova
+o saltata, e perché; si applica solo un'anteprima che torna. Il foglio delle
+istruzioni dentro il file spiega le colonne. Si può importare una sala alla volta.
+
+### 3.8 Worker delle notifiche
 
 Parte insieme allo stack: è un servizio Compose (`worker`) con la stessa immagine
 dell'API e un comando diverso. Non pubblica porte e vive solo sulla rete interna.
@@ -584,7 +730,7 @@ operativa è una sola, e va conosciuta prima di vederla:**
 > se la proiezione non rispecchia la testa, **il worker non manda niente**, e lo dice.
 
 Non è un guasto del worker ed è la stessa condizione che fa rispondere 503 all'API. Il
-rimedio è lo stesso, ed è in §3.8: `project.py --rebuild`.
+rimedio è lo stesso, ed è in §3.10: `project.py --rebuild`.
 
 Come si riconosce:
 
@@ -671,7 +817,7 @@ sua — elenca gli scaduti e salta i dismessi, il worker fa l'opposto (§8.48). 
 giorno i numeri della vista Scadenze e quelli di un avviso non tornano, **non è un
 difetto**: è quella differenza, ed è registrata.
 
-### 3.7 Manutenzione: garbage collection delle foto
+### 3.9 Manutenzione: garbage collection delle foto
 
 Lo stesso processo `worker` esegue anche la raccolta delle foto orfane (§8.5), ma
 è un lavoro **indipendente**: tabella di esecuzioni propria (`maintenance_runs`),
@@ -716,7 +862,7 @@ referenzia una foto che non esiste: non è un guasto del server, è un client ch
 sta salvando un UUID che non ha caricato (o che la GC ha già raccolto perché il
 salvataggio era rimasto indietro di più di ventiquattro ore).
 
-### 3.8 La proiezione relazionale: è lo stato corrente, e ora è ciò che si legge
+### 3.10 La proiezione relazionale: è lo stato corrente, e ora è ciò che si legge
 
 Le migrazioni `0010_normalised`, `0011_projection`, `0012_dual_write` e
 `0013_domain` creano le tabelle dello stato operativo (`inventory_locations`,
@@ -725,7 +871,7 @@ Le migrazioni `0010_normalised`, `0011_projection`, `0012_dual_write` e
 all'API i privilegi per mantenerle.
 
 ⚠ **La `0013_domain` richiede una RICOSTRUZIONE, e va letta prima di aggiornare.**
-Vedi §3.8.1 qui sotto: dopo quella migrazione le rotte di lettura rispondono 503
+Vedi §3.10.1 qui sotto: dopo quella migrazione le rotte di lettura rispondono 503
 finché non gira `project.py --rebuild`. È previsto, ha un rimedio di un comando, e
 NON è una migrazione di dati — ma se l'aggiornamento avviene in orario di lavoro senza
 saperlo, per qualche minuto l'applicazione non serve l'inventario.
@@ -933,7 +1079,7 @@ riferimento contro cui la proiezione si verifica.
 
 ---
 
-### 3.8.1 Aggiornare alla fase 2G: una ricostruzione obbligatoria
+### 3.10.1 Aggiornare alla fase 2G: una ricostruzione obbligatoria
 
 La migrazione `0013_domain` aggiunge due colonne a `inventory_devices` e **alza la
 versione della mappa da 1 a 2**:
@@ -1005,7 +1151,7 @@ nessuno ha detto che quegli apparati sono stati portati via. Chi conosce la sala
 marcare `rimosso` a mano ciò che non c'è più — e finché non lo fa, la capacità continua
 a contarli come occupati, che è il verso giusto in cui sbagliare.
 
-### 3.8.2 Aggiornare alla fase 2H: nessuna migrazione, ma l'immagine web va rifatta
+### 3.10.2 Aggiornare alla fase 2H: nessuna migrazione, ma l'immagine web va rifatta
 
 ⚠ **Niente migrazioni, niente ricostruzione, niente privilegi nuovi.** Le tre rotte di
 interrogazione esistevano già dalla 2E e la loro semantica è quella della 2G: la 2H
@@ -1041,7 +1187,7 @@ nginx che sembrino un problema. Lo stesso inciampo della 2G con `domain.js`. Il
 ⚠ **Il terzo punto è quello da spiegare a chi risponde al telefono.** Se qualcuno vede
 «Le viste Ricerca, Capacità e Scadenze leggono una copia dei dati che il server sta
 ancora aggiornando», non è un guasto dell'interfaccia: è la proiezione che non
-rispecchia la testa, e il rimedio è `project.py --rebuild` (§3.8.1). L'inventario resta
+rispecchia la testa, e il rimedio è `project.py --rebuild` (§3.10.1). L'inventario resta
 consultabile e modificabile nel frattempo — di proposito: si sospende ciò che
 mostrerebbe numeri sbagliati, non tutto.
 

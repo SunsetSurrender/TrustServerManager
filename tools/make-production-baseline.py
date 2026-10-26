@@ -35,12 +35,29 @@ tipizzata né una collezione di figli **si ferma e chiede**, invece di tenerla o
 buttarla in silenzio. Oggi l'esito è: zero chiavi ignote. Il valore del controllo
 è per il giorno in cui non sarà più vero.
 
+Correzioni dei seriali degli armadi
+-----------------------------------
+I seriali che il seed porta sui rack sono in parte segnaposto (il codice del
+rack, «R01», dove la targhetta non era stata letta). Quelli VERI arrivano da un
+rilievo in sala, compilato nel foglio «Seriali rack» del modello Excel e
+trasformato da `tools/apply-rack-serials.py` in `deploy/baseline/rack-serials.json`.
+
+Quel file è una SOVRAPPOSIZIONE revisionata, non una modifica del seed: per ogni
+rack nominato per `_uid` sostituisce i `seriali`, e nient'altro. Il seed resta un
+file di sviluppo; ciò che va in produzione è scritto in un file che si legge in
+una revisione, rack per rack, e il manifesto elenca ogni sostituzione con il
+prima e il dopo.
+
 Uso (dalla radice del repository; `app` importa sqlalchemy, quindi si esegue nella
 stessa immagine della suite, come `tools/canonicalise-query-docs.py`):
 
     docker run --rm -v "$PWD":/w -w /w python:3.13-slim \
         sh -c "pip install -q -r backend/requirements.txt && \
-               python tools/make-production-baseline.py [--dry-run]"
+               python tools/make-production-baseline.py [--dry-run] [--aggiorna-digest]"
+
+`--aggiorna-digest` sostituisce il digest appuntato con quello nuovo nei posti
+che lo usano come riferimento (vedi `PINNED_IN`). Va usato DOPO aver letto il
+manifesto: è la firma che la nuova struttura è quella giusta.
 """
 from __future__ import annotations
 
@@ -62,6 +79,43 @@ SEED = ROOT / "fixtures" / "seed.json"
 OUT_DIR = ROOT / "deploy" / "baseline"
 OUT_DOC = OUT_DIR / "production-baseline.json"
 OUT_MANIFEST = OUT_DIR / "MANIFEST.md"
+CORREZIONI = OUT_DIR / "rack-serials.json"
+
+#: I file che contengono il digest canonico come RIFERIMENTO (non come storia).
+#: I documenti di qualificazione (RELEASE-MANIFEST, PREDEPLOYMENT-GATES, …)
+#: restano come sono: descrivono ciò che è stato provato allora.
+PINNED_IN = (
+    "backend/app/inventory/baseline.py",
+    "deploy/README.md",
+    "tools/backup-restore-test.sh",
+    "tools/clean-room-test.py",
+    "tools/mutation-harness.py",
+    "tools/notification-qualification.sh",
+    "tools/release-qualification.py",
+)
+MAX_SERIALI = 2      # quanti ne mostra e ne modifica l'interfaccia («⚙ Rack»)
+
+
+class CorrezioneNonValida(Exception):
+    pass
+
+
+def carica_correzioni(path: Path = CORREZIONI) -> dict[str, dict]:
+    """`{_uid: {"seriali": [...], "rack": codice, ...}}`; vuoto se il file non c'è."""
+    if not path.exists():
+        return {}
+    dati = json.loads(path.read_text(encoding="utf-8"))
+    rack = dati.get("rack") if isinstance(dati, dict) else None
+    if dati.get("schema") != 1 or not isinstance(rack, dict):
+        raise CorrezioneNonValida(f"{path}: atteso {{\"schema\": 1, \"rack\": {{...}}}}")
+    for uid, voce in rack.items():
+        ser = voce.get("seriali") if isinstance(voce, dict) else None
+        if (not isinstance(ser, list) or len(ser) > MAX_SERIALI
+                or not all(isinstance(x, str) and x.strip() == x and x for x in ser)):
+            raise CorrezioneNonValida(
+                f"{path}: rack {uid}: `seriali` deve essere una lista di al massimo "
+                f"{MAX_SERIALI} stringhe non vuote e senza spazi ai bordi")
+    return rack
 
 #: Chiavi ammesse per entità: quelle TIPIZZATE dalla mappa relazionale, più
 #: l'identità e la collezione dei figli. Si legge da `FIELD_MAP` e non da un
@@ -175,12 +229,18 @@ def _classifica(kind: str, entity: dict, dove: str) -> tuple[dict, list[str]]:
     return out, togliete
 
 
-def build(seed: dict) -> tuple[dict, list[str], dict, list[str]]:
-    """La baseline, le rimozioni, i conteggi e le righe da confermare."""
+def build(seed: dict, correzioni: dict[str, dict] | None = None
+          ) -> tuple[dict, list[str], dict, list[str]]:
+    """La baseline, le rimozioni, i conteggi e le righe da confermare.
+
+    `correzioni`: i seriali VERI degli armadi, per `_uid` (vedi il modulo). Le
+    sostituzioni fatte finiscono in `conteggi["correzioni"]`, per il manifesto.
+    """
+    correzioni = dict(correzioni or {})
     rimozioni: list[str] = []
     sospetti: list[str] = []
     conteggi = {"locations": 0, "rooms": 0, "racks": 0, "devices_removed": 0,
-                "seriali": 0, "vani": 0}
+                "seriali": 0, "vani": 0, "correzioni": []}
 
     locations = []
     for L in seed.get("locations") or []:
@@ -213,6 +273,22 @@ def build(seed: dict) -> tuple[dict, list[str], dict, list[str]]:
                     sospetti.append(
                         f"RACK {K.get('name')!r} (`{K.get('id')}`) in "
                         f"{L.get('nome')}/{R.get('nome')} — contiene «{hit}»")
+                if rack.get("_uid") in correzioni:
+                    voce = correzioni.pop(rack["_uid"])
+                    # Il codice registrato nella correzione deve essere quello del
+                    # rack: se il seed lo ha rinominato nel frattempo, la riga del
+                    # rilievo potrebbe riferirsi a un altro armadio. Ci si ferma.
+                    if voce.get("rack") not in (None, rack.get("id")):
+                        raise CorrezioneNonValida(
+                            f"{dove_k}: la correzione è per il rack {voce.get('rack')!r}, "
+                            f"ma questo `_uid` oggi è {rack.get('id')!r}")
+                    prima = list(rack.get("seriali") or [])
+                    dopo = list(voce["seriali"])
+                    if prima != dopo:
+                        conteggi["correzioni"].append(
+                            (f"{L.get('nome')} / {R.get('nome')} / {rack.get('name') or rack.get('id')}",
+                             prima, dopo))
+                    rack["seriali"] = dopo
                 conteggi["seriali"] += len(rack.get("seriali") or [])
 
                 # ⚠ Il cuore della fase: ogni rack esce VUOTO. Non si filtrano i
@@ -247,6 +323,10 @@ def build(seed: dict) -> tuple[dict, list[str], dict, list[str]]:
     # frontend — non nel documento. Scrivere `manuale: []` aggiungerebbe una chiave
     # che la canonicalizzazione non produce, cioè un artefatto che differisce dal
     # documento che verrebbe salvato. Vedi §4 del requisito e la nota nel MANIFEST.
+    if correzioni:
+        raise CorrezioneNonValida(
+            "correzioni per rack che non esistono nel seed: " + ", ".join(sorted(correzioni)))
+
     baseline = {
         "schemaVersion": seed["schemaVersion"],
         "locations": locations,
@@ -286,8 +366,22 @@ def manifest_text(doc: dict, sha: str, conteggi: dict, rimozioni: list[str],
         f"- voci di manuale: **0** (chiave `manuale` assente: è il manuale vuoto canonico)",
         f"- seriali di armadio conservati: **{conteggi['seriali']}**",
         f"- vani (geometria) conservati: **{conteggi['vani']}**",
+        f"- seriali corretti dal rilievo (`rack-serials.json`): **{len(conteggi.get('correzioni') or [])}** rack",
         "",
     ]
+    if conteggi.get("correzioni"):
+        righe += [
+            "## Seriali degli armadi corretti dal rilievo",
+            "",
+            "Da `deploy/baseline/rack-serials.json`. Ogni riga sostituisce i seriali del",
+            "seed con quelli letti sulla targhetta: verificare che il rack sia quello giusto.",
+            "",
+            "| rack | prima | dopo |",
+            "|---|---|---|",
+        ]
+        for dove, prima, dopo in conteggi["correzioni"]:
+            righe.append(f"| {dove} | {', '.join(prima) or '—'} | {', '.join(dopo) or '—'} |")
+        righe.append("")
     if sospetti:
         righe += [
             "## ⚠ Da confermare",
@@ -356,14 +450,20 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dry-run", action="store_true",
                     help="riporta senza scrivere niente")
+    ap.add_argument("--aggiorna-digest", action="store_true",
+                    help="scrive il digest nuovo al posto di quello appuntato (dopo aver letto il manifesto)")
     args = ap.parse_args()
 
     seed = json.loads(SEED.read_text(encoding="utf-8"))
     try:
-        doc, rimozioni, conteggi, sospetti = build(seed)
+        correzioni = carica_correzioni()
+        doc, rimozioni, conteggi, sospetti = build(seed, correzioni)
     except Ignota as exc:
         print("FERMO: campo strutturale non classificato\n", file=sys.stderr)
         print(exc, file=sys.stderr)
+        return 2
+    except CorrezioneNonValida as exc:
+        print(f"FERMO: correzione dei seriali non valida\n{exc}", file=sys.stderr)
         return 2
 
     sha = canonical_sha256(doc)
@@ -377,6 +477,7 @@ def main() -> int:
     print(f"  dispositivi  0  (rimossi {conteggi['devices_removed']})")
     print(f"  seriali      {conteggi['seriali']} numeri di armadio conservati")
     print(f"  vani         {conteggi['vani']} conservati con la geometria")
+    print(f"  correzioni   {len(conteggi['correzioni'])} rack con i seriali del rilievo")
     print(f"  digest       {sha}")
     print(f"  byte         {len(testo.encode('utf-8'))}")
     if sospetti:
@@ -395,9 +496,23 @@ def main() -> int:
     OUT_MANIFEST.write_text(
         manifest_text(doc, sha, conteggi, rimozioni, sospetti), encoding="utf-8")
     print(f"\nscritti:\n  {OUT_DOC.relative_to(ROOT)}\n  {OUT_MANIFEST.relative_to(ROOT)}")
-    print("\n⚠ Il digest è APPUNTATO in backend/app/inventory/baseline.py.")
-    print("  Se è cambiato, aggiornarlo a mano DOPO aver letto il manifesto: è il")
-    print("  passo che rende una modifica di produzione un atto deliberato.")
+    sys.path.insert(0, str(ROOT / "backend"))
+    from app.inventory.baseline import BASELINE_CANONICAL_SHA256 as appuntato
+    if sha == appuntato:
+        print("\n  digest invariato: niente da aggiornare.")
+    elif not args.aggiorna_digest:
+        print(f"\n⚠ Il digest è cambiato: appuntato {appuntato[:16]}…, nuovo {sha[:16]}….")
+        print("  Leggere deploy/baseline/MANIFEST.md, poi rieseguire con --aggiorna-digest:")
+        print("  è il passo che rende una modifica di produzione un atto deliberato.")
+    else:
+        print(f"\n  digest appuntato: {appuntato[:16]}… → {sha[:16]}…")
+        for rel in PINNED_IN:
+            f = ROOT / rel
+            raw = f.read_bytes()
+            n = raw.count(appuntato.encode())
+            if n:
+                f.write_bytes(raw.replace(appuntato.encode(), sha.encode()))
+            print(f"    {rel}: {n} sostituzion{'e' if n == 1 else 'i'}")
     return 0
 
 

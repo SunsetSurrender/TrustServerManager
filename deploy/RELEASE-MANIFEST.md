@@ -93,7 +93,7 @@ ricalcolano.
 
 Il trasferimento in rete chiusa è stato esercitato: `docker save` dei tre, `docker
 rmi`, `docker load`, e **Id identici dopo il giro**. È il percorso di
-`deploy/README.md` §3.2.
+`deploy/README.md` §3.1–§3.3.
 
 ---
 
@@ -113,7 +113,11 @@ riferimenti a foto, 18 numeri di inventario di armadio, 7 vani.
 - **Saletta Nuova** — 24 rack, 1080 U, file A×6 B×11 C×7, 2 vani
   <br>`Rack SN-R01 … Rack SN-R24`
 
-**Pomezia — H0** — 1 sala, 24 rack · **Sede di Roma** — 1 sala, 17 rack
+**Pomezia — H0** — 1 sala, 25 rack (24 + `H0-Q01` armadio a muro) · **Oriolo Romano** — 1 sala, 16 rack
+
+> Corretto il 2026-10-26: una stesura precedente riportava «H0 — 24 rack · Sede di
+> Roma — 17 rack». Il totale (102) tornava per coincidenza; i numeri per sito no.
+> Misurati dall'artefatto: 61 + 25 + 16.
 
 L'elenco completo rack per rack, con le U, le file e i vani, sta in
 `deploy/baseline/MANIFEST.md`, che è il documento pensato per essere letto da una
@@ -126,7 +130,7 @@ generatore le ha segnalate proprio perché dai dati non si distinguono da un err
 
 | voce | che cosa dicono i dati | che cosa serve |
 |---|---|---|
-| **`Rack R09 — Test`** (Pomezia G0 / Backend) | fa parte di una serie coerente R01…R09, con U e fila regolari | un operatore deve confermare che è un rack **reale** che appartiene alla produzione — oppure va **rimosso con una modifica della baseline rivista a parte** |
+| **`Rack R09 — Test`** (Pomezia G0 / Backend) | fa parte di una serie coerente R01…R09, con U e fila regolari | **CHIUSO il 2026-10-26**: resta nella baseline per decisione di Matteo Zandonella (vedi `HUMAN-STRUCTURAL-REVIEW.md` §1A) |
 | **ordine delle file in Saletta Nuova** | la sequenza delle etichette è `AAAAAABBBBBBBBBBCCCCCCBC`: SN-R23 torna a «B» e SN-R24 a «C» dopo il blocco «C» | un operatore deve **riconoscere questa struttura come la fonte di verità attuale** se resta invariata. Dai dati è indistinguibile da un «C» digitato «B» |
 
 Nessuna delle due è stata toccata: correggerle vorrebbe dire inventare struttura di

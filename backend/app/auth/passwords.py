@@ -127,11 +127,18 @@ _hasher = PasswordHasher(
 MIN_LENGTH = 12
 MAX_LENGTH = 128
 
-#: Byte casuali di una password provvisoria: 24 byte = **192 bit** di entropia,
-#: oltre il minimo richiesto di 128. `token_urlsafe` li rappresenta in 32 caratteri
-#: URL-safe, che si copiano e si incollano senza ambiguità e superano `MIN_LENGTH`
-#: senza casi speciali.
-TEMP_PASSWORD_BYTES = 24
+#: Password provvisoria: 6 gruppi di 5 caratteri separati da trattini, per
+#: esempio `k7mfp-x2qrn-8hwda-tz3ue-c9vbs-mg4kp`.
+#:
+#: Fino alla 0.4.0 era `token_urlsafe` (32 caratteri, maiuscole, minuscole, `-`
+#: e `_`). Su tsm-prd si entra dal web gateway, dove il copia-incolla spesso
+#: non arriva e la provvisoria si RIDIGITA: `l`/`1`/`I`, `O`/`0`, maiuscole e
+#: `_` con una tastiera remota in un'altra lingua erano errori garantiti.
+#: Ora: solo minuscole e cifre, senza i caratteri ambigui (0 o 1 l i), a gruppi.
+#: 30 simboli da un alfabeto di 31 = circa 148 bit, sopra il minimo di 128.
+TEMP_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+TEMP_PASSWORD_GROUPS = 6
+TEMP_PASSWORD_GROUP_LEN = 5
 
 #: File della lista locale. Accanto al modulo di proposito: in rete chiusa non
 #: esiste un servizio da interrogare, e un percorso configurabile sarebbe un
@@ -375,7 +382,7 @@ def needs_rehash(stored_hash: str) -> bool:
 
 
 def generate_temporary_password() -> str:
-    """Password provvisoria da CSPRNG: 192 bit, 32 caratteri URL-safe.
+    """Password provvisoria da CSPRNG: ~148 bit, 6 gruppi di 5 caratteri facili da ridigitare.
 
     `secrets`, non `random`: il secondo è un generatore deterministico e prevedibile
     da chi ne osservi l'uscita, e non va mai vicino a una credenziale.
@@ -386,6 +393,9 @@ def generate_temporary_password() -> str:
     domani `MIN_LENGTH` superasse la lunghezza generata, questo solleverebbe subito
     invece di creare utenze con una provvisoria che l'utente non può ridigitare.
     """
-    temp = secrets.token_urlsafe(TEMP_PASSWORD_BYTES)
+    temp = "-".join(
+        "".join(secrets.choice(TEMP_PASSWORD_ALPHABET)
+                for _ in range(TEMP_PASSWORD_GROUP_LEN))
+        for _ in range(TEMP_PASSWORD_GROUPS))
     check_policy(temp)
     return temp

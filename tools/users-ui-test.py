@@ -252,9 +252,16 @@ def run(page, ctx, base, args, api_calls, api_bodies, console_text) -> None:
     # ---------------- reimpostazione password (doppio clic) ----------------
     api_calls.clear()
     # Anche qui i due clic nello stesso task, sull'ultima riga.
+    # Dalla 0.4.1 il pulsante della riga apre una finestra (provvisoria o password
+    # scelta); il doppio clic si prova sul pulsante che conferma.
     page.evaluate("""() => {
       const bs = [...document.querySelectorAll('[data-tsm-reset]')];
-      const b = bs[bs.length - 1];
+      bs[bs.length - 1].click();
+    }""")
+    page.wait_for_timeout(500)
+    page.evaluate("""() => {
+      const f = document.querySelector('#form-reimposta-password');
+      const b = [...f.querySelectorAll('button')].find(x => x.textContent.trim() === 'Reimposta');
       b.click(); b.click();
     }""")
     page.wait_for_timeout(3200)

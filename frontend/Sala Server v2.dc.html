@@ -63,14 +63,17 @@
         <img src="trust-logo-dark.png" alt="Trust Technologies" style="height:24px; align-self:center; display:block">
         <div style="text-align:center; font-size:14.5px; font-weight:700; color:#e6ecf2">Imposta una password personale</div>
         <div style="font-size:12px; color:#8a94a2; line-height:1.5">La password attuale è provvisoria. Fino al cambio, la sessione può fare solo questo.</div>
-        <input placeholder="password attuale" type="password" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
-        <input placeholder="nuova password (min. 12 caratteri)" type="password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <sc-if value="{{ forceNeedsCur }}" hint-placeholder-val="{{ true }}">
+        <input placeholder="password attuale (quella provvisoria)" type="password" autoComplete="current-password" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        </sc-if>
+        <input placeholder="nuova password (min. 12 caratteri)" type="password" autoComplete="new-password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
         <sc-if value="{{ hasPwStrength }}" hint-placeholder-val="{{ false }}">
           <div style="display:flex; flex-direction:column; gap:4px">
             <div style="height:4px; border-radius:2px; background:#2b333d; overflow:hidden"><div style="{{ pwStrengthBar }}"></div></div>
             <div style="{{ pwStrengthStyle }}">{{ pwStrengthLabel }}</div>
           </div>
         </sc-if>
+        <input placeholder="ripeti la nuova password" type="password" autoComplete="new-password" value="{{ pwNew2 }}" onChange="{{ onPwNew2 }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
         <sc-if value="{{ hasPwMsg }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:12px; color:#ffb020">{{ pwMsg }}</div>
         </sc-if>
@@ -88,8 +91,9 @@
           <span style="font-size:15px; font-weight:700; color:#e6ecf2; letter-spacing:0.03em">Server Manager</span>
           <div style="width:44px; height:3px; background:#e2231a; border-radius:2px; margin:8px auto 0"></div>
         </div>
-        <input placeholder="utente" value="{{ loginEmail }}" onChange="{{ onLoginEmail }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
-        <input placeholder="password" type="password" value="{{ loginPw }}" onChange="{{ onLoginPw }}" onKeyDown="{{ onLoginKey }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <sc-if value="{{ loginModeLogin }}" hint-placeholder-val="{{ true }}">
+        <input placeholder="utente" autoComplete="username" value="{{ loginEmail }}" onChange="{{ onLoginEmail }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <input placeholder="password" type="password" autoComplete="current-password" value="{{ loginPw }}" onChange="{{ onLoginPw }}" onKeyDown="{{ onLoginKey }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
         <sc-if value="{{ hasLoginErr }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:12px; color:#ff5c5c">{{ loginErr }}</div>
         </sc-if>
@@ -97,6 +101,44 @@
           <div style="font-size:12px; color:#ffb020; line-height:1.5">{{ bootError }}</div>
         </sc-if>
         <button onClick="{{ doLogin }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit; letter-spacing:0.02em" style-hover="filter:brightness(1.12)">Accedi</button>
+        <sc-if value="{{ resetAvailable }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; justify-content:space-between">
+            <button onClick="{{ apriRecupero }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Password dimenticata?</button>
+            <button onClick="{{ apriCodice }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Ho un codice</button>
+          </div>
+        </sc-if>
+        </sc-if>
+        <sc-if value="{{ loginModeForgot }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:13px; font-weight:700; color:#e6ecf2">Recupero password</div>
+          <div style="font-size:11.5px; color:#8a94a2; line-height:1.5">Indica la tua utenza: se ha un indirizzo email registrato riceverai un codice valido 30 minuti.</div>
+          <input placeholder="utente" autoComplete="username" value="{{ rcUser }}" onChange="{{ onRcUser }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+          <button onClick="{{ inviaRecupero }}" disabled="{{ rcBusy }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit">Invia il codice</button>
+          <div style="display:flex; justify-content:space-between">
+            <button onClick="{{ tornaLogin }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Torna all'accesso</button>
+            <button onClick="{{ apriCodice }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Ho già un codice</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ loginModeCode }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:13px; font-weight:700; color:#e6ecf2">Nuova password con il codice</div>
+          <input placeholder="utente" autoComplete="username" value="{{ rcUser }}" onChange="{{ onRcUser }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+          <input placeholder="codice (es. ABCD-EFGH-JKMN)" autoComplete="one-time-code" value="{{ rcCode }}" onChange="{{ onRcCode }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px; text-transform:uppercase">
+          <input placeholder="nuova password (min. 12 caratteri)" type="password" autoComplete="new-password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <sc-if value="{{ hasPwStrength }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:4px">
+            <div style="height:4px; border-radius:2px; background:#2b333d; overflow:hidden"><div style="{{ pwStrengthBar }}"></div></div>
+            <div style="{{ pwStrengthStyle }}">{{ pwStrengthLabel }}</div>
+          </div>
+        </sc-if>
+          <input placeholder="ripeti la nuova password" type="password" autoComplete="new-password" value="{{ pwNew2 }}" onChange="{{ onPwNew2 }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+          <button onClick="{{ confermaRecupero }}" disabled="{{ rcBusy }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit">Imposta la password</button>
+          <div style="display:flex; justify-content:space-between">
+            <button onClick="{{ tornaLogin }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Torna all'accesso</button>
+            <button onClick="{{ apriRecupero }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Chiedi un codice nuovo</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ hasRcMsg }}" hint-placeholder-val="{{ false }}">
+          <div style="{{ rcMsgStyle }}">{{ rcMsg }}</div>
+        </sc-if>
         <div style="font-size:10.5px; color:#57626f; text-align:center; line-height:1.5">Il privilegio è assegnato dal server in base all'utenza. Le credenziali non vengono mai verificate nel browser.</div>
         <div style="font-size:10px; color:#3d4651; text-align:center; font-family:'Roboto Mono',monospace">{{ appVersionLabel }}</div>
       </div>
@@ -686,10 +728,10 @@
                     <div style="{{ pwStrengthStyle }}">{{ pwStrengthLabel }}</div>
                   </div>
                 </sc-if>
+                <input type="password" placeholder="Ripeti la nuova password" autoComplete="new-password" value="{{ pwNew2 }}" onChange="{{ onPwNew2 }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
                 <div style="display:flex; gap:8px">
                   <button onClick="{{ savePw }}" style="flex:1; background:var(--accent); color:var(--d0c0f13); border:none; border-radius:6px; padding:7px 0; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.15)">Aggiorna</button>
-                  <button onClick="{{ resetPw }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 0; font-size:12px; cursor:pointer; font-family:inherit" style-hover="color:var(--dd7dde4)">Reimposta</button>
-                </div>
+                                  </div>
                 <sc-if value="{{ hasPwMsg }}" hint-placeholder-val="{{ false }}">
                   <div style="font-size:11.5px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace">{{ pwMsg }}</div>
                 </sc-if>
@@ -706,6 +748,9 @@
                 <div style="font-size:11.5px; color:#ff5c5c; line-height:1.5; background:var(--d2a1618); border:1px solid var(--d4a2b2b); border-radius:6px; padding:8px 10px">{{ usersError }}</div>
               </sc-if>
 
+              <sc-if value="{{ hasUsersInfo }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:11.5px; color:#3ddc84; line-height:1.5; border:1px solid var(--d21362f); border-radius:6px; padding:8px 10px">{{ usersInfo }}</div>
+              </sc-if>
               <!-- politica di blocco: soglia di accessi falliti consecutivi -->
               <div id="sicurezza-accessi" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:8px; padding:8px 10px; background:var(--d0c0f13)">
                 <span style="font-weight:700; color:var(--dd7dde4)">Sicurezza accessi</span>
@@ -714,6 +759,11 @@
                 <span>accessi falliti consecutivi ({{ secMin }}–{{ secMax }})</span>
                 <button onClick="{{ saveSecPolicy }}" disabled="{{ secSaveDisabled }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:5px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit">Salva</button>
                 <span id="sicurezza-accessi-esito" style="{{ secMsgStyle }}">{{ secMsg }}</span>
+                <div style="flex-basis:100%; display:flex; align-items:center; gap:8px; margin-top:2px">
+                  <span>Recupero password via email:</span>
+                  <button onClick="{{ toggleResetEnabled }}" disabled="{{ secSaveDisabled }}" style="{{ resetEnabledStyle }}">{{ resetEnabledLabel }}</button>
+                  <span style="font-size:10.5px; color:var(--d57626f)">funziona solo con l'invio email configurato e per le utenze con un indirizzo</span>
+                </div>
                 <div style="flex-basis:100%; font-size:10.5px; color:var(--d57626f)">Un'utenza bloccata non entra nemmeno con la password giusta: la sblocca solo un amministratore (pulsante «Sblocca» qui sotto). {{ secUpdated }}</div>
               </div>
 
@@ -730,6 +780,7 @@
                     <input name="telefono" placeholder="telefono" value="{{ userDraft.telefono }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
                     <input name="team" placeholder="team" value="{{ userDraft.team }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
                   </div>
+                  <input name="email" type="email" placeholder="email (per il recupero password)" value="{{ userDraft.email }}" onChange="{{ onUserDraft }}" autoComplete="off" style="width:100%; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
                   <div style="display:flex; gap:8px">
                     <select name="role" value="{{ userDraft.role }}" onChange="{{ onUserDraft }}" style="flex:1; min-width:0; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:inherit; font-size:12px">
                       <option value="view">Visualizzazione</option>
@@ -761,7 +812,7 @@
                           <span style="font-size:10px; color:var(--accent); flex-shrink:0">tu</span>
                         </sc-if>
                       </div>
-                      <div style="font-size:10.5px; color:var(--d57626f); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.ruoloLabel }} · {{ ur.profilo }} · ultimo accesso {{ ur.ultimoAccesso }}</div>
+                      <div style="font-size:10.5px; color:var(--d57626f); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.ruoloLabel }} · {{ ur.profilo }} · {{ ur.emailLabel }} · ultimo accesso {{ ur.ultimoAccesso }}</div>
                     </div>
                     <sc-if value="{{ ur.isLocked }}" hint-placeholder-val="{{ false }}">
                       <button onClick="{{ ur.sblocca }}" disabled="{{ ur.unlockDisabled }}" title="{{ ur.lockedTitle }}" style="background:#ff5c5c; color:#ffffff; border:none; border-radius:5px; padding:4px 8px; font-size:10.5px; font-weight:700; cursor:pointer; font-family:inherit; flex-shrink:0">{{ ur.unlockLabel }}</button>
@@ -795,6 +846,7 @@
                   <input name="telefono" placeholder="telefono" value="{{ userEdit.telefono }}" onChange="{{ onUserEdit }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
                   <input name="team" placeholder="team" value="{{ userEdit.team }}" onChange="{{ onUserEdit }}" style="flex:1; min-width:0; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
                 </div>
+                <input name="email" type="email" placeholder="email (per il recupero password)" value="{{ userEdit.email }}" onChange="{{ onUserEdit }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
                 <select name="role" value="{{ userEdit.role }}" onChange="{{ onUserEdit }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
                   <option value="view">Visualizzazione</option>
                   <option value="edit">Operatore</option>
@@ -806,6 +858,41 @@
                 <div style="display:flex; gap:8px; margin-top:4px">
                   <button onClick="{{ salvaUserEdit }}" disabled="{{ saveEditDisabled }}" style="flex:1; background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:9px 0; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit">{{ saveEditLabel }}</button>
                   <button onClick="{{ annullaUserEdit }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:9px 0; font-size:12.5px; cursor:pointer; font-family:inherit">Annulla</button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- reimpostazione: provvisoria generata oppure password scelta dall'admin -->
+          <sc-if value="{{ userResetOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:fixed; inset:0; z-index:216; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif">
+              <div id="form-reimposta-password" style="width:420px; background:var(--d12161c); border:1px solid var(--d2b333d); border-radius:12px; padding:22px; display:flex; flex-direction:column; gap:10px; box-shadow:0 24px 64px rgba(0,0,0,0.6)">
+                <div style="font-size:13.5px; font-weight:700; color:var(--de6ecf2)">Reimposta la password di {{ userReset.username }}</div>
+                <div style="display:flex; gap:8px">
+                  <button onClick="{{ resetModoGenera }}" style="{{ resetBtnGen }}">Genera provvisoria</button>
+                  <button onClick="{{ resetModoScelta }}" style="{{ resetBtnScelta }}">Scegli tu la password</button>
+                </div>
+                <sc-if value="{{ resetModeGen }}" hint-placeholder-val="{{ true }}">
+                  <div style="font-size:11.5px; color:var(--d8a94a2); line-height:1.5">Il sistema genera una password provvisoria (6 gruppi di lettere minuscole e cifre, facile da ridigitare), mostrata una volta sola. Al primo accesso la persona dovrà cambiarla.</div>
+                </sc-if>
+                <sc-if value="{{ resetModeScelta }}" hint-placeholder-val="{{ false }}">
+                  <input type="password" placeholder="nuova password (min. 12 caratteri)" autoComplete="new-password" value="{{ userReset.pw }}" name="pw" onChange="{{ onUserReset }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:'Roboto Mono',monospace; font-size:12.5px">
+                  <sc-if value="{{ hasResetStrength }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex; flex-direction:column; gap:4px">
+                      <div style="height:4px; border-radius:2px; background:#2b333d; overflow:hidden"><div style="{{ resetStrengthBar }}"></div></div>
+                      <div style="{{ resetStrengthStyle }}">{{ resetStrengthLabel }}</div>
+                    </div>
+                  </sc-if>
+                  <input type="password" placeholder="ripeti la password" autoComplete="new-password" value="{{ userReset.pw2 }}" name="pw2" onChange="{{ onUserReset }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:8px 10px; font-family:'Roboto Mono',monospace; font-size:12.5px">
+                  <button onClick="{{ toggleResetMustChange }}" style="align-self:flex-start; background:transparent; border:1px solid var(--d2b333d); border-radius:5px; color:var(--dd7dde4); padding:5px 10px; font-size:11.5px; cursor:pointer; font-family:inherit">{{ resetMustChangeLabel }}</button>
+                  <div style="font-size:10.5px; color:var(--d57626f); line-height:1.5">Comunica la password alla persona di persona o a voce, non per email. Senza cambio obbligatorio la password resta nota anche a te: l'operazione finisce nel registro.</div>
+                </sc-if>
+                <sc-if value="{{ hasUsersError }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11.5px; color:#ff5c5c; line-height:1.5">{{ usersError }}</div>
+                </sc-if>
+                <div style="display:flex; gap:8px; margin-top:4px">
+                  <button onClick="{{ confermaReset }}" disabled="{{ resetConfirmDisabled }}" style="flex:1; background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:9px 0; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit">Reimposta</button>
+                  <button onClick="{{ annullaReset }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:9px 0; font-size:12.5px; cursor:pointer; font-family:inherit">Annulla</button>
                 </div>
               </div>
             </div>
@@ -1566,7 +1653,7 @@ class Component extends DCLogic {
             usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
-            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', loginMode: 'login', rcUser: '', rcCode: '', rcBusy: false, rcMsg: '', rcMsgErr: false, resetAvailable: false, pwNew2: '', forceCurKnown: false, userReset: null, usersInfo: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
             // --- interrogazioni relazionali (fase 2H) ---
             //
             // Uno slot per interrogazione, sempre della stessa forma:
@@ -1718,6 +1805,19 @@ class Component extends DCLogic {
     IDENT = ident;
     API = api;
     // Versione dell'applicazione: informativa, non blocca l'avvio se manca.
+    api.getResetAvailable().then(r => this.setState({ resetAvailable: !!(r && r.enabled) }))
+                           .catch(() => {});
+    // Link della mail di recupero: #reset?u=<utenza>&c=<codice>. Si legge e si
+    // TOGLIE subito dalla barra degli indirizzi, così il codice non resta nella
+    // cronologia né in uno screenshot.
+    try {
+      const h = window.location.hash || '';
+      if (h.startsWith('#reset')) {
+        const q = new URLSearchParams(h.slice(h.indexOf('?') + 1));
+        this.setState({ loginMode: 'code', rcUser: q.get('u') || '', rcCode: q.get('c') || '' });
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    } catch { /* link malformato: si resta sull'accesso normale */ }
     api.getHealth().then(h => this.setState({ appVersion: (h && h.version) || '' }))
                    .catch(() => {});
     QRY = qry;
@@ -2320,7 +2420,13 @@ class Component extends DCLogic {
       this.setState({ loginBusy: false, loginPw: '', loginErr: '',
                       session: me, mustChangePw: !!me.mustChangePassword });
       if (me.mustChangePassword) {
-        this.setState({ data: null, pwMsg: 'Password provvisoria: impostane una personale per continuare.' });
+        // La password con cui si è appena entrati È la «password attuale»: la si
+        // tiene in memoria (mai nello stato, mai su disco) per non chiederla di
+        // nuovo. Ridigitarla era la causa n. 1 di «password attuale errata»,
+        // complice il riempimento automatico del browser.
+        this._forcePw = password;
+        this.setState({ data: null, forceCurKnown: true, pwCur: '', pwNew: '', pwNew2: '',
+                        pwMsg: 'Password provvisoria: impostane una personale per continuare.' });
         return;
       }
       await this._loadInventory();
@@ -2340,6 +2446,8 @@ class Component extends DCLogic {
   async _doLogout() {
     try { await API.doLogout(); } catch { /* la sessione cade comunque */ }
     if (this._writer) this._writer.reset(null);
+    this._forcePw = null;
+    this.setState({ forceCurKnown: false, pwCur: '', pwNew: '', pwNew2: '' });
     this.setState({ session: null, mustChangePw: false, data: null, role: 'view',
                     loginEmail: '', loginPw: '', loginErr: '', accountOpen: false,
                     profileOpen: false, editing: false, selDev: null });
@@ -2347,8 +2455,14 @@ class Component extends DCLogic {
 
   /** Cambio password proprio. Il server revoca tutte le sessioni: si torna al login. */
   async _doChangePassword() {
-    const cur = this.state.pwCur || '';
+    const cur = (this.state.mustChangePw && this._forcePw) ? this._forcePw
+              : (this.state.pwCur || '');
     const nuova = this.state.pwNew || '';
+    if (!cur) { this.setState({ pwMsg: 'Inserisci la password attuale.' }); return; }
+    if (nuova !== (this.state.pwNew2 || '')) {
+      this.setState({ pwMsg: 'Le due password nuove non coincidono.' });
+      return;
+    }
     // Controllo di CORTESIA, non di sicurezza: risparmia un giro di rete a chi
     // digita troppo poco. La regola vera è del server (§8.43), che rifiuta con
     // `password_too_short`, e questo numero non deve poter contraddirlo — se
@@ -2361,7 +2475,9 @@ class Component extends DCLogic {
     }
     try {
       await API.changePassword(cur, nuova);
-      this.setState({ pwCur: '', pwNew: '', session: null, mustChangePw: false,
+      this._forcePw = null;
+      this.setState({ pwCur: '', pwNew: '', pwNew2: '', forceCurKnown: false,
+                      session: null, mustChangePw: false,
                       data: null, profileOpen: false,
                       pwMsg: 'Password aggiornata. Accedi di nuovo.' });
     } catch (err) {
@@ -2734,6 +2850,92 @@ class Component extends DCLogic {
     }
   }
 
+  /** Recupero password, passo 1: chiede il codice. Risposta sempre uguale. */
+  async _rcRequest() {
+    const u = (this.state.rcUser || '').trim();
+    if (!u) { this.setState({ rcMsg: 'Inserisci la tua utenza.', rcMsgErr: true }); return; }
+    this.setState({ rcBusy: true, rcMsg: '' });
+    try {
+      const out = await API.requestPasswordReset(u);
+      this.setState({ rcMsg: (out && out.message) || 'Richiesta inviata.', rcMsgErr: false,
+                      loginMode: 'code', rcCode: '' });
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ rcMsg: d.titolo + ' — ' + d.testo, rcMsgErr: true });
+    } finally {
+      this.setState({ rcBusy: false });
+    }
+  }
+
+  /** Recupero password, passo 2: utenza + codice + nuova password. */
+  async _rcConfirm() {
+    const S = this.state;
+    const u = (S.rcUser || '').trim(), code = (S.rcCode || '').trim(), nuova = S.pwNew || '';
+    if (!u || !code) { this.setState({ rcMsg: 'Inserisci utenza e codice.', rcMsgErr: true }); return; }
+    if ([...nuova].length < PW_MIN_LENGTH) {
+      this.setState({ rcMsg: 'La nuova password deve avere almeno ' + PW_MIN_LENGTH + ' caratteri.', rcMsgErr: true });
+      return;
+    }
+    if (nuova !== (S.pwNew2 || '')) {
+      this.setState({ rcMsg: 'Le due password nuove non coincidono.', rcMsgErr: true }); return;
+    }
+    this.setState({ rcBusy: true, rcMsg: '' });
+    try {
+      await API.confirmPasswordReset(u, code, nuova);
+      this.setState({ loginMode: 'login', loginEmail: u, rcCode: '', pwNew: '', pwNew2: '',
+                      rcMsg: 'Password impostata. Ora puoi accedere.', rcMsgErr: false });
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ rcMsg: err.status === 400 ? (err.message || d.testo) : d.titolo + ' — ' + d.testo,
+                      rcMsgErr: true });
+    } finally {
+      this.setState({ rcBusy: false });
+    }
+  }
+
+  /** Finestra «Reimposta password»: provvisoria generata o password scelta. */
+  async _userResetConfirm() {
+    const r = this.state.userReset;
+    if (!r) return;
+    let body;
+    if (r.mode === 'scelta') {
+      if ([...(r.pw || '')].length < PW_MIN_LENGTH) {
+        this.setState({ usersError: 'La password deve avere almeno ' + PW_MIN_LENGTH + ' caratteri.' });
+        return;
+      }
+      if (r.pw !== r.pw2) { this.setState({ usersError: 'Le due password non coincidono.' }); return; }
+      body = { password: r.pw, mustChange: r.mustChange !== false };
+    }
+    const out = await this._userAction('reset:' + r.id, () => API.resetUserPassword(r.id, body));
+    if (!out) return;
+    if (out.temporaryPassword) {
+      this.setState({ userReset: null,
+                      tempPw: { password: out.temporaryPassword, username: out.user.username,
+                                reason: 'reimpostata' }, tempPwCopied: false });
+    } else {
+      this.setState({ userReset: null,
+                      usersInfo: 'Password di ' + out.user.username + ' impostata'
+                        + (r.mustChange !== false ? ': dovrà cambiarla al primo accesso.' : '.') });
+    }
+  }
+
+  async _toggleResetEnabled() {
+    const pol = this.state.secPolicy;
+    if (!pol) return;
+    this.setState({ secBusy: true, secMsg: '' });
+    try {
+      const out = await API.putSecurityPolicy({ passwordResetEnabled: !pol.passwordResetEnabled });
+      this.setState({ secPolicy: out, secMsg: 'Salvato.', secMsgErr: false });
+      API.getResetAvailable().then(x => this.setState({ resetAvailable: !!(x && x.enabled) }))
+                             .catch(() => {});
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ secMsg: d.titolo + ' — ' + d.testo, secMsgErr: true });
+    } finally {
+      this.setState({ secBusy: false });
+    }
+  }
+
   async _saveSecPolicy() {
     const pol = this.state.secPolicy;
     const raw = String(this.state.secDraft || '').trim();
@@ -2745,7 +2947,7 @@ class Component extends DCLogic {
     }
     this.setState({ secBusy: true, secMsg: '' });
     try {
-      const out = await API.putSecurityPolicy(n);
+      const out = await API.putSecurityPolicy({ maxFailedLogins: n });
       this.setState({ secPolicy: out, secDraft: String(out.maxFailedLogins),
                       secMsg: 'Salvato.', secMsgErr: false });
     } catch (err) {
@@ -2841,6 +3043,7 @@ class Component extends DCLogic {
       cognome: (d.cognome || '').trim() || null,
       telefono: (d.telefono || '').trim() || null,
       team: (d.team || '').trim() || null,
+      email: (d.email || '').trim() || null,
     }));
     if (out) {
       // La password provvisoria vive SOLO qui, in stato React, e solo finché il
@@ -2878,7 +3081,7 @@ class Component extends DCLogic {
     if (!d) return;
     const patch = {};
     if (d.role !== d._origRole) patch.role = d.role;
-    for (const f of ['nome', 'cognome', 'telefono', 'team']) {
+    for (const f of ['nome', 'cognome', 'telefono', 'team', 'email']) {
       if ((d[f] || '') !== (d['_orig_' + f] || '')) patch[f] = (d[f] || '').trim() || null;
     }
     if (!Object.keys(patch).length) { this.setState({ userEdit: null }); return; }
@@ -4243,8 +4446,29 @@ class Component extends DCLogic {
       pwCur: S.pwCur, pwNew: S.pwNew,
       onPwCur: (e) => this.setState({ pwCur: e.target.value, pwMsg: '' }),
       onPwNew: (e) => this.setState({ pwNew: e.target.value, pwMsg: '' }),
+      pwNew2: S.pwNew2 || '',
+      onPwNew2: (e) => this.setState({ pwNew2: e.target.value, pwMsg: '', rcMsg: '' }),
+      forceNeedsCur: !(S.forceCurKnown && this._forcePw),
+      // --- recupero password dalla schermata di accesso ---
+      loginModeLogin: (S.loginMode || 'login') === 'login',
+      loginModeForgot: S.loginMode === 'forgot',
+      loginModeCode: S.loginMode === 'code',
+      resetAvailable: !!S.resetAvailable,
+      apriRecupero: () => this.setState(s => ({ loginMode: 'forgot', rcMsg: '', loginErr: '',
+                                               rcUser: s.rcUser || s.loginEmail || '' })),
+      apriCodice: () => this.setState(s => ({ loginMode: 'code', rcMsg: '', loginErr: '',
+                                             rcUser: s.rcUser || s.loginEmail || '' })),
+      tornaLogin: () => this.setState({ loginMode: 'login', rcMsg: '', pwNew: '', pwNew2: '' }),
+      rcUser: S.rcUser || '', rcCode: S.rcCode || '',
+      onRcUser: (e) => this.setState({ rcUser: e.target.value, rcMsg: '' }),
+      onRcCode: (e) => this.setState({ rcCode: e.target.value, rcMsg: '' }),
+      inviaRecupero: () => { this._rcRequest(); },
+      confermaRecupero: () => { this._rcConfirm(); },
+      rcBusy: !!S.rcBusy,
+      rcMsg: S.rcMsg || '', hasRcMsg: !!S.rcMsg,
+      rcMsgStyle: { fontSize: 12, lineHeight: 1.5, color: S.rcMsgErr ? '#ff5c5c' : '#3ddc84' },
       ...(() => {
-        const st = pwStrength(S.pwNew, S.session && S.session.username);
+        const st = pwStrength(S.pwNew, (S.session && S.session.username) || S.rcUser);
         const col = st ? ['#ff5c5c', '#ff8a3d', '#ffb020', '#3ddc84'][st.livello] : '#57626f';
         return {
           hasPwStrength: !!st,
@@ -4361,6 +4585,12 @@ class Component extends DCLogic {
       saveSecPolicy: () => { this._saveSecPolicy(); },
       secSaveDisabled: !!S.secBusy || !S.secPolicy,
       secMsg: S.secMsg || '',
+      toggleResetEnabled: () => { this._toggleResetEnabled(); },
+      resetEnabledLabel: (S.secPolicy && S.secPolicy.passwordResetEnabled) ? 'attivo' : 'disattivato',
+      resetEnabledStyle: { background: 'transparent', borderRadius: 5, padding: '3px 10px', fontSize: 11,
+                           fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                           color: (S.secPolicy && S.secPolicy.passwordResetEnabled) ? '#3ddc84' : '#ff8a3d',
+                           border: '1px solid ' + ((S.secPolicy && S.secPolicy.passwordResetEnabled) ? '#3ddc84' : '#ff8a3d') },
       hasSecMsg: !!S.secMsg,
       secMsgStyle: { fontSize: 11, color: S.secMsgErr ? '#ff5c5c' : '#3ddc84' },
       secUpdated: S.secPolicy && S.secPolicy.updatedBy
@@ -4420,14 +4650,19 @@ class Component extends DCLogic {
             userEdit: {
               id: u.id, username: u.username, role: u.role, _origRole: u.role,
               nome: u.nome || '', cognome: u.cognome || '',
-              telefono: u.telefono || '', team: u.team || '',
+              telefono: u.telefono || '', team: u.team || '', email: u.email || '',
               _orig_nome: u.nome || '', _orig_cognome: u.cognome || '',
               _orig_telefono: u.telefono || '', _orig_team: u.team || '',
+              _orig_email: u.email || '',
             }, usersError: '',
           }),
           disattiva: () => this._userSetDisabled(u, true),
           riattiva: () => this._userSetDisabled(u, false),
-          reimposta: () => this._userReset(u),
+          reimposta: () => this.setState({
+            userReset: { id: u.id, username: u.username, mode: 'gen', pw: '', pw2: '',
+                         mustChange: true },
+            usersError: '', usersInfo: '' }),
+          emailLabel: u.email ? u.email : 'nessuna email',
         };
       }),
 
@@ -4436,10 +4671,10 @@ class Component extends DCLogic {
       toggleUserForm: () => this.setState(s => ({
         userFormOpen: !s.userFormOpen, usersError: '',
         userDraft: s.userFormOpen ? null
-          : { username: '', role: 'view', nome: '', cognome: '', telefono: '', team: '' },
+          : { username: '', role: 'view', nome: '', cognome: '', telefono: '', team: '', email: '' },
       })),
       userDraft: S.userDraft
-        || { username: '', role: 'view', nome: '', cognome: '', telefono: '', team: '' },
+        || { username: '', role: 'view', nome: '', cognome: '', telefono: '', team: '', email: '' },
       onUserDraft: (e) => {
         const { name, value } = e.target;
         this.setState(s => ({
@@ -4467,6 +4702,44 @@ class Component extends DCLogic {
       saveEditDisabled: !!(S.usersBusy || {})['edit:' + ((S.userEdit || {}).id || '')],
       saveEditLabel: (S.usersBusy || {})['edit:' + ((S.userEdit || {}).id || '')]
         ? 'Salvataggio…' : 'Salva',
+
+      // --- finestra «Reimposta password» ---
+      userResetOpen: !!S.userReset,
+      userReset: S.userReset || { username: '', pw: '', pw2: '' },
+      resetModeGen: !S.userReset || S.userReset.mode !== 'scelta',
+      resetModeScelta: !!S.userReset && S.userReset.mode === 'scelta',
+      resetModoGenera: () => this.setState(s => ({ userReset: { ...s.userReset, mode: 'gen' }, usersError: '' })),
+      resetModoScelta: () => this.setState(s => ({ userReset: { ...s.userReset, mode: 'scelta' }, usersError: '' })),
+      ...(() => {
+        const on = { flex: 1, background: 'var(--d1a2a27)', color: 'var(--accent)', border: '1px solid var(--accent)',
+                     borderRadius: 6, padding: '7px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };
+        const off = { ...on, background: 'transparent', color: 'var(--d8a94a2)', border: '1px solid var(--d2b333d)', fontWeight: 500 };
+        const scelta = !!S.userReset && S.userReset.mode === 'scelta';
+        const r = S.userReset || {};
+        const st = scelta ? pwStrength(r.pw, r.username) : null;
+        const col = st ? ['#ff5c5c', '#ff8a3d', '#ffb020', '#3ddc84'][st.livello] : '#57626f';
+        return {
+          resetBtnGen: scelta ? off : on, resetBtnScelta: scelta ? on : off,
+          hasResetStrength: !!st,
+          resetStrengthLabel: st ? (st.etichetta + ' — ' + st.motivo) : '',
+          resetStrengthStyle: { fontSize: 11, color: col, lineHeight: 1.4 },
+          resetStrengthBar: { height: '100%', width: (st ? [15, 40, 70, 100][st.livello] : 0) + '%',
+                              background: col },
+        };
+      })(),
+      onUserReset: (e) => {
+        const { name, value } = e.target;
+        this.setState(s => ({ userReset: { ...s.userReset, [name]: value }, usersError: '' }));
+      },
+      toggleResetMustChange: () => this.setState(s => ({
+        userReset: { ...s.userReset, mustChange: s.userReset.mustChange === false } })),
+      resetMustChangeLabel: (S.userReset && S.userReset.mustChange === false)
+        ? '☐ Cambio obbligatorio al primo accesso: NO'
+        : '☑ Cambio obbligatorio al primo accesso: sì',
+      confermaReset: () => { this._userResetConfirm(); },
+      annullaReset: () => this.setState({ userReset: null, usersError: '' }),
+      resetConfirmDisabled: !!(S.usersBusy || {})['reset:' + ((S.userReset || {}).id || '')],
+      usersInfo: S.usersInfo || '', hasUsersInfo: !!S.usersInfo,
 
       // --- password provvisoria: una volta sola, poi si cancella ---
       tempPwOpen: !!S.tempPw,
@@ -4521,7 +4794,7 @@ class Component extends DCLogic {
       // Credenziali SMTP: un sì/no. Nient'altro passa da qui.
       setSmtpLabel: S.setSmtpConfigured
         ? 'Credenziali SMTP configurate: sì'
-        : 'Credenziali SMTP configurate: no — l\'invio non è possibile finché i sistemisti non le impostano',
+        : 'Credenziali SMTP configurate: no — si impostano sulla VM (.env e secrets/smtp_password, manuale §6); fino ad allora niente avvisi né recupero password',
       setSmtpStyle: 'font-size:11px; font-family:\'Roboto Mono\',monospace; color:'
         + (S.setSmtpConfigured ? '#3ddc84' : '#ff8a3d'),
 

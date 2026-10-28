@@ -8,7 +8,10 @@ Con una password provvisoria l'accesso **riesce** (200, `authenticated=true`,
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response, status
+import logging
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 
@@ -22,7 +25,11 @@ from app.auth.service import (
     login,
     logout,
 )
+from app.auth import reset as reset_svc
+from app.auth.service import _out_of_band
 from app.config import get_settings
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -141,3 +148,82 @@ def change_password(payload: PasswordIn, request: Request,
     r = Response(status_code=status.HTTP_204_NO_CONTENT, headers=NO_STORE)
     _clear_session_cookie(r)
     return r
+
+
+# ------------------------------------------------------------ recupero password
+#
+# Tre rotte PUBBLICHE (nessuna sessione): la schermata di accesso le usa prima
+# di avere un utente. Regole in `app.auth.reset`.
+
+class ResetAvailableOut(BaseModel):
+    enabled: bool
+
+
+class ResetRequestIn(BaseModel):
+    username: str = Field(min_length=1, max_length=200)
+
+
+class ResetConfirmIn(BaseModel):
+    username: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=1, max_length=64)
+    newPassword: str = Field(max_length=1024)
+
+
+RESET_ACCEPTED_MESSAGE = (
+    "Se l'utenza esiste e ha un indirizzo email, riceverai a breve un codice "
+    "valido 30 minuti. Se non arriva, rivolgiti a un amministratore.")
+
+
+def _send_reset_mail(mail: "reset_svc.ResetMail") -> None:
+    """Spedizione in sottofondo, DOPO la risposta.
+
+    Due ragioni: il tempo di risposta non deve dire se una mail è partita (cioè
+    se l'utenza esiste), e un relay lento non deve tenere appesa la schermata di
+    accesso. Un errore finisce nei log; la persona, non ricevendo niente, chiede
+    a un amministratore — come dice il messaggio.
+    """
+    from app.notifications.smtp import build_reset_message, deliver
+    s = get_settings()
+    origins = s.allowed_origins()
+    link = None
+    if origins:
+        link = origins[0] + "/#reset?" + urlencode({"u": mail.username, "c": mail.code})
+    try:
+        msg = build_reset_message(s.smtp_sender, mail.to, username=mail.username,
+                                  code=mail.code, expires_minutes=mail.expires_minutes,
+                                  link=link)
+        deliver(msg, what="recupero password")
+    except Exception:
+        log.exception("recupero password: invio della mail non riuscito")
+
+
+@router.get("/auth/password-reset", response_model=ResetAvailableOut,
+            summary="Il recupero password via email è disponibile?")
+def reset_available(response: Response,
+                    conn: Connection = Depends(get_connection)) -> ResetAvailableOut:
+    response.headers.update(NO_STORE)
+    return ResetAvailableOut(enabled=reset_svc.is_available(conn))
+
+
+@router.post("/auth/password-reset/request", status_code=status.HTTP_202_ACCEPTED,
+             summary="Chiede un codice di recupero (risposta sempre identica)")
+def reset_request(payload: ResetRequestIn, request: Request,
+                  background: BackgroundTasks,
+                  conn: Connection = Depends(get_connection)) -> dict:
+    mail = reset_svc.request_reset(conn, payload.username, ip=client_ip(request))
+    if mail is not None:
+        background.add_task(_send_reset_mail, mail)
+    return {"message": RESET_ACCEPTED_MESSAGE}
+
+
+@router.post("/auth/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT,
+             summary="Imposta una nuova password con utenza e codice")
+def reset_confirm(payload: ResetConfirmIn, request: Request,
+                  conn: Connection = Depends(get_connection)) -> Response:
+    try:
+        reset_svc.confirm_reset(conn, payload.username, payload.code,
+                                payload.newPassword, ip=client_ip(request),
+                                out_of_band=_out_of_band)
+    except Exception as exc:
+        raise http_error_for(exc) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT, headers=NO_STORE)

@@ -222,8 +222,12 @@ def esegui(page, base, args, provvisoria: str) -> None:
     # ==============================================================
     # 10-11. cambio password e accesso nuovo
     # ==============================================================
-    page.get_by_placeholder("password attuale").fill(provvisoria)
-    page.get_by_placeholder("nuova password", exact=False).fill(args.new_password)
+    # Dalla 0.4.1 la provvisoria non si ridigita dopo il login: il campo
+    # compare solo se la pagina è stata ricaricata.
+    if page.get_by_placeholder("password attuale").count():
+        page.get_by_placeholder("password attuale").fill(provvisoria)
+    page.get_by_placeholder("nuova password (min. 12 caratteri)").fill(args.new_password)
+    page.get_by_placeholder("ripeti la nuova password").fill(args.new_password)
     page.get_by_role("button", name="Cambia password").click()
     page.wait_for_timeout(3000)
 

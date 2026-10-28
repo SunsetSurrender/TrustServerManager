@@ -69,7 +69,7 @@ def main() -> int:
         page = context.new_page()
 
         console_errors: list[str] = []
-        page.on("pageerror", lambda e: console_errors.append(f"pageerror: {e}"))
+        page.on("pageerror", lambda e: console_errors.append(f"pageerror: {e} [pagina {page.url}, dopo: {api_calls[-1] if api_calls else '-'}]"))
 
         # I 401 su /api/auth/me PRIMA del login e dopo il logout sono attesi: è così
         # che il client scopre di dover mostrare la schermata di accesso (§8.1).
@@ -95,7 +95,14 @@ def main() -> int:
                 if "/api/" in r.url else None)
 
         # ---------------- 1. TLS e reindirizzamento ----------------
-        r = page.goto(f"http://{host}/", wait_until="domcontentloaded")
+        # «load» e non «domcontentloaded»: la pagina avvia import dinamici
+        # (identity.js, api.js…). Navigare altrove mentre sono in volo li
+        # interrompe, e Firefox — a differenza di Chrome — lo riporta come errore
+        # JavaScript non gestito: un falso positivo creato dal test, non dall'app.
+        r = page.goto(f"http://{host}/", wait_until="load")
+        # Neanche «load» basta: gli import dinamici partono DOPO, dall'avvio
+        # dell'app. Si aspetta che la rete sia ferma prima di cambiare pagina.
+        page.wait_for_load_state("networkidle")
         check("HTTP reindirizza a HTTPS",
               page.url.startswith("https://"), f"finito su {page.url}")
 
@@ -147,8 +154,12 @@ def main() -> int:
                   str(api_calls[:8]))
 
             new_password = args.new_password or (args.password + "-cambiata")
-            page.get_by_placeholder("password attuale").fill(args.password)
+            # Dalla 0.4.1 la provvisoria non si ridigita dopo il login: il campo
+            # compare solo se la pagina è stata ricaricata.
+            if page.get_by_placeholder("password attuale").count():
+                page.get_by_placeholder("password attuale").fill(args.password)
             page.get_by_placeholder("nuova password (min. 12 caratteri)").fill(new_password)
+            page.get_by_placeholder("ripeti la nuova password").fill(new_password)
             forced.click()
             page.wait_for_timeout(3000)
 

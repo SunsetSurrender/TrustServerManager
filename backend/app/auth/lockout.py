@@ -51,6 +51,8 @@ class SecurityPolicy:
     max_failed_logins: int
     updated_at: Any
     updated_by: str | None
+    #: Recupero della password via email (migrazione 0015).
+    password_reset_enabled: bool = True
 
     def as_dict(self) -> dict:
         return {
@@ -59,37 +61,58 @@ class SecurityPolicy:
             "maxMaxFailedLogins": MAX_MAX_FAILED_LOGINS,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "updatedBy": self.updated_by,
+            "passwordResetEnabled": self.password_reset_enabled,
         }
 
 
 def get_policy(conn: Connection) -> SecurityPolicy:
     row = conn.execute(text(
-        "SELECT max_failed_logins, updated_at, updated_by FROM security_policy "
-        " WHERE id = 1")).first()
+        "SELECT max_failed_logins, updated_at, updated_by, password_reset_enabled "
+        "  FROM security_policy WHERE id = 1")).first()
     if row is None:
         # Senza riga si applica il predefinito, non «nessun limite»: un controllo
         # di sicurezza che si spegne quando manca un dato è un controllo spento.
-        return SecurityPolicy(DEFAULT_MAX_FAILED_LOGINS, None, None)
-    return SecurityPolicy(int(row[0]), row[1], row[2])
+        # Il recupero via email invece si spegne: è una porta in più, non un freno.
+        return SecurityPolicy(DEFAULT_MAX_FAILED_LOGINS, None, None, False)
+    return SecurityPolicy(int(row[0]), row[1], row[2], bool(row[3]))
 
 
-def set_policy(conn: Connection, max_failed_logins: Any, *, actor) -> SecurityPolicy:
-    if isinstance(max_failed_logins, bool) or not isinstance(max_failed_logins, int):
-        raise PolicyRejected("la soglia deve essere un numero intero")
-    if not MIN_MAX_FAILED_LOGINS <= max_failed_logins <= MAX_MAX_FAILED_LOGINS:
-        raise PolicyRejected(
-            f"la soglia deve essere compresa fra {MIN_MAX_FAILED_LOGINS} "
-            f"e {MAX_MAX_FAILED_LOGINS}")
-    before = get_policy(conn).max_failed_logins
+_UNSET = object()
+
+
+def set_policy(conn: Connection, max_failed_logins: Any = _UNSET, *, actor,
+               password_reset_enabled: Any = _UNSET) -> SecurityPolicy:
+    """Cambia uno o entrambi i campi. Un campo non passato resta com'è."""
+    if max_failed_logins is _UNSET and password_reset_enabled is _UNSET:
+        raise PolicyRejected("nessun campo da modificare")
+    before = get_policy(conn)
+    n = before.max_failed_logins
+    enabled = before.password_reset_enabled
+    if max_failed_logins is not _UNSET:
+        if isinstance(max_failed_logins, bool) or not isinstance(max_failed_logins, int):
+            raise PolicyRejected("la soglia deve essere un numero intero")
+        if not MIN_MAX_FAILED_LOGINS <= max_failed_logins <= MAX_MAX_FAILED_LOGINS:
+            raise PolicyRejected(
+                f"la soglia deve essere compresa fra {MIN_MAX_FAILED_LOGINS} "
+                f"e {MAX_MAX_FAILED_LOGINS}")
+        n = max_failed_logins
+    if password_reset_enabled is not _UNSET:
+        if not isinstance(password_reset_enabled, bool):
+            raise PolicyRejected("passwordResetEnabled deve essere true o false")
+        enabled = password_reset_enabled
     conn.execute(text("""
         UPDATE security_policy
-           SET max_failed_logins = :n, updated_at = now(), updated_by = :who
+           SET max_failed_logins = :n, password_reset_enabled = :e,
+               updated_at = now(), updated_by = :who
          WHERE id = 1
-    """), {"n": max_failed_logins, "who": actor.username})
+    """), {"n": n, "e": enabled, "who": actor.username})
     record_auth_event(conn, SECURITY_POLICY_UPDATED, username=actor.username,
                       user_id=actor.user_id, role=actor.role, ip=actor.ip,
-                      detail={"maxFailedLogins": max_failed_logins,
-                              "previous": before})
+                      detail={"maxFailedLogins": n,
+                              "previous": before.max_failed_logins,
+                              "passwordResetEnabled": enabled,
+                              "previousPasswordResetEnabled":
+                                  before.password_reset_enabled})
     return get_policy(conn)
 
 

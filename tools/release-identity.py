@@ -52,7 +52,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 #: Le immagini del rilascio, con il tag che compose.yaml usa. Scritte qui a mano:
 #: leggerle da compose.yaml renderebbe il controllo circolare — direbbe soltanto
 #: che compose è d'accordo con se stesso.
-RELEASE_IMAGES = ("tsm-api:0.4.0", "tsm-web:0.4.0")
+RELEASE_IMAGES = ("tsm-api:0.4.1", "tsm-web:0.4.1")
 
 #: Dove si dichiarano le basi. Ognuna DEVE essere `nome@sha256:...`.
 BASE_IMAGE_SOURCES = (

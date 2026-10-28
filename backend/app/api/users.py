@@ -46,12 +46,20 @@ class UserOut(BaseModel):
     locked: bool = False
     lockedAt: str | None = None
     failedLogins: int = 0
+    email: str | None = None
 
 
 class CreatedUserOut(BaseModel):
     user: UserOut
     #: Password provvisoria, restituita UNA SOLA VOLTA e mai registrata (§8.25).
-    temporaryPassword: str
+    #: Null quando la password l'ha scelta l'amministratore: la conosce già.
+    temporaryPassword: str | None = None
+
+
+class ResetIn(BaseModel):
+    """Corpo facoltativo di reset-password. Vuoto = provvisoria generata."""
+    password: str | None = Field(default=None, max_length=1024)
+    mustChange: bool = True
 
 
 class CreateIn(BaseModel):
@@ -61,6 +69,7 @@ class CreateIn(BaseModel):
     cognome: str | None = Field(default=None, max_length=200)
     telefono: str | None = Field(default=None, max_length=50)
     team: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=254)
 
 
 class UpdateIn(BaseModel):
@@ -69,6 +78,7 @@ class UpdateIn(BaseModel):
     cognome: str | None = Field(default=None, max_length=200)
     telefono: str | None = Field(default=None, max_length=50)
     team: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=254)
 
 
 @router.get("/users", response_model=list[UserOut], summary="Elenco utenze")
@@ -95,7 +105,7 @@ def create_user(payload: CreateIn, response: Response,
         row, temp = svc.create_user(
             conn, username=payload.username, role=payload.role, actor=actor,
             nome=payload.nome, cognome=payload.cognome,
-            telefono=payload.telefono, team=payload.team)
+            telefono=payload.telefono, team=payload.team, email=payload.email)
     except Exception as exc:
         raise http_error_for(exc) from None
     return CreatedUserOut(user=UserOut(**row.as_dict()), temporaryPassword=temp)
@@ -146,13 +156,17 @@ def enable_user(response: Response, user_id: uuid.UUID = Path(...),
 
 
 @router.post("/users/{user_id}/reset-password", response_model=CreatedUserOut,
-             summary="Password provvisoria + revoca sessioni")
+             summary="Password provvisoria o scelta dall'admin + revoca sessioni")
 def reset_password(response: Response, user_id: uuid.UUID = Path(...),
+                   payload: ResetIn | None = None,
                    conn: Connection = Depends(get_connection),
                    actor: Actor = Depends(require_admin)) -> CreatedUserOut:
     response.headers.update(NO_STORE)
+    body = payload or ResetIn()
     try:
-        row, temp = svc.reset_password(conn, user_id, actor=actor)
+        row, temp = svc.reset_password(conn, user_id, actor=actor,
+                                       password=body.password,
+                                       must_change=body.mustChange)
     except Exception as exc:
         raise http_error_for(exc) from None
     return CreatedUserOut(user=UserOut(**row.as_dict()), temporaryPassword=temp)

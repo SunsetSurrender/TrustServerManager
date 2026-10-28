@@ -20,6 +20,8 @@ Riferimento: BACKEND-PLAN.md §8.30.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,7 +48,24 @@ USER_DISABLED = "users.disabled"
 USER_ENABLED = "users.enabled"
 USER_PASSWORD_RESET = "users.password_reset"
 
-PROFILE_FIELDS = ("nome", "cognome", "telefono", "team")
+PROFILE_FIELDS = ("nome", "cognome", "telefono", "team", "email")
+
+#: Forma minima di un indirizzo: una chiocciola, un punto nel dominio, niente
+#: spazi. Non è una validazione RFC — quella non esiste in una regex — ma basta a
+#: fermare il refuso, e il relay rifiuterà il resto.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalise_email(value: Any) -> str | None:
+    """Indirizzo ripulito, oppure None se vuoto. Solleva `UserError` se malformato."""
+    if value is None:
+        return None
+    v = str(value).strip()
+    if not v:
+        return None
+    if len(v) > 254 or not _EMAIL_RE.match(v):
+        raise UserError("indirizzo email non valido")
+    return v
 
 
 class UserError(AuthError):
@@ -81,6 +100,7 @@ class UserRow:
     created_at: Any
     locked_at: Any = None
     failed_logins: int = 0
+    email: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -93,13 +113,14 @@ class UserRow:
             "locked": self.locked_at is not None,
             "lockedAt": self.locked_at.isoformat() if self.locked_at else None,
             "failedLogins": self.failed_logins,
+            "email": self.email,
         }
 
 
 _SELECT = """
     SELECT id, username, role, must_change_pw, (disabled_at IS NOT NULL) AS disabled,
            nome, cognome, telefono, team, last_login_at, created_at,
-           locked_at, failed_logins
+           locked_at, failed_logins, email
       FROM users
 """
 
@@ -108,7 +129,7 @@ def _row(r) -> UserRow:
     return UserRow(id=r[0], username=str(r[1]), role=r[2], must_change_pw=bool(r[3]),
                    disabled=bool(r[4]), nome=r[5], cognome=r[6], telefono=r[7],
                    team=r[8], last_login_at=r[9], created_at=r[10],
-                   locked_at=r[11], failed_logins=int(r[12] or 0))
+                   locked_at=r[11], failed_logins=int(r[12] or 0), email=r[13])
 
 
 def list_users(conn: Connection, *, include_disabled: bool = False) -> list[UserRow]:
@@ -167,10 +188,11 @@ def create_user(conn: Connection, *, username: str, role: str, actor,
     # `username` in mano si applica anche la regola che vieta la password uguale
     # all'utenza, che nessun file di lista può contenere.
     temp = check_policy(password or _generate_temp_password(), username=username)
+    profile["email"] = normalise_email(profile.get("email"))
     row = conn.execute(text("""
         INSERT INTO users (username, role, password_hash, must_change_pw,
-                           nome, cognome, telefono, team)
-        VALUES (:u, :r, :pw, TRUE, :nome, :cognome, :telefono, :team)
+                           nome, cognome, telefono, team, email)
+        VALUES (:u, :r, :pw, TRUE, :nome, :cognome, :telefono, :team, :email)
      RETURNING id
     """), {"u": username, "r": role, "pw": hash_password(temp),
            **{f: profile.get(f) for f in PROFILE_FIELDS}}).first()
@@ -207,7 +229,7 @@ def update_user(conn: Connection, user_id: Any, *, actor,
 
     for f in PROFILE_FIELDS:
         if f in profile:
-            changes[f] = profile[f]
+            changes[f] = normalise_email(profile[f]) if f == "email" else profile[f]
 
     if not changes:
         return get_user(conn, user_id)
@@ -264,24 +286,41 @@ def set_disabled(conn: Connection, user_id: Any, disabled: bool, *, actor) -> Us
     return get_user(conn, user_id)
 
 
-def reset_password(conn: Connection, user_id: Any, *, actor) -> tuple[UserRow, str]:
-    """Reimposta a una password provvisoria e revoca le sessioni.
+def reset_password(conn: Connection, user_id: Any, *, actor,
+                   password: str | None = None,
+                   must_change: bool = True) -> tuple[UserRow, str | None]:
+    """Reimposta la password e revoca le sessioni.
 
-    Restituisce la password una volta sola. Revocare è necessario: senza, chi
-    aveva la sessione aperta continuerebbe a operare come se niente fosse, e un
-    reset chiesto perché la password è compromessa non servirebbe a nulla.
+    Due modi:
+
+    - senza `password`: ne genera una provvisoria e la restituisce UNA volta;
+    - con `password`: usa quella scelta dall'amministratore (stessa politica di
+      tutte le altre: lunghezza, lista vietate, diversa dall'utenza) e non la
+      restituisce, perché chi l'ha scelta la conosce già.
+
+    `must_change` (predefinito vero) obbliga al cambio al primo accesso. Toglierlo
+    lascia alla persona una password che l'amministratore conosce: è permesso, ma
+    finisce nel registro.
+
+    Revocare è necessario: senza, chi aveva la sessione aperta continuerebbe a
+    operare come se niente fosse, e un reset chiesto perché la password è
+    compromessa non servirebbe a nulla.
     """
     current = conn.execute(text(
         "SELECT username FROM users WHERE id = :id FOR UPDATE"),
         {"id": user_id}).first()
     if current is None:
         raise UserNotFound(f"utenza inesistente: {user_id}")
+    if not isinstance(must_change, bool):
+        raise UserError("mustChange deve essere true o false")
 
-    temp = _generate_temp_password()
+    chosen = password is not None and password != ""
+    temp = (check_policy(password, username=str(current[0])) if chosen
+            else _generate_temp_password())
     conn.execute(text("""
-        UPDATE users SET password_hash = :pw, must_change_pw = TRUE, updated_at = now()
+        UPDATE users SET password_hash = :pw, must_change_pw = :mc, updated_at = now()
          WHERE id = :id
-    """), {"pw": hash_password(temp), "id": user_id})
+    """), {"pw": hash_password(temp), "mc": must_change, "id": user_id})
     revoked = revoke_all_sessions(conn, user_id)
     # Una password provvisoria nuova serve a far rientrare la persona: con
     # l'utenza ancora bloccata non servirebbe a niente.
@@ -291,8 +330,10 @@ def reset_password(conn: Connection, user_id: Any, *, actor) -> tuple[UserRow, s
     record_auth_event(conn, USER_PASSWORD_RESET, username=actor.username,
                       user_id=actor.user_id, role=actor.role, ip=actor.ip,
                       detail={"targetUsername": str(current[0]),
-                              "revokedSessions": revoked})
-    return get_user(conn, user_id), temp
+                              "revokedSessions": revoked,
+                              "chosenByAdmin": chosen,
+                              "mustChange": must_change})
+    return get_user(conn, user_id), (None if chosen else temp)
 
 
 def unlock_user(conn: Connection, user_id: Any, *, actor) -> UserRow:

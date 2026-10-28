@@ -1,7 +1,8 @@
 """Politica di accesso. Solo amministratori.
 
     GET  /api/security-policy     soglia di accessi falliti prima del blocco
-    PUT  /api/security-policy     {"maxFailedLogins": 3..20}
+    PUT  /api/security-policy     {"maxFailedLogins": 3..20, "passwordResetEnabled": bool}
+                                  (uno o entrambi)
 
 Le utenze bloccate si sbloccano da `POST /api/users/{id}/unlock`.
 """
@@ -25,12 +26,14 @@ class PolicyOut(BaseModel):
     maxMaxFailedLogins: int
     updatedAt: str | None = None
     updatedBy: str | None = None
+    passwordResetEnabled: bool = True
 
 
 class PolicyIn(BaseModel):
     # Senza vincoli di tipo qui: il controllo vive in `lockout.set_policy`, così
     # i messaggi e i limiti stanno in un posto solo.
-    maxFailedLogins: object
+    maxFailedLogins: object = None
+    passwordResetEnabled: object = None
 
 
 @router.get("/security-policy", response_model=PolicyOut,
@@ -48,7 +51,13 @@ def put_policy(payload: PolicyIn, response: Response,
                actor: Actor = Depends(require_admin)) -> PolicyOut:
     response.headers.update(NO_STORE)
     try:
-        policy = lockout.set_policy(conn, payload.maxFailedLogins, actor=actor)
+        sent = payload.model_dump(exclude_unset=True)
+        kwargs = {}
+        if "maxFailedLogins" in sent:
+            kwargs["max_failed_logins"] = sent["maxFailedLogins"]
+        if "passwordResetEnabled" in sent:
+            kwargs["password_reset_enabled"] = sent["passwordResetEnabled"]
+        policy = lockout.set_policy(conn, actor=actor, **kwargs)
     except Exception as exc:
         raise http_error_for(exc) from None
     return PolicyOut(**policy.as_dict())

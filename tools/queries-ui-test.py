@@ -204,8 +204,12 @@ def accedi(page, base, args):
     # passarci attraverso invece di aggirarla.
     if page.get_by_text("Imposta una password personale").count():
         nuova = args.new_password or "TrustServerManager-2H-prova"
-        page.get_by_placeholder("password attuale").fill(args.password)
-        page.get_by_placeholder("nuova password", exact=False).fill(nuova)
+        # Dalla 0.4.1 la provvisoria non si ridigita dopo il login: il campo
+        # compare solo se la pagina è stata ricaricata.
+        if page.get_by_placeholder("password attuale").count():
+            page.get_by_placeholder("password attuale").fill(args.password)
+        page.get_by_placeholder("nuova password (min. 12 caratteri)").fill(nuova)
+        page.get_by_placeholder("ripeti la nuova password").fill(nuova)
         page.get_by_role("button", name="Cambia password").click()
         page.wait_for_timeout(3000)
         # Dopo il cambio si torna al login: si rientra con la password nuova.

@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 
 from app.auth.passwords import PasswordRejected
 from app.auth.lockout import PolicyRejected
+from app.auth.reset import ResetCodeInvalid
 from app.auth.service import (
     AccountLocked,
     AuthError,
@@ -94,6 +95,14 @@ def http_error_for(exc: Exception) -> HTTPException:
     # cosa utile da sapere per chi è bloccato.
     if isinstance(exc, AccountLocked):
         return HTTPException(423,
+                             detail={"code": exc.code, "message": exc.message},
+                             headers=NO_STORE)
+
+    # --- 400: codice di recupero non valido (migrazione 0015) ---
+    # Un solo messaggio per errato, scaduto, usato, utenza inesistente: dire
+    # quale dei casi sarebbe dire se l'utenza esiste.
+    if isinstance(exc, ResetCodeInvalid):
+        return HTTPException(400,
                              detail={"code": exc.code, "message": exc.message},
                              headers=NO_STORE)
 

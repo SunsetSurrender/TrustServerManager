@@ -4,7 +4,7 @@
 <table class="ctrl"><tbody>
 <tr><td>Titolo</td><td>Trust Server Manager. Manuale tecnico e applicativo</td></tr>
 <tr><td>Codice</td><td>TT-TSM-MAN-01</td></tr>
-<tr><td>Versione</td><td>0.4</td></tr>
+<tr><td>Versione</td><td>0.4.1</td></tr>
 <tr><td>Data</td><td>28 ottobre 2026</td></tr>
 <tr><td>Stato</td><td>Bozza</td></tr>
 <tr><td>Redatto da</td><td>M. Zandonella</td></tr>
@@ -16,7 +16,8 @@
 <h3 style="margin-top:0">Storico delle revisioni</h3>
 <table><thead><tr><th style="width:14%">Versione</th><th style="width:20%">Data</th><th>Modifiche</th></tr></thead>
 <tbody><tr><td>0.3</td><td>27/10/2026</td><td>Prima emissione, in concomitanza con l'installazione su <code>tsm-prd</code>.</td></tr>
-<tr><td>0.4</td><td>28/10/2026</td><td>Password minima di 12 caratteri con indicatore di robustezza; blocco dell'utenza dopo accessi falliti, con soglia impostabile e sblocco da amministratore; monitoraggio, FIM e ripristino automatico spostati nella cartella sistemistica <code>ops/</code>.</td></tr></tbody></table>
+<tr><td>0.4</td><td>28/10/2026</td><td>Password minima di 12 caratteri con indicatore di robustezza; blocco dell'utenza dopo accessi falliti, con soglia impostabile e sblocco da amministratore; monitoraggio, FIM e ripristino automatico spostati nella cartella sistemistica <code>ops/</code>.</td></tr>
+<tr><td>0.4.1</td><td>28/10/2026</td><td>Recupero della password via email con codice monouso; indirizzo email sulle utenze; reimpostazione da amministratore con password scelta; provvisorie in gruppi facili da ridigitare; al cambio obbligatorio la provvisoria non si ridigita e la nuova va confermata.</td></tr></tbody></table>
 
 <h3>Scopo</h3>
 <p>Il documento descrive l'installazione di produzione di Trust Server Manager (TSM) e il suo utilizzo. La Parte I è rivolta a chi amministra il server; la Parte II a chi usa l'applicazione.</p>
@@ -205,6 +206,15 @@ curl -sk https://10.11.43.230/api/ready</pre>
 docker compose run --rm migrate python scripts/unlock_user.py &lt;utenza&gt;</pre>
 <p>Resta inoltre un limite per indirizzo IP (100 tentativi falliti in 15 minuti) contro i tentativi in massa. Poiché tutti accedono dal web gateway il limite è condiviso, per questo è volutamente alto.</p>
 
+<h3>Recupero della password via email</h3>
+<p>Dalla schermata di accesso, «Password dimenticata?» invia all'indirizzo registrato sull'utenza un codice di 12 caratteri (<code>ABCD-EFGH-JKMN</code>) e un link che compila già utenza e codice. Il codice vale 30 minuti, si usa una volta e dopo 5 tentativi errati decade; una nuova richiesta annulla la precedente, con un massimo di 3 richieste all'ora per utenza. Nel database resta solo l'hash del codice.</p>
+<ul>
+<li>La risposta alla richiesta è sempre la stessa, che l'utenza esista o no: il modulo non permette di scoprire quali utenze esistono. L'esito reale (inviato, utenza inesistente, senza email, bloccata…) è nel registro di audit.</li>
+<li>Il recupero <b>non sblocca</b> un'utenza bloccata per accessi falliti: lo sblocco resta riservato agli amministratori.</li>
+<li>Funziona solo con la posta configurata (paragrafo 6) e per le utenze con un indirizzo email; gli amministratori possono disattivarlo nel riquadro «Sicurezza accessi».</li>
+<li>Poiché l'applicazione si raggiunge dal web gateway, il link della mail spesso non si apre dove la mail viene letta: in quel caso si usa «Ho un codice» e si ricopia il codice.</li>
+</ul>
+
 <h3>Certificato TLS</h3>
 <p>Il certificato è emesso da una CA interna creata con <code>deploy/make-internal-tls.sh</code>. Riporta l'indirizzo <code>10.11.43.230</code> e il nome <code>tsm-prd</code>, ha validità di 825 giorni e scade il 28 gennaio 2029. Il certificato della CA (<code>secrets/tls/ca-interna.crt</code>) è installato sul web gateway tra le autorità di certificazione radice attendibili.</p>
 <pre><span class="c"># rinnovo con la stessa CA: sul gateway non serve alcuna modifica</span>
@@ -361,7 +371,7 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 
 <section class="cap" style="--n:'11'" id="a-acc" data-toc="11|Accesso e privilegi">
 <h2><span class="sn">11</span>Accesso e privilegi</h2>
-<p>L'applicazione si apre all'indirizzo <code>https://10.11.43.230</code> dal browser del web gateway. Sono supportati Firefox, Chrome ed Edge. Al primo accesso con una password provvisoria l'applicazione ne richiede la sostituzione; la nuova password deve avere almeno 12 caratteri e può contenere spazi. Sotto il campo un indicatore ne valuta la robustezza (non sicura, debole, accettabile, sicura): conta soprattutto la lunghezza, e una frase di quattro o cinque parole è la scelta migliore. La versione dell'applicazione è indicata nella schermata di accesso e nella barra superiore.</p>
+<p>L'applicazione si apre all'indirizzo <code>https://10.11.43.230</code> dal browser del web gateway. Sono supportati Firefox, Chrome ed Edge. Al primo accesso con una password provvisoria l'applicazione ne richiede la sostituzione, senza chiedere di ridigitare la provvisoria appena usata; la nuova password va scritta due volte e deve avere almeno 12 caratteri e può contenere spazi. Sotto il campo un indicatore ne valuta la robustezza (non sicura, debole, accettabile, sicura): conta soprattutto la lunghezza, e una frase di quattro o cinque parole è la scelta migliore. La versione dell'applicazione è indicata nella schermata di accesso e nella barra superiore.</p>
 <h3>Livelli di privilegio</h3>
 <table><thead><tr><th style="width:22%">Privilegio</th><th>Funzioni disponibili</th></tr></thead><tbody>
 <tr><td class="ruolo">Visualizzazione</td><td>Consultazione di tutti i dati, senza possibilità di modifica.</td></tr>
@@ -476,9 +486,11 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 <h3>Utenze</h3>
 <ul>
 <li>Le utenze si creano dal Profilo, sezione «Utenti e privilegi», indicando nome utenza e privilegio.</li>
-<li>La password provvisoria è generata dal sistema e mostrata una sola volta; va comunicata all'interessato, che la sostituisce al primo accesso. Le utenze in attesa sono contrassegnate come «pw provvisoria».</li>
+<li>L'indirizzo email, facoltativo, serve al recupero della password: si imposta alla creazione o con «Modifica».</li>
+<li>La password provvisoria è generata dal sistema (sei gruppi di cinque lettere minuscole e cifre, senza caratteri ambigui, facili da ridigitare dal web gateway) e mostrata una sola volta; va comunicata all'interessato, che la sostituisce al primo accesso. Le utenze in attesa sono contrassegnate come «pw provvisoria».</li>
 <li>Le utenze non si cancellano ma si disattivano, in modo che il registro resti riconducibile agli autori delle modifiche.</li>
 <li>Un'utenza bloccata per accessi falliti è contrassegnata come «bloccata»; il pulsante «Sblocca» la riabilita senza cambiarne la password.</li>
+<li>«Reimposta password» offre due strade: «Genera provvisoria» oppure «Scegli tu la password», con la stessa politica delle altre password. Con la password scelta il cambio al primo accesso è attivo in modo predefinito; disattivarlo lascia una password nota all'amministratore e l'operazione è registrata.</li>
 </ul>
 <h3>Notifiche di scadenza</h3>
 <p>In Impostazioni, Notifiche, si definiscono destinatari (uno per riga), giorni di anticipo, fuso orario e ora di invio; l'anteprima indica quante scadenze rientrano nel periodo. L'invio di prova verifica la configurazione; il numero di prove è limitato e destinatari e testo non sono modificabili. Il server di posta è configurato a livello di sistema (capitolo 6).</p>
@@ -574,7 +586,7 @@ systemctl restart tsm.service</pre>
 <p>In caso di compromissione della chiave della CA si crea una nuova CA: si sposta <code>/root/tsm-ca</code> fuori dal server, si esegue <code>deploy/make-internal-tls.sh --ip 10.11.43.230 --name tsm-prd --force</code>, che genera una nuova CA e un nuovo certificato, si riavvia <code>web</code> e si sostituisce il certificato della CA installato sul web gateway.</p>
 
 <h3>Utenze dell'applicazione</h3>
-<p>Ogni utente cambia la propria password dal Profilo. Un amministratore può disattivare un'utenza e crearne una nuova con password provvisoria. In caso di perdita della password dell'unico amministratore si procede come indicato nel paragrafo 9.4.</p>
+<p>Ogni utente cambia la propria password dal Profilo, oppure la recupera via email dalla schermata di accesso (paragrafo 5). Un amministratore può reimpostarla con una provvisoria generata o con una password scelta, e può disattivare un'utenza. In caso di perdita della password dell'unico amministratore si procede come indicato nel paragrafo 9.4.</p>
 </section>
 
 <section class="cap" style="--n:'C'" id="a-sch" data-toc="C|Schede di procedura">

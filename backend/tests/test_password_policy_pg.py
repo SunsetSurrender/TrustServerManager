@@ -1031,7 +1031,7 @@ def test_the_user_list_never_exposes_hash_or_internals(client, engine):
     assert set(r.json()[0]) == {"id", "username", "role", "mustChangePassword",
                                 "disabled", "nome", "cognome", "telefono", "team",
                                 "lastLoginAt", "createdAt",
-                                "locked", "lockedAt", "failedLogins"}
+                                "locked", "lockedAt", "failedLogins", "email"}
 
 
 def test_the_sanitiser_still_treats_argon2_material_as_sensitive():

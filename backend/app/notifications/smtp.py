@@ -222,3 +222,40 @@ def send_test_message(recipients: list[str], *, actor_username: str) -> SendOutc
     deliver(msg, what="invio di prova")
     log.info("invio di prova riuscito verso %d destinatari", len(targets))
     return SendOutcome(recipients=len(targets))
+
+
+# ------------------------------------------------------------ recupero password
+
+RESET_SUBJECT = "Trust Server Manager — codice per reimpostare la password"
+
+
+def build_reset_message(sender: str, to: str, *, username: str, code: str,
+                        expires_minutes: int, link: str | None) -> EmailMessage:
+    """Messaggio del recupero password, composto interamente qui.
+
+    Destinatario: SOLO l'indirizzo salvato sull'utenza, mai uno fornito da chi
+    chiede il recupero. Il codice è nel corpo; la password no, mai.
+    """
+    msg = EmailMessage()
+    msg["Subject"] = RESET_SUBJECT
+    msg["From"] = sender
+    msg["To"] = to
+    msg["Auto-Submitted"] = "auto-generated"
+    righe = [
+        f"È stato chiesto di reimpostare la password dell'utenza «{username}» "
+        "su Trust Server Manager.",
+        "",
+        f"Codice:  {code}",
+        f"Valido per {expires_minutes} minuti, una sola volta.",
+        "",
+        "Nella schermata di accesso scegli «Password dimenticata?» → «Ho un codice»,"
+        " inserisci utenza, codice e la nuova password.",
+    ]
+    if link:
+        righe += ["", "Se puoi aprire l'applicazione da qui, questo link compila "
+                      "già utenza e codice:", link]
+    righe += ["", "Se non sei stato tu, ignora questo messaggio: la password "
+                  "attuale resta valida. Se ricevi richieste che non hai fatto, "
+                  "avvisa un amministratore.", ""]
+    msg.set_content("\n".join(righe))
+    return msg

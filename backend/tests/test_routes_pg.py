@@ -327,6 +327,10 @@ def test_api_surface_is_the_expected_set():
     assert set(app.openapi()["paths"]) == {
         "/api/health", "/api/ready",
         "/api/auth/login", "/api/auth/logout", "/api/auth/me", "/api/auth/password",
+        # Recupero password via email (0015): tre rotte PUBBLICHE, nessun
+        # parametro oltre a utenza, codice e nuova password.
+        "/api/auth/password-reset", "/api/auth/password-reset/request",
+        "/api/auth/password-reset/confirm",
         "/api/inventory",
         # Le tre interrogazioni della fase 2E (§8.46). Sono TRE, nominate, di sola
         # lettura: non esiste un endpoint che esegua una query fornita dal client, e

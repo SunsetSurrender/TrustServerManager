@@ -573,8 +573,11 @@ def test_a_temporary_password_has_at_least_128_bits_of_entropy():
     sorgente ne ha meno, e contare i caratteri misurerebbe la codifica invece del
     segreto.
     """
-    assert P.TEMP_PASSWORD_BYTES * 8 >= 128
-    assert P.TEMP_PASSWORD_BYTES * 8 == 192
+    import math
+    simboli = P.TEMP_PASSWORD_GROUPS * P.TEMP_PASSWORD_GROUP_LEN
+    bit = simboli * math.log2(len(set(P.TEMP_PASSWORD_ALPHABET)))
+    assert len(set(P.TEMP_PASSWORD_ALPHABET)) == len(P.TEMP_PASSWORD_ALPHABET)
+    assert bit >= 128, bit
 
 
 def test_a_temporary_password_satisfies_the_normal_policy():
@@ -590,11 +593,13 @@ def test_a_temporary_password_satisfies_the_normal_policy():
         assert len(temp) >= MIN_LENGTH
 
 
-def test_temporary_passwords_are_url_safe_and_easy_to_copy():
-    """Alfabeto URL-safe: niente caratteri che si perdono incollando, niente
-    ambiguità fra `l` maiuscola e `1` in un messaggio scritto a mano."""
-    temp = generate_temporary_password()
-    assert re.fullmatch(r"[A-Za-z0-9_-]+", temp), temp
+def test_temporary_passwords_are_easy_to_retype():
+    """Si ridigitano dal web gateway: solo minuscole e cifre non ambigue, a gruppi
+    di cinque separati da trattini. Niente 0/o, 1/l/i, maiuscole o `_`."""
+    for _ in range(50):
+        temp = generate_temporary_password()
+        assert re.fullmatch(r"[a-z2-9]{5}(-[a-z2-9]{5}){5}", temp), temp
+        assert not set(temp) & set("01oli_"), temp
 
 
 def test_two_temporary_passwords_are_never_the_same():

@@ -60,11 +60,13 @@ def main() -> int:
         # ---- versione nella schermata di accesso ----
         adm.goto(base + "/")
         adm.wait_for_timeout(1500)
+        # La versione attesa è quella che dichiara il server, non un numero scritto qui.
+        ver = adm.request.get(base + "/api/health").json()["version"]
         check("versione mostrata nella schermata di accesso",
-              "versione 0.4.0" in testo(adm), testo(adm)[:200])
+              f"versione {ver}" in testo(adm), testo(adm)[:200])
 
         login(adm, base, a.admin, a.password)
-        check("versione mostrata nella barra", "TSM 0.4.0" in testo(adm), testo(adm)[-300:])
+        check("versione mostrata nella barra", f"TSM {ver}" in testo(adm), testo(adm)[-300:])
 
         # ---- profilo: indicatore di robustezza ----
         adm.get_by_role("button", name="AD", exact=True).first.click()
@@ -134,11 +136,15 @@ def main() -> int:
         nuovo = usr.get_by_placeholder("nuova password (min. 12 caratteri)")
         check("dopo lo sblocco si entra (cambio password obbligatorio)", nuovo.count() == 1, testo(usr)[:200])
         if nuovo.count():
-            usr.get_by_placeholder("password attuale").fill(provv)
+            # Dalla 0.4.1 la provvisoria non si ridigita dopo il login: il campo
+            # compare solo se la pagina è stata ricaricata.
+            if usr.get_by_placeholder("password attuale").count():
+                usr.get_by_placeholder("password attuale").fill(provv)
             nuovo.fill("abc")
             usr.wait_for_timeout(150)
             check("indicatore anche nel cambio obbligatorio", "Non sicura —" in testo(usr))
             nuovo.fill("una frase di prova abbastanza lunga")
+            usr.get_by_placeholder("ripeti la nuova password").fill("una frase di prova abbastanza lunga")
             usr.get_by_role("button", name="Cambia password").click()
             usr.wait_for_timeout(1200)
             login(usr, base, utenza, "una frase di prova abbastanza lunga")

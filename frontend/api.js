@@ -115,8 +115,10 @@ export const createUser = (payload) => request('POST', '/api/users', payload);
 export const updateUser = (id, patch) => request('PATCH', `/api/users/${id}`, patch);
 export const disableUser = (id) => request('POST', `/api/users/${id}/disable`, {});
 export const enableUser = (id) => request('POST', `/api/users/${id}/enable`, {});
-export const resetUserPassword = (id) =>
-  request('POST', `/api/users/${id}/reset-password`, {});
+/** Senza `body`: provvisoria generata. Con `{ password, mustChange }`: password
+ *  scelta dall'amministratore (stessa politica), che il server non restituisce. */
+export const resetUserPassword = (id, body) =>
+  request('POST', `/api/users/${id}/reset-password`, body || {});
 /** Sblocca un'utenza bloccata dopo troppi accessi falliti. Solo admin. */
 export const unlockUser = (id) => request('POST', `/api/users/${id}/unlock`, {});
 
@@ -125,8 +127,21 @@ export const unlockUser = (id) => request('POST', `/api/users/${id}/unlock`, {})
 // Soglia di accessi falliti consecutivi oltre la quale l'utenza si blocca.
 // Tabella propria sul server, NON il documento delle impostazioni: niente ETag.
 export const getSecurityPolicy = () => request('GET', '/api/security-policy');
-export const putSecurityPolicy = (maxFailedLogins) =>
-  request('PUT', '/api/security-policy', { maxFailedLogins });
+/** `patch`: { maxFailedLogins?, passwordResetEnabled? }. Un numero da solo vale
+ *  come soglia, per compatibilità. */
+export const putSecurityPolicy = (patch) =>
+  request('PUT', '/api/security-policy',
+          typeof patch === 'number' ? { maxFailedLogins: patch } : patch);
+
+// ------------------------------------------------------------------ recupero password
+//
+// Rotte PUBBLICHE, usate dalla schermata di accesso. La richiesta risponde sempre
+// allo stesso modo: non dice se l'utenza esiste.
+export const getResetAvailable = () => request('GET', '/api/auth/password-reset');
+export const requestPasswordReset = (username) =>
+  request('POST', '/api/auth/password-reset/request', { username });
+export const confirmPasswordReset = (username, code, newPassword) =>
+  request('POST', '/api/auth/password-reset/confirm', { username, code, newPassword });
 
 /** Versione dell'applicazione (liveness, nessuna autenticazione). */
 export const getHealth = () => request('GET', '/api/health');
@@ -394,6 +409,14 @@ export function describeError(err) {
       return { titolo: 'Server non raggiungibile',
                testo: 'Le modifiche non sono state salvate. Controlla la connessione.',
                azione: 'riprova' };
+    case 400:
+      if (err.code === 'reset_code_invalid') {
+        return { titolo: 'Codice non valido',
+                 testo: err.message || 'Codice errato o scaduto: chiedine uno nuovo.',
+                 azione: null };
+      }
+      return { titolo: 'Richiesta non valida',
+               testo: err.message || 'Il server ha rifiutato la richiesta.', azione: null };
     case 401:
       return { titolo: 'Sessione scaduta',
                testo: 'Accedi di nuovo per continuare.', azione: 'login' };
@@ -481,6 +504,13 @@ export function describeError(err) {
                  testo: _SETTINGS_ERRORS[err.code]
                       + (err.detail && err.detail.field
                           ? ` (campo: ${err.detail.field})` : ''),
+                 azione: null };
+      }
+      // Politica delle password: il messaggio del server dice COSA non va
+      // (troppo corta, troppo comune, uguale all'utenza…), ed è quello che serve.
+      if (/^password_/.test(err.code || '')) {
+        return { titolo: 'Password non accettata',
+                 testo: err.message || 'La password non rispetta la politica.',
                  azione: null };
       }
       if (err.code === 'security_policy_invalid') {

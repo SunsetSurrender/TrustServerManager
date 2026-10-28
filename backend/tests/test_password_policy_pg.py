@@ -174,7 +174,7 @@ def audit_dump(engine) -> str:
 # ==========================================================================
 
 @pytest.mark.parametrize("pw,code", [
-    ("a" * 14, PASSWORD_TOO_SHORT),
+    ("a" * 11, PASSWORD_TOO_SHORT),
     ("corta", PASSWORD_TOO_SHORT),
     ("", PASSWORD_TOO_SHORT),
     ("x" * 129, PASSWORD_TOO_LONG),
@@ -329,16 +329,16 @@ def test_the_change_route_accepts_a_conforming_password(client, engine):
 
 
 @pytest.mark.parametrize("length,expected", [
-    (14, 422), (15, 204), (128, 204), (129, 422),
+    (11, 422), (12, 204), (128, 204), (129, 422),
 ])
 def test_the_length_boundaries_through_http(client, engine, length, expected):
-    """14 no, 15 sì, 128 sì, 129 no — attraverso la rotta, non solo nel modulo.
+    """11 no, 12 sì, 128 sì, 129 no — attraverso la rotta, non solo nel modulo.
 
     La base non è `"a" * length`: `aaaaaaaaaaaaaaa` è in lista e il caso «15
     passa» sarebbe fallito per un motivo diverso da quello in prova.
     """
     login(client, "op", PW_OP)
-    pw = ("frase lunga per il test " * 20)[:length]
+    pw = ("passphrase di prova " * 20)[:length]
     assert len(pw) == length
     r = change(client, PW_OP, pw)
     assert r.status_code == expected, r.text
@@ -1030,7 +1030,8 @@ def test_the_user_list_never_exposes_hash_or_internals(client, engine):
     assert len(r.json()) == 3
     assert set(r.json()[0]) == {"id", "username", "role", "mustChangePassword",
                                 "disabled", "nome", "cognome", "telefono", "team",
-                                "lastLoginAt", "createdAt"}
+                                "lastLoginAt", "createdAt",
+                                "locked", "lockedAt", "failedLogins"}
 
 
 def test_the_sanitiser_still_treats_argon2_material_as_sensitive():
@@ -1113,7 +1114,7 @@ def test_the_dummy_hash_still_costs_a_real_verification(client, engine):
 
 
 def test_rate_limiting_still_applies_to_failed_logins(client, engine):
-    """Il limitatore non è stato disturbato: dopo la soglia arriva 429.
+    """Il limitatore non è stato disturbato: dopo la soglia l'utenza si blocca (423).
 
     Non è un doppione: aggiungere la politica ha toccato il ramo dell'accesso
     (la riscrittura dell'hash), e questo prova che il conteggio dei tentativi
@@ -1121,10 +1122,10 @@ def test_rate_limiting_still_applies_to_failed_logins(client, engine):
     """
     esiti = [login(client, "op", f"sbagliata numero {i}").status_code
              for i in range(12)]
-    assert 429 in esiti, esiti
-    # E la finestra riguarda i tentativi FALLITI, non l'utenza in sé: la risposta
-    # resta 429 anche con la password giusta, finché il blocco è attivo.
-    assert login(client, "op", PW_OP).status_code == 429
+    assert 423 in esiti, esiti
+    # Il blocco riguarda l'utenza: la risposta resta 423 anche con la password
+    # giusta, finché un amministratore non sblocca (migrazione 0014).
+    assert login(client, "op", PW_OP).status_code == 423
 
 
 def test_a_policy_rejection_does_not_count_as_a_failed_login(client, engine):

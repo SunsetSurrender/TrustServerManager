@@ -1,0 +1,12 @@
+# /etc/sudoers.d/tsm-nrpe — l'utente nrpe esegue SOLO check_tsm.sh, SOLO con
+# questi argomenti. Non va nel gruppo docker: quel gruppo equivale a root.
+Cmnd_Alias TSM_CHECKS = /usr/local/lib/tsm/check_tsm.sh service, \
+                        /usr/local/lib/tsm/check_tsm.sh containers, \
+                        /usr/local/lib/tsm/check_tsm.sh worker, \
+                        /usr/local/lib/tsm/check_tsm.sh runs, \
+                        /usr/local/lib/tsm/check_tsm.sh ready, \
+                        /usr/local/lib/tsm/check_tsm.sh storage, \
+                        /usr/local/lib/tsm/check_tsm.sh cert, \
+                        /usr/local/lib/tsm/check_tsm.sh images
+Defaults!TSM_CHECKS !requiretty
+nrpe ALL=(root) NOPASSWD: TSM_CHECKS

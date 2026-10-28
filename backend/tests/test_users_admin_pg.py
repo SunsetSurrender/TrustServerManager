@@ -294,7 +294,8 @@ def test_user_paths_are_the_expected_set():
     paths = {p for p in app.openapi()["paths"] if p.startswith("/api/users")}
     assert paths == {"/api/users", "/api/users/{user_id}",
                      "/api/users/{user_id}/disable", "/api/users/{user_id}/enable",
-                     "/api/users/{user_id}/reset-password"}
+                     "/api/users/{user_id}/reset-password",
+                     "/api/users/{user_id}/unlock"}
 
 
 # ------------------------------------------------------------------ audit

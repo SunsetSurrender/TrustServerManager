@@ -1,0 +1,707 @@
+<!-- ================================================= informazioni sul documento -->
+<div class="front">
+<h2>Informazioni sul documento</h2>
+<table class="ctrl"><tbody>
+<tr><td>Titolo</td><td>Trust Server Manager. Manuale tecnico e applicativo</td></tr>
+<tr><td>Codice</td><td>TT-TSM-MAN-01</td></tr>
+<tr><td>Versione</td><td>0.4</td></tr>
+<tr><td>Data</td><td>28 ottobre 2026</td></tr>
+<tr><td>Stato</td><td>Bozza</td></tr>
+<tr><td>Redatto da</td><td>M. Zandonella</td></tr>
+<tr><td>Verificato da</td><td></td></tr>
+<tr><td>Classificazione</td><td>Uso interno</td></tr>
+<tr><td>Rilascio software</td><td>TSM 0.4.x su <code>tsm-prd</code></td></tr>
+</tbody></table>
+
+<h3 style="margin-top:0">Storico delle revisioni</h3>
+<table><thead><tr><th style="width:14%">Versione</th><th style="width:20%">Data</th><th>Modifiche</th></tr></thead>
+<tbody><tr><td>0.3</td><td>27/10/2026</td><td>Prima emissione, in concomitanza con l'installazione su <code>tsm-prd</code>.</td></tr>
+<tr><td>0.4</td><td>28/10/2026</td><td>Password minima di 12 caratteri con indicatore di robustezza; blocco dell'utenza dopo accessi falliti, con soglia impostabile e sblocco da amministratore; monitoraggio, FIM e ripristino automatico spostati nella cartella sistemistica <code>ops/</code>.</td></tr></tbody></table>
+
+<h3>Scopo</h3>
+<p>Il documento descrive l'installazione di produzione di Trust Server Manager (TSM) e il suo utilizzo. La Parte I è rivolta a chi amministra il server; la Parte II a chi usa l'applicazione.</p>
+
+<h3>Documenti di riferimento</h3>
+<table><thead><tr><th style="width:42%">Documento</th><th>Contenuto</th></tr></thead><tbody>
+<tr><td><code>deploy/README.md</code></td><td>Procedura completa di installazione e gestione, con le motivazioni delle scelte</td></tr>
+<tr><td><code>deploy/RELEASE-MANIFEST.md</code></td><td>Identità e qualificazione del rilascio</td></tr>
+<tr><td><code>deploy/PREDEPLOYMENT-GATES.md</code></td><td>Requisiti di pre-installazione e loro stato</td></tr>
+<tr><td><code>deploy/baseline/MANIFEST.md</code></td><td>Struttura iniziale: siti, sale e rack</td></tr>
+</tbody></table>
+
+<h3>Convenzioni</h3>
+<p>I comandi si intendono eseguiti come <code>root</code> su <code>tsm-prd</code>, dalla directory <code>/opt/tsm</code> salvo diversa indicazione. Le righe che iniziano con <code>#</code> negli esempi sono commenti.</p>
+</div>
+
+<!-- ================================================= PARTE I -->
+<div class="partpage" id="parte1">
+  %%MOTIVO%%
+  <div class="etichetta">Parte I</div>
+  <h1>Manuale tecnico</h1>
+  <p>Server, componenti, sicurezza, aggiornamenti, backup e monitoraggio.</p>
+</div>
+
+<section class="cap" style="--n:'1'" id="t-arch" data-toc="1|Architettura">
+<h2><span class="sn">1</span>Architettura</h2>
+<p class="intro">TSM è un'applicazione web interna per la gestione delle sale server: siti, sale, rack e dispositivi installati, con le relative scadenze di garanzia e supporto. Gira su una sola macchina virtuale come insieme di container Docker, avviati da systemd.</p>
+
+<div class="fig">
+<svg viewBox="0 0 660 250" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Public Sans" font-size="10.5">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1d2530"/></marker></defs>
+  <rect x="2" y="96" width="104" height="50" fill="#fff" stroke="#1d2530" stroke-width=".8"/>
+  <text x="54" y="117" text-anchor="middle" font-weight="700">Operatori</text>
+  <text x="54" y="133" text-anchor="middle" fill="#646e7b" font-size="9">dal web gateway</text>
+  <line x1="106" y1="121" x2="160" y2="121" stroke="#1d2530" stroke-width=".9" marker-end="url(#a)"/>
+  <text x="133" y="114" text-anchor="middle" fill="#646e7b" font-size="8.5">HTTPS 443</text>
+  <rect x="164" y="10" width="494" height="236" fill="#f4f6f9" stroke="#d9dee5"/>
+  <text x="176" y="28" font-weight="700" fill="#004691">tsm-prd  ·  10.11.43.230</text>
+  <text x="646" y="28" text-anchor="end" fill="#646e7b" font-size="8.5">progetto Docker Compose «tsm»</text>
+  <line x1="178" y1="72" x2="430" y2="72" stroke="#8b94a0" stroke-width=".7" stroke-dasharray="2 2"/>
+  <text x="178" y="66" fill="#646e7b" font-size="8.5">rete edge</text>
+  <line x1="320" y1="82" x2="572" y2="82" stroke="#8b94a0" stroke-width=".7" stroke-dasharray="2 2"/>
+  <text x="572" y="96" text-anchor="end" fill="#646e7b" font-size="8.5">rete internal, senza uscita</text>
+  <rect x="178" y="98" width="106" height="48" fill="#fff" stroke="#004691" stroke-width="1.1"/>
+  <text x="231" y="118" text-anchor="middle" font-weight="700" fill="#004691">web</text>
+  <text x="231" y="133" text-anchor="middle" fill="#646e7b" font-size="8.8">nginx</text>
+  <rect x="322" y="98" width="106" height="48" fill="#fff" stroke="#004691" stroke-width="1.1"/>
+  <text x="375" y="118" text-anchor="middle" font-weight="700" fill="#004691">api</text>
+  <text x="375" y="133" text-anchor="middle" fill="#646e7b" font-size="8.8">FastAPI</text>
+  <rect x="466" y="98" width="106" height="48" fill="#004691"/>
+  <text x="519" y="118" text-anchor="middle" font-weight="700" fill="#fff">db</text>
+  <text x="519" y="133" text-anchor="middle" fill="#d6e1ef" font-size="8.8">PostgreSQL 17</text>
+  <rect x="322" y="178" width="106" height="44" fill="#fff" stroke="#004691" stroke-width="1.1"/>
+  <text x="375" y="197" text-anchor="middle" font-weight="700" fill="#004691">worker</text>
+  <text x="375" y="211" text-anchor="middle" fill="#646e7b" font-size="8.8">avvisi di scadenza</text>
+  <rect x="466" y="178" width="106" height="44" fill="#fff" stroke="#004691" stroke-width="1.1" stroke-dasharray="3 2"/>
+  <text x="519" y="197" text-anchor="middle" font-weight="700" fill="#004691">migrate</text>
+  <text x="519" y="211" text-anchor="middle" fill="#646e7b" font-size="8.8">solo all'avvio</text>
+  <line x1="284" y1="122" x2="318" y2="122" stroke="#1d2530" stroke-width=".9" marker-end="url(#a)"/>
+  <line x1="428" y1="122" x2="462" y2="122" stroke="#1d2530" stroke-width=".9" marker-end="url(#a)"/>
+  <line x1="428" y1="196" x2="466" y2="148" stroke="#1d2530" stroke-width=".9" marker-end="url(#a)"/>
+  <line x1="519" y1="178" x2="519" y2="150" stroke="#1d2530" stroke-width=".9" marker-end="url(#a)"/>
+  <line x1="572" y1="122" x2="596" y2="122" stroke="#eb0028" stroke-width="1.1" marker-end="url(#a)"/>
+  <rect x="600" y="98" width="50" height="48" fill="#fff" stroke="#eb0028" stroke-width="1.1"/>
+  <text x="625" y="117" text-anchor="middle" font-weight="700" fill="#eb0028" font-size="9.5">sda</text>
+  <text x="625" y="132" text-anchor="middle" fill="#646e7b" font-size="8">dati</text>
+</svg>
+<div class="cap">Figura 1. Componenti e flussi. Solo il componente web pubblica porte verso l'esterno.</div>
+</div>
+
+<table><thead><tr><th style="width:13%">Servizio</th><th>Funzione</th><th style="width:17%">Reti</th><th style="width:11%">Utente</th></tr></thead><tbody>
+<tr><td>web</td><td>Serve l'interfaccia, termina TLS e inoltra le chiamate <code>/api</code>. Pubblica le porte 80 (reindirizzamento) e 443.</td><td>edge, internal</td><td>uid 101</td></tr>
+<tr><td>api</td><td>Autenticazione, inventario, ricerche, foto, impostazioni e registro delle modifiche.</td><td>edge, internal</td><td>uid 10001</td></tr>
+<tr><td>worker</td><td>Invio degli avvisi di scadenza e pulizia delle foto non più referenziate. Ne è attiva una sola istanza.</td><td>internal</td><td>uid 10001</td></tr>
+<tr><td>db</td><td>Database PostgreSQL 17, con i dati sul disco dedicato.</td><td>internal</td><td>uid 70</td></tr>
+<tr><td>migrate</td><td>Allinea lo schema del database e imposta le password dei ruoli, quindi termina.</td><td>internal</td><td>uid 10001</td></tr>
+</tbody></table>
+<p>I container girano con filesystem in sola lettura, senza capability aggiuntive e con l'opzione <code>no-new-privileges</code>. Le immagini sono identificate per digest; il file <code>deploy/release.pin</code> riporta quelle del rilascio installato.</p>
+</section>
+
+<section class="cap" style="--n:'2'" id="t-vm" data-toc="2|Il server tsm-prd">
+<h2><span class="sn">2</span>Il server tsm-prd</h2>
+<table class="kv"><tbody>
+<tr><td>Hostname</td><td><code>tsm-prd</code></td></tr>
+<tr><td>Indirizzo IP</td><td><code>10.11.43.230</code>; l'applicazione risponde su <code>https://10.11.43.230</code></td></tr>
+<tr><td>Sistema operativo</td><td>Oracle Linux Server 10.1, kernel UEK</td></tr>
+<tr><td>CPU e memoria</td><td>4 vCPU, 8 GB di RAM (7,25 GB visibili; 448 MB riservati a kdump)</td></tr>
+<tr><td>Swap</td><td>8 GB, volume logico <code>ol/swap</code></td></tr>
+<tr><td>SELinux</td><td>Disattivato</td></tr>
+<tr><td>firewalld</td><td>Non attivo</td></tr>
+<tr><td>Docker</td><td>Docker Engine 29.9 e Compose 5.6, da pacchetti RPM ufficiali installati manualmente (non disponibili nei repository interni)</td></tr>
+<tr><td>Accesso utenti</td><td>Esclusivamente tramite il web gateway</td></tr>
+</tbody></table>
+
+<h3>Dischi</h3>
+<table><thead><tr><th style="width:16%">Disco</th><th style="width:12%">Ruolo</th><th>Contenuto</th></tr></thead><tbody>
+<tr><td><code>sdb</code>, 100 GB</td><td>Sistema</td><td><code>/boot</code> e il volume group <code>ol</code>: <code>/</code>, <code>/var</code> (comprende <code>/var/lib/docker</code>), <code>/opt</code>, <code>/home</code>, <code>/tmp</code> e lo swap. Nel volume group restano circa 20 GB non assegnati.</td></tr>
+<tr><td><code>sda</code>, 100 GB</td><td>Dati</td><td>Filesystem XFS con etichetta <code>tsm-data</code>, montato su <code>/srv/tsm-data</code> tramite UUID in <code>/etc/fstab</code>. Contiene soltanto i dati di PostgreSQL.</td></tr>
+</tbody></table>
+<div class="nota att"><div class="l">ATTENZIONE</div>
+<p>Il disco dati è <code>sda</code> e quello di sistema è <code>sdb</code>. Prima di qualsiasi intervento sui dischi verificare con <code>lsblk</code> e <code>findmnt -M /srv/tsm-data</code>.</p></div>
+<p>Se il disco dati non è montato il servizio non si avvia: lo impediscono la dipendenza <code>RequiresMountsFor</code> dell'unità systemd e il controllo di preflight. In assenza di questi controlli PostgreSQL inizializzerebbe un database vuoto sul disco di sistema.</p>
+</section>
+
+<section class="cap" style="--n:'3'" id="t-file" data-toc="3|File e directory">
+<h2><span class="sn">3</span>File e directory</h2>
+<div class="tree">/opt/tsm/
+├── compose.yaml              <span class="k">definizione dei servizi</span>
+├── .env                      <span class="k">origine pubblica e parametri SMTP</span>
+├── deploy/
+│   ├── preflight.sh          <span class="k">controlli eseguiti prima di ogni avvio</span>
+│   ├── tsm.service           <span class="k">unità systemd di riferimento</span>
+│   ├── make-internal-tls.sh  <span class="k">CA interna e certificato server</span>
+│   ├── release.pin           <span class="k">identità del rilascio installato</span>
+│   └── baseline/             <span class="k">struttura iniziale di siti, sale e rack</span>
+├── accettazione/             <span class="k">verifica del pacchetto e del server</span>
+└── secrets/                  <span class="k">0750, root</span>
+    ├── postgres_password     <span class="k">0400, uid 10001</span>
+    ├── api_db_password       <span class="k">0400, uid 10001</span>
+    ├── worker_db_password    <span class="k">0400, uid 10001</span>
+    ├── smtp_password         <span class="k">0400, uid 10001</span>
+    └── tls/
+        ├── fullchain.pem     <span class="k">certificato e CA, 0444</span>
+        ├── privkey.pem       <span class="k">chiave privata, 0400, uid 101</span>
+        └── ca-interna.crt    <span class="k">certificato della CA</span>
+
+/srv/tsm-data/postgres/       <span class="k">dati PostgreSQL, 0700, 70:70</span>
+/root/tsm-ca/                 <span class="k">chiave della CA interna, 0700</span>
+/etc/systemd/system/tsm.service
+/etc/docker/daemon.json       <span class="k">rotazione dei log dei container</span>
+/usr/local/lib/tsm/check_tsm.sh
+/etc/sudoers.d/tsm-nrpe
+/etc/nrpe.d/tsm.cfg</div>
+<p><code>/opt/tsm</code> contiene solo il pacchetto di rilascio prodotto da <code>tools/release-bundle.sh</code>: non è un repository git e non contiene file di sviluppo. Segreti, certificato e <code>.env</code> vengono creati sul server e non fanno parte del pacchetto.</p>
+</section>
+
+<section class="cap" style="--n:'4'" id="t-ops" data-toc="4|Gestione del servizio">
+<h2><span class="sn">4</span>Gestione del servizio</h2>
+<p>Il servizio è l'unità systemd <code>tsm.service</code>, abilitata all'avvio. Alla partenza systemd attende il montaggio di <code>/srv/tsm-data</code>, esegue il preflight e avvia i container con <code>docker compose up -d</code>. Lo stato atteso è <code>active (exited)</code>.</p>
+
+<h3>Comandi principali</h3>
+<pre><span class="c"># stato</span>
+systemctl status tsm.service --no-pager
+docker compose ps                         <span class="c"># db, api, web e worker devono risultare healthy</span>
+
+<span class="c"># arresto, avvio, riavvio</span>
+systemctl stop tsm.service
+systemctl start tsm.service
+systemctl restart tsm.service
+
+<span class="c"># log</span>
+journalctl -u tsm.service -n 50 --no-pager
+docker compose logs --tail 100 api        <span class="c"># oppure web, worker, db</span>
+
+<span class="c"># disponibilità dell'applicazione</span>
+curl -sk https://10.11.43.230/api/ready</pre>
+
+<h3>Riavvio automatico</h3>
+<p>L'unità non viene riavviata automaticamente in caso di errore (<code>Restart=no</code>): un rifiuto del preflight indica una causa strutturale, come il disco dati assente o il certificato mancante, che va risolta prima di riprovare. I singoli container si riavviano invece autonomamente (<code>restart: unless-stopped</code>).</p>
+
+<h3>Preflight</h3>
+<p>Il controllo <code>deploy/preflight.sh --dir /opt/tsm</code> può essere eseguito manualmente in qualsiasi momento e non modifica nulla. Termina con codice 0 se tutti i requisiti sono soddisfatti; in caso contrario il codice indica il requisito mancante (paragrafo 9.3).</p>
+</section>
+
+<section class="cap" style="--n:'5'" id="t-sec" data-toc="5|Sicurezza">
+<h2><span class="sn">5</span>Sicurezza</h2>
+<h3>Esposizione</h3>
+<ul>
+<li>Sono pubblicate solo le porte 80, che reindirizza su HTTPS, e 443. API e database non sono raggiungibili dall'esterno.</li>
+<li>Il cookie di sessione è <code>Secure</code> e <code>SameSite=Strict</code>; in produzione l'applicazione non si avvia con impostazioni diverse.</li>
+<li>Le richieste che modificano dati sono accettate solo dall'origine configurata in <code>TSM_PUBLIC_ORIGIN</code>.</li>
+</ul>
+
+<h3>Ruoli del database</h3>
+<table><thead><tr><th style="width:18%">Ruolo</th><th style="width:24%">Utilizzato da</th><th>Privilegi</th></tr></thead><tbody>
+<tr><td><code>tsm</code></td><td>migrate, manutenzione</td><td>Proprietario dello schema</td></tr>
+<tr><td><code>tsm_api</code></td><td>api</td><td>Lettura e inserimento; lo storico dell'inventario non è modificabile</td></tr>
+<tr><td><code>tsm_worker</code></td><td>worker</td><td>Come <code>tsm_api</code>, più la cancellazione delle foto non referenziate</td></tr>
+</tbody></table>
+<p>Le password sono montate come secret Docker e non come variabili d'ambiente, quindi non compaiono in <code>docker inspect</code> né nei log.</p>
+
+<h3>Blocco dell'utenza dopo accessi falliti</h3>
+<p>Dopo un numero di accessi falliti consecutivi (5 in modo predefinito, impostabile fra 3 e 20 dagli amministratori in Profilo, «Utenti e privilegi», riquadro «Sicurezza accessi») l'utenza viene bloccata. Il blocco non scade: un'utenza bloccata non entra nemmeno con la password corretta finché un amministratore non la sblocca con il pulsante «Sblocca». Anche la reimpostazione della password e la riattivazione sbloccano l'utenza. Blocco, sblocco e cambio di soglia sono registrati nel registro di audit.</p>
+<p>Se l'unico amministratore è bloccato, lo sblocco si esegue dal server:</p>
+<pre>cd /opt/tsm
+docker compose run --rm migrate python scripts/unlock_user.py &lt;utenza&gt;</pre>
+<p>Resta inoltre un limite per indirizzo IP (100 tentativi falliti in 15 minuti) contro i tentativi in massa. Poiché tutti accedono dal web gateway il limite è condiviso, per questo è volutamente alto.</p>
+
+<h3>Certificato TLS</h3>
+<p>Il certificato è emesso da una CA interna creata con <code>deploy/make-internal-tls.sh</code>. Riporta l'indirizzo <code>10.11.43.230</code> e il nome <code>tsm-prd</code>, ha validità di 825 giorni e scade il 28 gennaio 2029. Il certificato della CA (<code>secrets/tls/ca-interna.crt</code>) è installato sul web gateway tra le autorità di certificazione radice attendibili.</p>
+<pre><span class="c"># rinnovo con la stessa CA: sul gateway non serve alcuna modifica</span>
+bash deploy/make-internal-tls.sh --ip 10.11.43.230 --name tsm-prd --force
+docker compose restart web</pre>
+<ul>
+<li>La chiave della CA è in <code>/root/tsm-ca</code> e va conservata preferibilmente fuori dal server, riportandola solo per i rinnovi.</li>
+<li>In caso di cambio di indirizzo IP si rigenera il certificato con il nuovo valore di <code>--ip</code> e si aggiorna <code>TSM_PUBLIC_ORIGIN</code>.</li>
+<li>Per pubblicare il servizio anche con un nome DNS si aggiungono un parametro <code>--name</code> al certificato e la relativa origine in <code>.env</code>, separata da virgola.</li>
+</ul>
+</section>
+
+<section class="cap" style="--n:'6'" id="t-conf" data-toc="6|Configurazione">
+<h2><span class="sn">6</span>Configurazione</h2>
+<p>I parametri non riservati sono nel file <code>/opt/tsm/.env</code>, letto automaticamente da Docker Compose.</p>
+<pre>TSM_PUBLIC_ORIGIN=https://10.11.43.230
+TSM_SMTP_HOST=                 <span class="c"># vuoto: invio non configurato</span>
+TSM_SMTP_PORT=587
+TSM_SMTP_TLS_MODE=starttls     <span class="c"># starttls, tls oppure none</span>
+TSM_SMTP_SENDER=
+TSM_SMTP_USERNAME=             <span class="c"># vuoto: relay senza autenticazione</span></pre>
+<ul>
+<li>La password SMTP si inserisce in <code>secrets/smtp_password</code> (permessi 0400, uid 10001), non in <code>.env</code>.</li>
+<li><code>TSM_ENV</code> e <code>TSM_COOKIE_SECURE</code> non vanno impostati: i valori predefiniti sono quelli di produzione e un valore diverso blocca l'avvio (codice 40).</li>
+</ul>
+<h3>Posta elettronica</h3>
+<p>Dall'applicazione si configurano destinatari, anticipo e orario degli avvisi. Server, porta, cifratura, mittente e credenziali del relay si configurano esclusivamente nel file <code>.env</code>. Dopo una modifica:</p>
+<pre>docker compose up -d api worker</pre>
+<p>La configurazione si verifica con il pulsante «Invia messaggio di prova» in Impostazioni, Notifiche.</p>
+</section>
+
+<section class="cap" style="--n:'7'" id="t-upd" data-toc="7|Aggiornamento">
+<h2><span class="sn">7</span>Aggiornamento</h2>
+<p>Il server non accede a internet. Ogni rilascio viene preparato sulla postazione di sviluppo come pacchetto comprensivo delle immagini Docker (<code>tsm-images.tar</code>) e trasferito sul server. L'aggiornamento non modifica dati, utenze, segreti, certificato e <code>.env</code>.</p>
+<h3>Preparazione del pacchetto</h3>
+<pre>bash tools/build-release.sh
+git add deploy/release.pin
+git commit -m "release: pin &lt;commit&gt;"
+bash tools/release-bundle.sh --out &lt;cartella&gt; --with-images</pre>
+<h3>Installazione su tsm-prd</h3>
+<ol class="num">
+<li>Copiare il contenuto del pacchetto in <code>/opt/tsm</code>, sovrascrivendo i file esistenti.</li>
+<li>Ripristinare i permessi di esecuzione: <code>chmod 0750 deploy/*.sh accettazione/*.sh</code>.</li>
+<li>Verificare il pacchetto: <code>bash accettazione/release-bundle.sh --verify /opt/tsm</code>.</li>
+<li>Caricare le immagini: <code>docker load -i tsm-images.tar</code>, quindi eliminare il file.</li>
+<li>Eseguire il preflight: <code>bash deploy/preflight.sh --dir /opt/tsm</code>.</li>
+<li>Riavviare il servizio: <code>systemctl restart tsm.service</code>. Le eventuali migrazioni dello schema vengono applicate automaticamente.</li>
+<li>Controllare lo stato con <code>docker compose ps</code> e verificare l'interfaccia dal web gateway.</li>
+</ol>
+<p>Ogni rilascio ha un tag distinto (0.3.1, 0.4.0 e successivi). Dopo la verifica le immagini precedenti si rimuovono con <code>docker rmi tsm-api:&lt;versione&gt; tsm-web:&lt;versione&gt;</code>.</p>
+</section>
+
+<section class="cap" style="--n:'8'" id="t-bk" data-toc="8|Backup e ripristino">
+<h2><span class="sn">8</span>Backup e ripristino</h2>
+<p>Il backup è eseguito a livello di macchina virtuale con Veeam, a cura del gruppo che gestisce i backup. Requisiti per TSM:</p>
+<ul>
+<li>il job deve includere entrambi i dischi, senza esclusioni;</li>
+<li>il ripristino deve essere provato almeno una volta, verificando che il disco dati sia montato e che l'applicazione riparta con i propri dati;</li>
+<li><code>/var/lib/docker</code> non contiene dati applicativi: le immagini si ricaricano dal pacchetto di rilascio.</li>
+</ul>
+<h3>Verifiche dopo un ripristino</h3>
+<pre>findmnt -M /srv/tsm-data
+bash deploy/preflight.sh --dir /opt/tsm
+systemctl restart tsm.service
+docker compose ps
+docker compose run --rm migrate python scripts/project.py --verify</pre>
+<h3>Esportazione logica</h3>
+<p>Un amministratore può esportare dall'applicazione il JSON completo (struttura, inventario e registro). È consigliato prima di interventi rilevanti.</p>
+</section>
+
+<section class="cap" style="--n:'9'" id="t-mon" data-toc="9|Monitoraggio e diagnostica">
+<h2><span class="sn">9</span>Monitoraggio e diagnostica</h2>
+<div class="nota"><div class="l">NOTA</div>
+<p>Monitoraggio, integrità dei file e ripristino automatico sono attività sistemistiche: i relativi file stanno nella cartella <code>ops/</code> del repository, documentata in <code>ops/README.md</code>, non fanno parte del pacchetto di rilascio e un aggiornamento dell'applicazione non li modifica.</p></div>
+<h3>Controlli Nagios</h3>
+<p>I controlli sono eseguiti via NRPE dallo script <code>/usr/local/lib/tsm/check_tsm.sh</code>. L'utente <code>nrpe</code> lo esegue tramite <code>sudo</code>, con una regola limitata allo script e ai suoi argomenti; non appartiene al gruppo <code>docker</code>. Nomi e soglie sono in corso di allineamento agli standard di monitoraggio del gruppo.</p>
+<table><thead><tr><th style="width:27%">Comando</th><th>Verifica</th><th style="width:13%">Intervallo</th></tr></thead><tbody>
+<tr><td><code>check_tsm_service</code></td><td>docker.service e tsm.service attivi</td><td>5 min</td></tr>
+<tr><td><code>check_tsm_containers</code></td><td>db, api, web e worker in esecuzione e in stato healthy</td><td>5 min</td></tr>
+<tr><td><code>check_tsm_storage</code></td><td>disco dati montato e scrivibile; occupazione, soglie 75 e 90 %</td><td>5 min</td></tr>
+<tr><td><code>check_tsm_ready</code></td><td>risposta di <code>/api/ready</code> attraverso nginx</td><td>5 min</td></tr>
+<tr><td><code>check_tsm_worker</code></td><td>attività del worker e possibilità effettiva di inviare avvisi</td><td>15 min</td></tr>
+<tr><td><code>check_tsm_runs</code></td><td>cicli di notifica non conclusi da oltre un'ora</td><td>60 min</td></tr>
+<tr><td><code>check_tsm_cert</code></td><td>scadenza del certificato, soglie 30 e 7 giorni</td><td>giornaliero</td></tr>
+<tr><td><code>check_tsm_images</code></td><td>corrispondenza tra immagini in esecuzione e rilascio installato</td><td>giornaliero</td></tr>
+</tbody></table>
+
+<h3>Integrità dei file</h3>
+<div class="cols2">
+<div><h4>Percorsi monitorati</h4><ul>
+<li><code>/opt/tsm</code>, inclusi <code>secrets/</code> e <code>.env</code></li>
+<li><code>/etc/systemd/system/tsm.service</code></li>
+<li><code>/etc/docker/</code> e <code>/etc/fstab</code></li>
+<li><code>/etc/sudoers.d/tsm-nrpe</code>, <code>/etc/nrpe.d/tsm.cfg</code>, <code>/usr/local/lib/tsm/</code></li>
+<li><code>/etc/systemd/system/tsm-autoheal.*</code></li>
+<li><code>/root/tsm-ca/</code>, se presente</li></ul></div>
+<div><h4>Percorsi esclusi</h4><ul>
+<li><code>/srv/tsm-data/postgres</code>: file del database, in continua modifica</li>
+<li><code>/var/lib/docker</code>: livelli delle immagini, stato e log dei container</li></ul>
+<p>L'integrità delle immagini è verificata da <code>check_tsm_images</code>.</p></div>
+</div>
+
+<h3>Codici di uscita del preflight</h3>
+<table><thead><tr><th style="width:16%">Codice</th><th>Significato</th></tr></thead><tbody>
+<tr><td>10, 11, 12</td><td>Docker non disponibile; <code>compose.yaml</code> non valido; immagine non presente</td></tr>
+<tr><td>20, 21</td><td><code>/srv/tsm-data</code> non montato, oppure coincidente con il filesystem di sistema</td></tr>
+<tr><td>22–25</td><td>Directory dei dati assente, con proprietario diverso da 70:70, con permessi più ampi di 0700 o non scrivibile</td></tr>
+<tr><td>26</td><td>Spazio libero sul disco dati inferiore a 5 GiB</td></tr>
+<tr><td>27, 28</td><td>Contesto SELinux, solo con SELinux attivo</td></tr>
+<tr><td>30, 31</td><td>Secret mancante o con permessi errati; certificato o chiave mancanti o non leggibili da nginx</td></tr>
+<tr><td>40–42</td><td>Configurazione non di produzione</td></tr>
+</tbody></table>
+
+<h3>Anomalie frequenti</h3>
+<table><thead><tr><th style="width:31%">Sintomo</th><th>Verifica e intervento</th></tr></thead><tbody>
+<tr><td>Il servizio non riparte dopo un riavvio</td><td><code>systemctl status tsm.service</code>; il codice del preflight indica la causa. Se il disco dati non è montato, ripristinare il montaggio prima di riavviare.</td></tr>
+<tr><td>Un container è unhealthy</td><td>Il timer <code>tsm-autoheal</code> lo riavvia (massimo 3 volte all'ora; <code>journalctl -t tsm-autoheal</code>). Se si ripresenta: <code>docker compose logs --tail 200 &lt;servizio&gt;</code>; per il database controllare spazio e permessi di <code>/srv/tsm-data</code>.</td></tr>
+<tr><td>«No such image: postgres@sha256:…»</td><td>L'immagine di PostgreSQL è priva di nome: <code>docker tag sha256:742f40ea… postgres:17-alpine</code>.</td></tr>
+<tr><td>Avviso sul certificato nel browser</td><td>CA non installata sul gateway, certificato scaduto o accesso con un indirizzo non presente nel certificato.</td></tr>
+<tr><td>«Utenza bloccata» al login</td><td>Troppi accessi falliti: un amministratore la sblocca da «Utenti e privilegi». Se è bloccato l'unico amministratore: <code>scripts/unlock_user.py</code>.</td></tr>
+<tr><td>Accesso negato a tutti per «troppi tentativi»</td><td>Superato il limite per indirizzo IP del gateway. Attendere 15 minuti.</td></tr>
+<tr><td>Gli avvisi di scadenza non arrivano</td><td><code>check_tsm_worker</code>, parametri SMTP in <code>.env</code>, invio di prova dalle Impostazioni.</td></tr>
+<tr><td>Password provvisoria di <code>admin</code> non disponibile</td><td>Disattivare <code>admin</code> e crearne un altro con <code>scripts/bootstrap.py --admin admin2</code> (<code>deploy/README.md</code>, §3.7). L'inventario non viene modificato.</td></tr>
+</tbody></table>
+</section>
+
+<!-- ================================================= PARTE II -->
+<div class="partpage" id="parte2">
+  %%MOTIVO%%
+  <div class="etichetta">Parte II</div>
+  <h1>Manuale applicativo</h1>
+  <p>Sale, rack e dispositivi, ricerche, viste, importazione ed esportazione, utenze e notifiche.</p>
+</div>
+
+<section class="cap" style="--n:'10'" id="a-intro" data-toc="10|Introduzione">
+<h2><span class="sn">10</span>Introduzione</h2>
+<p class="intro">TSM descrive le sale server dell'azienda: la posizione di ogni rack, i dispositivi installati, lo spazio disponibile e le scadenze di garanzie e contratti di supporto.</p>
+<div class="fig">
+<svg viewBox="0 0 660 70" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Public Sans" font-size="10.5">
+  <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1d2530"/></marker></defs>
+  <rect x="1" y="8" width="138" height="52" fill="#fff" stroke="#004691" stroke-width="1.1"/><text x="70" y="30" text-anchor="middle" font-weight="700" fill="#004691">Sito</text><text x="70" y="46" text-anchor="middle" fill="#646e7b" font-size="8.8">Pomezia G0, H0, Oriolo</text>
+  <rect x="174" y="8" width="138" height="52" fill="#fff" stroke="#004691" stroke-width="1.1"/><text x="243" y="30" text-anchor="middle" font-weight="700" fill="#004691">Sala</text><text x="243" y="46" text-anchor="middle" fill="#646e7b" font-size="8.8">pianta, vani e porte</text>
+  <rect x="347" y="8" width="138" height="52" fill="#fff" stroke="#004691" stroke-width="1.1"/><text x="416" y="30" text-anchor="middle" font-weight="700" fill="#004691">Rack</text><text x="416" y="46" text-anchor="middle" fill="#646e7b" font-size="8.8">unità, fila, seriali</text>
+  <rect x="520" y="8" width="138" height="52" fill="#004691"/><text x="589" y="30" text-anchor="middle" font-weight="700" fill="#fff">Dispositivo</text><text x="589" y="46" text-anchor="middle" fill="#d6e1ef" font-size="8.8">posizione, rete, scadenze</text>
+  <line x1="139" y1="34" x2="170" y2="34" stroke="#1d2530" stroke-width=".9" marker-end="url(#b)"/>
+  <line x1="312" y1="34" x2="343" y2="34" stroke="#1d2530" stroke-width=".9" marker-end="url(#b)"/>
+  <line x1="485" y1="34" x2="516" y2="34" stroke="#1d2530" stroke-width=".9" marker-end="url(#b)"/>
+</svg>
+<div class="cap">Figura 2. Organizzazione dei dati. All'installazione sono presenti 3 siti, 6 sale e 102 rack, senza dispositivi.</div>
+</div>
+<p>La struttura iniziale (siti, sale con la relativa pianta, rack con nome, fila, altezza e numeri di inventario) è stata caricata all'installazione. I dispositivi si inseriscono dall'applicazione, singolarmente o tramite il modello Excel (capitolo 16).</p>
+<p>Ogni modifica genera una nuova versione dell'inventario e una voce nel registro, con autore e data. Le versioni precedenti restano conservate.</p>
+</section>
+
+<section class="cap" style="--n:'11'" id="a-acc" data-toc="11|Accesso e privilegi">
+<h2><span class="sn">11</span>Accesso e privilegi</h2>
+<p>L'applicazione si apre all'indirizzo <code>https://10.11.43.230</code> dal browser del web gateway. Sono supportati Firefox, Chrome ed Edge. Al primo accesso con una password provvisoria l'applicazione ne richiede la sostituzione; la nuova password deve avere almeno 12 caratteri e può contenere spazi. Sotto il campo un indicatore ne valuta la robustezza (non sicura, debole, accettabile, sicura): conta soprattutto la lunghezza, e una frase di quattro o cinque parole è la scelta migliore. La versione dell'applicazione è indicata nella schermata di accesso e nella barra superiore.</p>
+<h3>Livelli di privilegio</h3>
+<table><thead><tr><th style="width:22%">Privilegio</th><th>Funzioni disponibili</th></tr></thead><tbody>
+<tr><td class="ruolo">Visualizzazione</td><td>Consultazione di tutti i dati, senza possibilità di modifica.</td></tr>
+<tr><td class="ruolo">Operatore</td><td>Inserimento, modifica, spostamento ed eliminazione dei dispositivi; importazione ed esportazione dell'inventario.</td></tr>
+<tr><td class="ruolo">Admin</td><td>Tutte le funzioni, incluse la gestione della struttura (rack, sale, siti), le notifiche, il registro delle modifiche e le utenze.</td></tr>
+</tbody></table>
+<h3>Visualizzazione ed Editing</h3>
+<p>Il selettore in alto a sinistra (Ctrl+E) alterna la modalità di consultazione e quella di modifica. In Editing sono disponibili i comandi consentiti dal proprio privilegio; per le utenze in sola lettura la modalità Editing non è attivabile.</p>
+<h3>Profilo</h3>
+<p>Il profilo si apre dall'icona con le iniziali, nella barra superiore. Contiene i dati personali, il cambio password e, per gli amministratori, la gestione delle utenze.</p>
+</section>
+
+<section class="cap" style="--n:'12'" id="a-ui" data-toc="12|Dashboard e pianta delle sale">
+<h2><span class="sn">12</span>Dashboard e pianta delle sale</h2>
+<h3>Dashboard</h3>
+<p>La dashboard (tasto D) riporta il numero di siti, sale, rack e dispositivi e l'occupazione complessiva per tipo di apparato. La fascia «Urgenze e scadenze» è verde in assenza di criticità, ambra o rossa in presenza di scadenze; selezionandola si apre l'elenco. Seguono le schede dei siti e l'occupazione per sala.</p>
+<h3>Pianta</h3>
+<p>Il sito si seleziona dal menu in alto a sinistra; le sale sono disponibili come schede. La pianta riporta muri, porte e rack con il relativo seriale.</p>
+<table><thead><tr><th style="width:34%">Operazione</th><th>Comando</th></tr></thead><tbody>
+<tr><td>Ingrandimento</td><td>Rotellina del mouse</td></tr>
+<tr><td>Spostamento della pianta</td><td>Trascinamento con il tasto sinistro</td></tr>
+<tr><td>Rotazione di 90°</td><td>Pulsante ⟳</td></tr>
+<tr><td>Ritorno alla vista iniziale</td><td>Pulsante con la percentuale di ingrandimento</td></tr>
+<tr><td>Apertura di un rack</td><td>Clic sul rack; Ctrl+B apre e chiude la scheda</td></tr>
+</tbody></table>
+<h3>Vista 3D</h3>
+<p>Con il tasto V la pianta passa alla vista tridimensionale: i dispositivi sono rappresentati come fasce colorate alla quota corrispondente. Il trascinamento ruota il modello, con Shift lo sposta. La legenda permette di filtrare per tipo:
+<span class="sw" style="background:#22b8e6"></span>Server <span class="sw" style="background:#3ddc84"></span>Rete <span class="sw" style="background:#b57bff"></span>Storage <span class="sw" style="background:#ff5c5c"></span>Firewall <span class="sw" style="background:#ffb020"></span>Alimentazione.</p>
+<h3>Scheda del rack</h3>
+<p>La scheda mostra la vista frontale con i dispositivi nelle rispettive unità, l'elenco con modello, indirizzo IP, seriale e referente, e la foto del rack. Il pulsante di stampa produce un foglio con vista frontale ed elenco, da applicare all'armadio.</p>
+</section>
+
+<section class="cap" style="--n:'13'" id="a-dev" data-toc="13|Dispositivi">
+<h2><span class="sn">13</span>Dispositivi</h2>
+<h3>Dati del dispositivo</h3>
+<table><thead><tr><th style="width:24%">Campo</th><th>Descrizione</th></tr></thead><tbody>
+<tr><td>Nome</td><td>Nome dell'apparato. Può essere modificato e non identifica il dispositivo.</td></tr>
+<tr><td>Tipo</td><td>Server, Rete, Storage, Firewall, Alimentazione, Altro. PDU e UPS rientrano in Alimentazione.</td></tr>
+<tr><td>Stato</td><td>Attivo, In manutenzione, In dismissione, Dismesso.</td></tr>
+<tr><td>Presenza</td><td>Presente in rack oppure Rimosso. È indipendente dallo stato: un apparato dismesso può essere ancora installato.</td></tr>
+<tr><td>U e altezza</td><td>Unità di partenza, contata dal basso, e altezza in unità rack.</td></tr>
+<tr><td>Modello, IP, seriale, referente</td><td>Dati descrittivi. IP e seriale sono ricercabili.</td></tr>
+<tr><td>Garanzia, supporto</td><td>Date di scadenza nel formato AAAA-MM-GG, utilizzate per la vista Scadenze e per gli avvisi.</td></tr>
+<tr><td>Note</td><td>Testo libero.</td></tr>
+</tbody></table>
+<h3>Operazioni</h3>
+<p>Le operazioni richiedono il privilegio Operatore e la modalità Editing.</p>
+<ul>
+<li><b>Inserimento</b>: dalla scheda del rack, «+ Dispositivo»; si compilano i dati, si indicano unità e altezza e si salva. Se le unità indicate sono occupate l'applicazione lo segnala.</li>
+<li><b>Modifica ed eliminazione</b>: selezionando il dispositivo nell'elenco o nella vista frontale. Dallo stesso modulo il dispositivo può essere spostato in un altro rack o in un'altra sala.</li>
+<li><b>Spostamento</b>: nella vista frontale il dispositivo si trascina verso l'alto o verso il basso; la posizione viene salvata se libera.</li>
+<li><b>Annullamento</b>: Ctrl+Z annulla l'ultima modifica, Ctrl+Y la ripristina. Il numero di passaggi (da 5 a 20) si imposta nelle Impostazioni.</li>
+</ul>
+</section>
+
+<section class="cap" style="--n:'14'" id="a-str" data-toc="14|Rack, sale e siti">
+<h2><span class="sn">14</span>Rack, sale e siti</h2>
+<p>Le funzioni di questo capitolo sono riservate al privilegio Admin.</p>
+<ul>
+<li><b>Rack</b>: «+ Rack» crea un nuovo rack; «⚙ Rack» modifica quello selezionato. Sono configurabili codice, nome, numero di unità (45 di norma), fila, dimensioni, posizione e fino a due seriali, corrispondenti ai numeri di inventario dell'armadio.</li>
+<li><b>Posizionamento</b>: nella vista 2D, con rotazione a 0°, il rack si sposta trascinandolo (passo di 5 cm) e si ridimensiona dalla maniglia nell'angolo inferiore destro. Gli spostamenti sono registrati e annullabili.</li>
+<li><b>Sale e siti</b>: «+ Sala» crea una sala nel sito corrente, con misure e porta; le frecce ◂ ▸ ne cambiano l'ordine. «+ Sito» crea un nuovo sito.</li>
+</ul>
+<div class="nota"><div class="l">NOTA</div>
+<p>All'installazione diversi rack riportano sulla pianta il proprio codice (per esempio R01 o SN-R05) in luogo del seriale, non ancora rilevato. I seriali si aggiornano da «⚙ Rack».</p></div>
+</section>
+
+<section class="cap" style="--n:'15'" id="a-viste" data-toc="15|Ricerca e viste">
+<h2><span class="sn">15</span>Ricerca e viste</h2>
+<h3>Ricerca</h3>
+<p>La barra di ricerca (tasto / oppure Ctrl+F) opera su tutti i siti: nomi, indirizzi IP, seriali di dispositivi e rack, modelli, referenti e sale. Selezionando un risultato si apre il rack corrispondente e il dispositivo viene evidenziato.</p>
+<table><thead><tr><th style="width:34%">Ricerca per rete</th><th>Esempio</th></tr></thead><tbody>
+<tr><td>Notazione CIDR</td><td><code>10.0.2.0/24</code></td></tr>
+<tr><td>Intervallo</td><td><code>10.0.0.1-10.0.0.99</code></td></tr>
+<tr><td>Carattere jolly</td><td><code>10.0.*</code></td></tr>
+</tbody></table>
+<h3>Viste</h3>
+<table><thead><tr><th style="width:20%">Vista</th><th>Contenuto</th></tr></thead><tbody>
+<tr><td>Inventario</td><td>Elenco di tutti i dispositivi, con ordinamento, filtri e scelta delle colonne. L'esportazione CSV riproduce l'elenco filtrato.</td></tr>
+<tr><td>Capacità</td><td>Per sala e per fila: unità libere e occupate e il maggiore blocco contiguo disponibile.</td></tr>
+<tr><td>Scadenze</td><td>Garanzie e contratti di supporto scaduti (in rosso) o in scadenza (in ambra), con esportazione CSV.</td></tr>
+<tr><td>Dismessi</td><td>Apparati in stato Dismesso, mantenuti per riscontro storico, con esportazione CSV.</td></tr>
+</tbody></table>
+</section>
+
+<section class="cap" style="--n:'16'" id="a-imp" data-toc="16|Importazione ed esportazione">
+<h2><span class="sn">16</span>Importazione ed esportazione</h2>
+<h3>Modello Excel</h3>
+<p>Il file «Modello dispositivi sale.xlsx» consente di caricare i dispositivi in blocco. Si compila il primo foglio, «Dispositivi»:</p>
+<ol class="num">
+<li>si seleziona la sala; l'elenco dei rack mostra solo quelli della sala scelta e il sito viene compilato automaticamente;</li>
+<li>sala, rack e nome sono obbligatori; tipo, stato, unità e altezza sono raccomandati; le date si scrivono nel formato 2027-12-31;</li>
+<li>la colonna <code>_uid</code> resta vuota;</li>
+<li>in modalità Editing si sceglie «Importa dati» e si seleziona il file. L'anteprima riporta per ogni riga l'esito (nuovo, aggiornato o scartato) e il motivo; l'importazione si conferma dopo averla verificata.</li>
+</ol>
+<p>L'importazione può avvenire in più riprese, per esempio una sala alla volta. Nel foglio sono evidenziate in rosso le righe con dispositivi che eccedono l'altezza del rack.</p>
+<h3>Esportazione</h3>
+<table><thead><tr><th style="width:22%">Formato</th><th>Contenuto</th></tr></thead><tbody>
+<tr><td>JSON completo</td><td>Struttura, inventario e registro. È il formato di backup logico; il ripristino è riservato agli amministratori.</td></tr>
+<tr><td>CSV dispositivi</td><td>Tutti i dispositivi, reimportabile. Mantiene l'identificativo <code>_uid</code>: un file modificato e reimportato aggiorna i dispositivi esistenti.</td></tr>
+<tr><td>Excel</td><td>Fogli Dispositivi, Rack e Sale.</td></tr>
+<tr><td>Stampa o PDF</td><td>La vista corrente.</td></tr>
+</tbody></table>
+<h3>Confronto con un rilievo</h3>
+<p>La funzione «Confronta» mette a confronto i dati attuali con un rilievo (JSON completo o CSV con almeno le colonne nome e rack) ed elenca dispositivi aggiunti, rimossi, spostati e modificati. Le differenze sono esportabili in Excel.</p>
+<div class="nota"><div class="l">NOTA</div>
+<p>Il dispositivo è identificato dall'<code>_uid</code>, non dal nome. Una riga senza <code>_uid</code> con un nome presente più volte è ambigua e viene scartata.</p></div>
+</section>
+
+<section class="cap" style="--n:'17'" id="a-adm" data-toc="17|Amministrazione">
+<h2><span class="sn">17</span>Amministrazione</h2>
+<h3>Utenze</h3>
+<ul>
+<li>Le utenze si creano dal Profilo, sezione «Utenti e privilegi», indicando nome utenza e privilegio.</li>
+<li>La password provvisoria è generata dal sistema e mostrata una sola volta; va comunicata all'interessato, che la sostituisce al primo accesso. Le utenze in attesa sono contrassegnate come «pw provvisoria».</li>
+<li>Le utenze non si cancellano ma si disattivano, in modo che il registro resti riconducibile agli autori delle modifiche.</li>
+<li>Un'utenza bloccata per accessi falliti è contrassegnata come «bloccata»; il pulsante «Sblocca» la riabilita senza cambiarne la password.</li>
+</ul>
+<h3>Notifiche di scadenza</h3>
+<p>In Impostazioni, Notifiche, si definiscono destinatari (uno per riga), giorni di anticipo, fuso orario e ora di invio; l'anteprima indica quante scadenze rientrano nel periodo. L'invio di prova verifica la configurazione; il numero di prove è limitato e destinatari e testo non sono modificabili. Il server di posta è configurato a livello di sistema (capitolo 6).</p>
+<h3>Registro delle modifiche</h3>
+<p>Il registro elenca in sola lettura tutte le modifiche, con autore, data e contenuto.</p>
+<h3>Impostazioni</h3>
+<p>Sono disponibili i temi Scuro (predefinito), Chiaro e TIM, e la scelta del numero di modifiche annullabili (5, 10, 15 o 20).</p>
+</section>
+
+<section class="cap cont" style="--n:'18'" id="a-kb" data-toc="18|Scorciatoie da tastiera">
+<h2><span class="sn">18</span>Scorciatoie da tastiera</h2>
+<table><thead><tr><th style="width:30%">Tasti</th><th>Funzione</th></tr></thead><tbody>
+<tr><td><code>/</code>, <code>Ctrl+F</code></td><td>Ricerca</td></tr>
+<tr><td><code>D</code></td><td>Dashboard</td></tr>
+<tr><td><code>V</code></td><td>Vista 2D o 3D</td></tr>
+<tr><td><code>Ctrl+E</code></td><td>Visualizzazione o Editing</td></tr>
+<tr><td><code>Ctrl+B</code></td><td>Scheda del rack</td></tr>
+<tr><td><code>Ctrl+Z</code>, <code>Ctrl+Y</code></td><td>Annulla, ripristina</td></tr>
+</tbody></table>
+<p>Le scorciatoie non sono attive durante la digitazione in un campo di testo.</p>
+</section>
+
+<section class="cap" style="--n:'A'" id="a-gloss" data-toc="A|Glossario">
+<h2><span class="sn">A</span>Glossario</h2>
+<dl class="gloss">
+<dt>Baseline</dt><dd>Struttura iniziale caricata all'installazione: siti, sale e rack, senza dispositivi.</dd>
+<dt>CA interna</dt><dd>Autorità di certificazione locale che firma il certificato di TSM; il suo certificato è installato sul web gateway.</dd>
+<dt>Container</dt><dd>Processo isolato eseguito da Docker a partire da un'immagine.</dd>
+<dt>healthy</dt><dd>Stato di un container il cui controllo di salute ha esito positivo.</dd>
+<dt>Pacchetto di rilascio</dt><dd>Insieme di file e immagini prodotto da <code>tools/release-bundle.sh</code> e installato in <code>/opt/tsm</code>.</dd>
+<dt>Pin del rilascio</dt><dd>File <code>deploy/release.pin</code> con commit, identificativi delle immagini e digest della baseline del rilascio installato.</dd>
+<dt>Preflight</dt><dd>Controllo dei requisiti eseguito prima di ogni avvio del servizio.</dd>
+<dt>Secret</dt><dd>File con una credenziale, montato in sola lettura nel container che lo utilizza.</dd>
+<dt>U (unità rack)</dt><dd>Unità di altezza standard dei rack, pari a 44,45 mm.</dd>
+<dt>_uid</dt><dd>Identificativo univoco e permanente di sito, sala, rack o dispositivo.</dd>
+<dt>Web gateway</dt><dd>Postazione intermedia da cui gli utenti accedono all'applicazione.</dd>
+</dl>
+</section>
+
+<section class="cap" style="--n:'B'" id="a-rot" data-toc="B|Rotazione delle credenziali">
+<h2><span class="sn">B</span>Rotazione delle credenziali</h2>
+<p class="intro">Le credenziali si sostituiscono secondo la politica aziendale e comunque in caso di sospetta esposizione o di cambio del personale che vi ha accesso. Ogni rotazione comporta un riavvio del servizio, con un'interruzione di circa un minuto.</p>
+<table><thead><tr><th style="width:26%">Credenziale</th><th style="width:30%">Dove si trova</th><th>Procedura</th></tr></thead><tbody>
+<tr><td>Ruolo <code>tsm_api</code></td><td><code>secrets/api_db_password</code></td><td>B.1</td></tr>
+<tr><td>Ruolo <code>tsm_worker</code></td><td><code>secrets/worker_db_password</code></td><td>B.1</td></tr>
+<tr><td>Ruolo <code>tsm</code> (proprietario)</td><td><code>secrets/postgres_password</code></td><td>B.2</td></tr>
+<tr><td>Relay SMTP</td><td><code>secrets/smtp_password</code></td><td>B.3</td></tr>
+<tr><td>Certificato TLS</td><td><code>secrets/tls/</code></td><td>Scheda C.1</td></tr>
+<tr><td>CA interna</td><td><code>/root/tsm-ca/</code></td><td>B.4</td></tr>
+<tr><td>Utenze dell'applicazione</td><td>database</td><td>B.5</td></tr>
+</tbody></table>
+
+<h3>Ruoli applicativi tsm_api e tsm_worker</h3>
+<p>Il servizio <code>migrate</code> imposta a ogni avvio le password dei ruoli applicativi leggendole dai file dei secret. La rotazione consiste quindi nella sostituzione del file e in un riavvio.</p>
+<pre><span class="c"># esempio per tsm_api; per tsm_worker usare worker_db_password</span>
+cd /opt/tsm
+cp -p secrets/api_db_password /root/api_db_password.prec      <span class="c"># copia per il ripristino</span>
+umask 077
+openssl rand -base64 24 | tr -d '\n+/=' &gt; /root/nuova
+install -m 0400 -o 10001 -g 10001 /root/nuova secrets/api_db_password
+shred -u /root/nuova
+systemctl restart tsm.service
+docker compose ps -a                         <span class="c"># migrate: Exited (0); gli altri healthy</span>
+docker compose logs migrate | grep "password del ruolo"</pre>
+<p>A verifica conclusa la copia precedente si elimina con <code>shred -u /root/api_db_password.prec</code>. Se <code>migrate</code> termina con errore, si ripristina la copia e si riavvia.</p>
+
+<h3>Ruolo proprietario tsm</h3>
+<p>La password del proprietario dello schema è impostata in PostgreSQL alla creazione del database e non viene riletta dal file. Va quindi modificata prima nel database e poi nel file, in quest'ordine: con il solo file aggiornato <code>migrate</code> non riesce ad autenticarsi e il servizio non si avvia.</p>
+<pre>cd /opt/tsm
+cp -p secrets/postgres_password /root/postgres_password.prec
+umask 077
+openssl rand -base64 24 | tr -d '\n+/=' &gt; /root/nuova
+<span class="c"># 1. nel database (la password passa da stdin, non compare nella lista dei processi)</span>
+printf "ALTER ROLE tsm WITH PASSWORD '%s';\n" "$(cat /root/nuova)" \
+  | docker compose exec -T db psql -U tsm -d tsm -q
+<span class="c"># 2. nel file del secret</span>
+install -m 0400 -o 10001 -g 10001 /root/nuova secrets/postgres_password
+shred -u /root/nuova
+systemctl restart tsm.service
+docker compose ps -a                         <span class="c"># migrate: Exited (0)</span></pre>
+
+<h3>Relay SMTP</h3>
+<p>La password si cambia prima sul relay, a cura di chi lo gestisce, poi nel file:</p>
+<pre>cd /opt/tsm
+umask 077
+read -rs -p "Nuova password SMTP: " P; printf '%s' "$P" &gt; /root/nuova; unset P
+install -m 0400 -o 10001 -g 10001 /root/nuova secrets/smtp_password
+shred -u /root/nuova
+systemctl restart tsm.service</pre>
+<p>La password viene digitata senza eco e non resta nella cronologia della shell. Si verifica con l'invio di prova da Impostazioni, Notifiche.</p>
+
+<h3>CA interna</h3>
+<p>In caso di compromissione della chiave della CA si crea una nuova CA: si sposta <code>/root/tsm-ca</code> fuori dal server, si esegue <code>deploy/make-internal-tls.sh --ip 10.11.43.230 --name tsm-prd --force</code>, che genera una nuova CA e un nuovo certificato, si riavvia <code>web</code> e si sostituisce il certificato della CA installato sul web gateway.</p>
+
+<h3>Utenze dell'applicazione</h3>
+<p>Ogni utente cambia la propria password dal Profilo. Un amministratore può disattivare un'utenza e crearne una nuova con password provvisoria. In caso di perdita della password dell'unico amministratore si procede come indicato nel paragrafo 9.4.</p>
+</section>
+
+<section class="cap" style="--n:'C'" id="a-sch" data-toc="C|Schede di procedura">
+<h2><span class="sn">C</span>Schede di procedura</h2>
+<p class="intro">Le schede riportano le operazioni ricorrenti in forma eseguibile. Ogni scheda può essere stampata e allegata alla richiesta di intervento, compilando il riquadro finale.</p>
+<table><thead><tr><th style="width:12%">Scheda</th><th>Operazione</th><th style="width:26%">Frequenza</th></tr></thead><tbody>
+<tr><td>C.1</td><td>Rinnovo del certificato TLS</td><td>entro novembre 2028</td></tr>
+<tr><td>C.2</td><td>Aggiornamento a un nuovo rilascio</td><td>a ogni rilascio</td></tr>
+<tr><td>C.3</td><td>Verifica dopo un ripristino da backup</td><td>a ogni ripristino e prova</td></tr>
+<tr><td>C.4</td><td>Creazione e disattivazione di un'utenza</td><td>su richiesta</td></tr>
+<tr><td>C.5</td><td>Disco dati in esaurimento</td><td>su allarme Nagios</td></tr>
+</tbody></table>
+</section>
+
+<div class="scheda" style="--n:'C'">
+<h3>C.1 Rinnovo del certificato TLS</h3>
+<table class="kv"><tbody>
+<tr><td>Scopo</td><td>Emettere un nuovo certificato server con la CA esistente</td></tr>
+<tr><td>Quando</td><td>Allarme <code>check_tsm_cert</code> (30 giorni) e comunque entro novembre 2028</td></tr>
+<tr><td>Interruzione</td><td>Pochi secondi (riavvio di <code>web</code>)</td></tr>
+<tr><td>Prerequisiti</td><td>Chiave della CA disponibile in <code>/root/tsm-ca</code></td></tr>
+</tbody></table>
+<ol class="num">
+<li>Riportare la chiave della CA in <code>/root/tsm-ca</code>, se conservata altrove.</li>
+<li><code>cd /opt/tsm &amp;&amp; bash deploy/make-internal-tls.sh --ip 10.11.43.230 --name tsm-prd --force</code></li>
+<li>Verificare che lo script riporti la stessa impronta della CA in uso.</li>
+<li><code>docker compose restart web</code></li>
+<li>Spostare nuovamente la chiave della CA fuori dal server.</li>
+</ol>
+<h4>Verifica</h4>
+<ul class="check">
+<li><code>bash /usr/local/lib/tsm/check_tsm.sh cert</code> riporta circa 825 giorni</li>
+<li>Dal web gateway l'applicazione si apre senza avvisi</li>
+</ul>
+<table class="firma"><thead><tr><th>Data</th><th>Eseguito da</th><th>Esito</th><th>Firma</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>
+</div>
+
+<div class="scheda">
+<h3>C.2 Aggiornamento a un nuovo rilascio</h3>
+<table class="kv"><tbody>
+<tr><td>Scopo</td><td>Installare un nuovo rilascio senza modificare dati e configurazione</td></tr>
+<tr><td>Quando</td><td>A ogni rilascio</td></tr>
+<tr><td>Interruzione</td><td>Circa un minuto</td></tr>
+<tr><td>Prerequisiti</td><td>Pacchetto prodotto da <code>tools/release-bundle.sh</code>; esportazione JSON recente</td></tr>
+</tbody></table>
+<ol class="num">
+<li>Copiare il pacchetto nella propria home e da <code>root</code>: <code>cp -r ~utente/&lt;pacchetto&gt;/. /opt/tsm/</code></li>
+<li><code>cd /opt/tsm &amp;&amp; chmod 0750 deploy/*.sh accettazione/*.sh</code></li>
+<li><code>bash accettazione/release-bundle.sh --verify /opt/tsm</code>: esito «pacchetto integro»</li>
+<li><code>docker load -i tsm-images.tar &amp;&amp; rm tsm-images.tar</code></li>
+<li><code>bash deploy/preflight.sh --dir /opt/tsm</code>: uscita 0</li>
+<li><code>systemctl restart tsm.service</code></li>
+</ol>
+<h4>Verifica</h4>
+<ul class="check">
+<li><code>docker compose ps</code>: tutti i servizi healthy</li>
+<li><code>bash /usr/local/lib/tsm/check_tsm.sh images</code>: OK</li>
+<li>Interfaccia verificata in Firefox e Chrome dal web gateway</li>
+</ul>
+<table class="firma"><thead><tr><th>Data</th><th>Rilascio</th><th>Eseguito da</th><th>Firma</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>
+</div>
+
+<div class="scheda">
+<h3>C.3 Verifica dopo un ripristino da backup</h3>
+<table class="kv"><tbody>
+<tr><td>Scopo</td><td>Accertare che la macchina ripristinata contenga i dati e che il servizio funzioni</td></tr>
+<tr><td>Quando</td><td>Dopo ogni ripristino Veeam, incluse le prove periodiche</td></tr>
+<tr><td>Prerequisiti</td><td>Ripristino di entrambi i dischi completato</td></tr>
+</tbody></table>
+<ol class="num">
+<li><code>findmnt -M /srv/tsm-data</code>: il disco dati è montato</li>
+<li><code>bash /opt/tsm/deploy/preflight.sh --dir /opt/tsm</code>: uscita 0</li>
+<li><code>systemctl restart tsm.service &amp;&amp; docker compose -f /opt/tsm/compose.yaml ps</code></li>
+<li><code>docker compose -f /opt/tsm/compose.yaml run --rm migrate python scripts/project.py --verify</code></li>
+<li><code>curl -sk https://10.11.43.230/api/ready</code>: <code>"status":"ready"</code></li>
+</ol>
+<h4>Verifica</h4>
+<ul class="check">
+<li>Accesso con un'utenza esistente</li>
+<li>Numero di sale, rack e dispositivi coerente con la data del backup</li>
+<li>Ultime voci del registro coerenti con la data del backup</li>
+</ul>
+<table class="firma"><thead><tr><th>Data</th><th>Backup ripristinato del</th><th>Eseguito da</th><th>Firma</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>
+</div>
+
+<div class="scheda">
+<h3>C.4 Creazione e disattivazione di un'utenza</h3>
+<table class="kv"><tbody>
+<tr><td>Scopo</td><td>Concedere o revocare l'accesso all'applicazione</td></tr>
+<tr><td>Quando</td><td>Ingresso o uscita di una persona dal gruppo, cambio di ruolo</td></tr>
+<tr><td>Prerequisiti</td><td>Utenza con privilegio Admin</td></tr>
+</tbody></table>
+<h4>Creazione</h4>
+<ol class="num">
+<li>Profilo, «Utenti e privilegi»: inserire il nome utenza e scegliere il privilegio.</li>
+<li>Annotare la password provvisoria, mostrata una sola volta.</li>
+<li>Consegnarla all'interessato tramite un canale riservato.</li>
+<li>Verificare che al primo accesso l'utenza non risulti più «pw provvisoria».</li>
+</ol>
+<h4>Disattivazione</h4>
+<ol class="num">
+<li>Profilo, «Utenti e privilegi»: disattivare l'utenza. Le utenze non si cancellano.</li>
+<li>Verificare che l'accesso con quell'utenza venga rifiutato.</li>
+</ol>
+<table class="firma"><thead><tr><th>Data</th><th>Utenza e privilegio</th><th>Operazione</th><th>Eseguito da</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td><td></td></tr></tbody></table>
+</div>
+
+<div class="scheda">
+<h3>C.5 Disco dati in esaurimento</h3>
+<table class="kv"><tbody>
+<tr><td>Scopo</td><td>Ampliare il disco dati prima che PostgreSQL esaurisca lo spazio</td></tr>
+<tr><td>Quando</td><td>Allarme <code>check_tsm_storage</code> (75 % avviso, 90 % critico)</td></tr>
+<tr><td>Interruzione</td><td>Nessuna: l'ampliamento XFS avviene a caldo</td></tr>
+<tr><td>Prerequisiti</td><td>Ampliamento del disco virtuale da parte di chi gestisce la VM</td></tr>
+</tbody></table>
+<ol class="num">
+<li>Rilevare l'occupazione: <code>df -h /srv/tsm-data</code> e <code>du -sh /srv/tsm-data/postgres</code>.</li>
+<li>Richiedere l'ampliamento del disco virtuale <code>sda</code>.</li>
+<li>Rilevare la nuova dimensione: <code>echo 1 &gt; /sys/class/block/sda/device/rescan</code>, poi <code>lsblk /dev/sda</code>.</li>
+<li>Estendere la partizione: <code>growpart /dev/sda 1</code></li>
+<li>Estendere il filesystem: <code>xfs_growfs /srv/tsm-data</code></li>
+</ol>
+<div class="nota att"><div class="l">ATTENZIONE</div><p>Operare solo su <code>sda</code>, il disco dati. Verificare prima con <code>lsblk</code> e <code>findmnt -M /srv/tsm-data</code>.</p></div>
+<h4>Verifica</h4>
+<ul class="check">
+<li><code>df -h /srv/tsm-data</code> riporta la nuova dimensione</li>
+<li><code>bash /usr/local/lib/tsm/check_tsm.sh storage</code>: OK</li>
+</ul>
+<table class="firma"><thead><tr><th>Data</th><th>Dimensione prima / dopo</th><th>Eseguito da</th><th>Firma</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>
+</div>

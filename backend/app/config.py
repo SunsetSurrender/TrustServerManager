@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # altrimenti l'healthcheck va in timeout invece di dire "not ready".
     db_connect_timeout: int = 3
 
-    app_version: str = "0.3.0"
+    app_version: str = "0.4.0"
 
     # ------------------------------------------------------------- sessioni
     #: Il cookie di sessione è `Secure` per default: senza HTTPS non si entra.
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------- limitazione accessi
     login_max_failures_per_username: int = 5
-    login_max_failures_per_ip: int = 20
+    login_max_failures_per_ip: int = 100
     login_failure_window_seconds: int = 900
 
     # Limite della richiesta a livello applicativo. Nginx ha il proprio

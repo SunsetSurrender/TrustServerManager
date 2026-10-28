@@ -26,6 +26,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.auth import lockout
 from app.auth.audit import record_auth_event
 from app.auth.passwords import (
     check_policy,
@@ -78,6 +79,8 @@ class UserRow:
     team: str | None
     last_login_at: Any
     created_at: Any
+    locked_at: Any = None
+    failed_logins: int = 0
 
     def as_dict(self) -> dict:
         return {
@@ -87,12 +90,16 @@ class UserRow:
             "telefono": self.telefono, "team": self.team,
             "lastLoginAt": self.last_login_at.isoformat() if self.last_login_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "locked": self.locked_at is not None,
+            "lockedAt": self.locked_at.isoformat() if self.locked_at else None,
+            "failedLogins": self.failed_logins,
         }
 
 
 _SELECT = """
     SELECT id, username, role, must_change_pw, (disabled_at IS NOT NULL) AS disabled,
-           nome, cognome, telefono, team, last_login_at, created_at
+           nome, cognome, telefono, team, last_login_at, created_at,
+           locked_at, failed_logins
       FROM users
 """
 
@@ -100,7 +107,8 @@ _SELECT = """
 def _row(r) -> UserRow:
     return UserRow(id=r[0], username=str(r[1]), role=r[2], must_change_pw=bool(r[3]),
                    disabled=bool(r[4]), nome=r[5], cognome=r[6], telefono=r[7],
-                   team=r[8], last_login_at=r[9], created_at=r[10])
+                   team=r[8], last_login_at=r[9], created_at=r[10],
+                   locked_at=r[11], failed_logins=int(r[12] or 0))
 
 
 def list_users(conn: Connection, *, include_disabled: bool = False) -> list[UserRow]:
@@ -245,6 +253,11 @@ def set_disabled(conn: Connection, user_id: Any, disabled: bool, *, actor) -> Us
     else:
         conn.execute(text("UPDATE users SET disabled_at = NULL, updated_at = now() "
                           "WHERE id = :id"), {"id": user_id})
+        # Riattivare è una decisione esplicita dell'amministratore sull'accesso
+        # di quella persona: un blocco rimasto da prima non deve sopravviverle.
+        lockout.unlock(conn, user_id, actor_username=actor.username,
+                       actor_user_id=actor.user_id, actor_role=actor.role,
+                       ip=actor.ip)
         record_auth_event(conn, USER_ENABLED, username=actor.username,
                           user_id=actor.user_id, role=actor.role, ip=actor.ip,
                           detail={"targetUsername": str(current[2])})
@@ -270,9 +283,29 @@ def reset_password(conn: Connection, user_id: Any, *, actor) -> tuple[UserRow, s
          WHERE id = :id
     """), {"pw": hash_password(temp), "id": user_id})
     revoked = revoke_all_sessions(conn, user_id)
+    # Una password provvisoria nuova serve a far rientrare la persona: con
+    # l'utenza ancora bloccata non servirebbe a niente.
+    lockout.unlock(conn, user_id, actor_username=actor.username,
+                   actor_user_id=actor.user_id, actor_role=actor.role, ip=actor.ip)
 
     record_auth_event(conn, USER_PASSWORD_RESET, username=actor.username,
                       user_id=actor.user_id, role=actor.role, ip=actor.ip,
                       detail={"targetUsername": str(current[0]),
                               "revokedSessions": revoked})
     return get_user(conn, user_id), temp
+
+
+def unlock_user(conn: Connection, user_id: Any, *, actor) -> UserRow:
+    """Sblocca un'utenza bloccata dopo troppi accessi falliti. Solo amministratori.
+
+    Non cambia la password: se il blocco nasce da qualcuno che provava a
+    indovinarla, la reimpostazione è una decisione separata (`reset_password`,
+    che sblocca a sua volta).
+    """
+    exists = conn.execute(text("SELECT 1 FROM users WHERE id = :id"),
+                          {"id": user_id}).first()
+    if exists is None:
+        raise UserNotFound(f"utenza inesistente: {user_id}")
+    lockout.unlock(conn, user_id, actor_username=actor.username,
+                   actor_user_id=actor.user_id, actor_role=actor.role, ip=actor.ip)
+    return get_user(conn, user_id)

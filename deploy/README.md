@@ -285,6 +285,14 @@ cd /opt/tsm
 accettazione/release-bundle.sh --verify /opt/tsm      # deve dire «pacchetto integro»
 docker load -i tsm-images.tar
 docker compose config --images                        # i tag del pin, nessun pull
+
+# PostgreSQL deve rispondere al riferimento per digest che compose.yaml usa.
+# Un pacchetto fatto prima del 2026-10-26 lo portava senza nome: in quel caso
+# si riattacca il nome all'ID (stesso contenuto) e si ricontrolla.
+DB=$(grep -o 'postgres@sha256:[0-9a-f]*' compose.yaml)
+docker image inspect "$DB" >/dev/null 2>&1 \
+  || docker tag "sha256:${DB#postgres@sha256:}" postgres:17-alpine
+docker image inspect "$DB" --format '{{.Id}}'          # deve stampare l'ID
 ```
 
 Il preflight rifiuta l'avvio se un'immagine attesa non è presente in locale, e non
@@ -326,8 +334,15 @@ CA interna di cui i client si fidano. Lo script crea la CA (una volta), il
 certificato server con i nomi giusti, e sistema proprietario e permessi per nginx:
 
 ```bash
-deploy/make-internal-tls.sh --name tsm-prd.telecomitalia.it --name tsm-prd --ip <IP della VM>
+deploy/make-internal-tls.sh --ip <IP della VM> --name tsm-prd
 ```
+
+**Accesso per IP (scelta attuale, 2026-10-26).** Gli operatori aprono
+`https://<IP della VM>`: il DNS è facoltativo. Per questo l'IP deve stare nel
+certificato (`--ip`) e in `TSM_PUBLIC_ORIGIN`. Se un giorno si crea
+`tsm-prd.telecomitalia.it`, si rifà il certificato aggiungendo
+`--name tsm-prd.telecomitalia.it --force` e si aggiunge l'origine nel `.env`
+(separata da virgola). Se l'IP cambia, vanno rifatti entrambi.
 
 - `--name` va ripetuto per **ogni** nome con cui gli operatori aprono TSM: un nome
   assente dal certificato dà errore nel browser anche con la CA installata.
@@ -355,7 +370,7 @@ segreto e cambia da un'installazione all'altra:
 cat > /opt/tsm/.env <<'ENV'
 # Origine pubblica: lo schema e il nome con cui gli operatori aprono TSM.
 # Più di una separate da virgola. Deve combaciare con i --name del certificato.
-TSM_PUBLIC_ORIGIN=https://tsm-prd.telecomitalia.it
+TSM_PUBLIC_ORIGIN=https://<IP della VM>
 
 # Relay SMTP — si compila quando il relay è deciso (vedi sotto).
 TSM_SMTP_HOST=
@@ -1193,6 +1208,34 @@ mostrerebbe numeri sbagliati, non tutto.
 
 ---
 
+### 3.11 Aggiornare TSM a un rilascio nuovo
+
+Stesso percorso del primo deploy, senza i passi che creano stato (segreti, TLS,
+`.env`, directory dei dati, baseline): quelli restano come sono.
+
+```bash
+# macchina di build
+bash tools/build-release.sh                  # immagini nuove + deploy/release.pin
+git add deploy/release.pin && git commit -m "release: pin <commit>"
+bash tools/release-bundle.sh --out <dir> --with-images
+
+# tsm-prd: copiare il pacchetto SOPRA /opt/tsm (secrets/ e .env non sono nel
+# pacchetto, quindi non vengono toccati), poi
+cd /opt/tsm
+chmod 0750 deploy/*.sh accettazione/*.sh
+bash accettazione/release-bundle.sh --verify /opt/tsm
+docker load -i tsm-images.tar && rm tsm-images.tar
+bash deploy/preflight.sh --dir /opt/tsm
+systemctl restart tsm.service               # migrate gira da solo se serve
+docker compose ps
+```
+
+Il tag delle immagini cambia a ogni rilascio applicativo (`0.3.0` → `0.3.1` …): due
+immagini diverse con lo stesso tag sono la confusione che il pin esiste per evitare.
+Le immagini vecchie si tolgono dopo aver verificato il nuovo rilascio, per tag
+(`docker rmi tsm-api:<vecchio> tsm-web:<vecchio>`): Docker rifiuta di togliere
+un'immagine che un container sta usando.
+
 ## 4. Il caso che conta: disco dei dati assente
 
 Da provare **prima** di mettere il servizio in esercizio, e da ripetere dopo ogni
@@ -1320,6 +1363,13 @@ docker compose exec -T db psql -U tsm -tAc   "SELECT count(*) FROM scheduler_run
 ```
 
 ---
+
+### 5.1 Monitoraggio, FIM e ripristino automatico
+
+Sono lavoro **sistemistico**, non applicativo, e stanno fuori da questo pacchetto:
+cartella `ops/` del repository, documentata in `ops/README.md` (Nagios/NRPE,
+elenco FIM, timer `tsm-autoheal`). Un rilascio dell'applicazione non li tocca e
+non li sovrascrive.
 
 ## 6. Spazio: soglie e il tranello del thin provisioning
 

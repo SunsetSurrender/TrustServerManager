@@ -192,23 +192,23 @@ def test_verify_never_raises_on_a_broken_stored_hash():
 @pytest.mark.parametrize("length,expected", [
     (0, PASSWORD_TOO_SHORT),
     (1, PASSWORD_TOO_SHORT),
-    (13, PASSWORD_TOO_SHORT),
-    (14, PASSWORD_TOO_SHORT),      # il confine, dal lato che rifiuta
-    (15, None),                    # il confine, dal lato che passa
-    (16, None),
+    (10, PASSWORD_TOO_SHORT),
+    (11, PASSWORD_TOO_SHORT),      # il confine, dal lato che rifiuta
+    (12, None),                    # il confine, dal lato che passa
+    (13, None),
     (127, None),
     (128, None),                   # il massimo, incluso
     (129, PASSWORD_TOO_LONG),      # uno oltre
     (1000, PASSWORD_TOO_LONG),
 ])
 def test_the_length_boundaries(length, expected):
-    """14 no, 15 sì, 128 sì, 129 no.
+    """11 no, 12 sì, 128 sì, 129 no.
 
     La password di prova NON è `"a" * length`: `aaaaaaaaaaaaaaa` è in lista, e il
     test avrebbe riportato `password_blocklisted` dove si aspettava `None`. Se ne è
     accorta la sonda, non il test — motivo per cui la base è una sequenza variata.
     """
-    pw = ("frase lunga per il test " * 50)[:length]
+    pw = ("passphrase di prova " * 60)[:length]
     assert len(pw) == length
     problem = policy_problem(pw)
     assert (problem[0] if problem else None) == expected
@@ -314,8 +314,8 @@ def test_emoji_passwords_work_when_otherwise_valid():
     assert policy_problem(pw) is None
     assert verify_password(hash_password(pw), pw)
     # E uno troppo corto resta troppo corto: l'emoji non vale due.
-    corta = ROCKET * 14
-    assert len(corta) == 14
+    corta = ROCKET * 11
+    assert len(corta) == 11
     assert policy_problem(corta)[0] == PASSWORD_TOO_SHORT
 
 
@@ -345,18 +345,18 @@ def test_normalisation_is_nfc_and_not_nfd():
 def test_length_is_measured_after_normalisation_consistently():
     """NFC può ACCORCIARE, e allora la password è corta per davvero.
 
-    15 code point decomposti che diventano 14 composti sono 14: misurare prima della
+    12 code point decomposti che diventano 11 composti sono 11: misurare prima della
     normalizzazione accetterebbe in impostazione una password che poi vive come una
-    di lunghezza diversa. Misurato: 15 → 14.
+    di lunghezza diversa. Misurato: 12 → 11.
     """
-    decomposta = "aaaaaaaaaaaaaa" + COMBINING_GRAVE       # 15 code point
-    assert len(decomposta) == 15
-    assert len(normalise(decomposta)) == 14               # NFC la accorcia
+    decomposta = "aaaaaaaaaaa" + COMBINING_GRAVE          # 12 code point
+    assert len(decomposta) == 12
+    assert len(normalise(decomposta)) == 11               # NFC la accorcia
     assert policy_problem(decomposta)[0] == PASSWORD_TOO_SHORT
 
-    # E dall'altro lato: 16 decomposti che diventano 15 vanno bene.
-    quasi = "aaaaaaaaaaaaaaa" + COMBINING_GRAVE           # 16 → 15
-    assert len(normalise(quasi)) == 15
+    # E dall'altro lato: 13 decomposti che diventano 12 vanno bene.
+    quasi = "aaaaaaaaaaaa" + COMBINING_GRAVE              # 13 → 12
+    assert len(normalise(quasi)) == 12
     assert policy_problem(quasi) is None
 
 

@@ -268,14 +268,16 @@ def test_no_permissive_cors_headers(client):
 # ==================================================================
 
 def test_login_is_rate_limited_per_username(client, engine):
-    for i in range(5):
+    """Dalla migrazione 0014 il limite per utenza è il BLOCCO: alla quinta password
+    sbagliata consecutiva l'utenza si blocca (423) e resta bloccata anche con la
+    password giusta. I dettagli sono in test_lockout_pg.py."""
+    for i in range(4):
         assert login(client, "op", f"sbagliata-{i}").status_code == 401
     r = login(client, "op", "sbagliata-x")
-    assert r.status_code == 429
-    assert r.json()["detail"]["code"] == "too_many_attempts"
-    assert r.headers.get("retry-after")
-    # anche la password GIUSTA viene bloccata: il limitatore protegge l'utenza
-    assert login(client, "op", "password-lunga-1").status_code == 429
+    assert r.status_code == 423
+    assert r.json()["detail"]["code"] == "account_locked"
+    # anche la password GIUSTA viene rifiutata: il blocco protegge l'utenza
+    assert login(client, "op", "password-lunga-1").status_code == 423
 
 
 def test_successful_logins_do_not_count_towards_the_limit(client):

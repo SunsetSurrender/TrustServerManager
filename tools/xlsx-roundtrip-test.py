@@ -130,6 +130,8 @@ def main() -> int:
     ap.add_argument("--username", default="admin")
     ap.add_argument("--password", required=True)
     destructive_guard.add_arguments(ap)
+    ap.add_argument("--browser", default="chromium", choices=["chromium", "firefox"],
+                    help="motore del browser; chromium usa Chrome installato")
     args = ap.parse_args()
     base = args.base.rstrip("/")
     destructive_guard.enforce(args, base)
@@ -142,7 +144,8 @@ def main() -> int:
         with sync_playwright() as p:
             browser = None
             try:
-                browser = p.chromium.launch(channel="chrome", headless=True)
+                browser = (p.firefox.launch(headless=True) if args.browser == "firefox"
+                 else p.chromium.launch(channel="chrome", headless=True))
                 # Viewport alto: il pannello Impostazioni è un dropdown lungo e
                 # l'anteprima dell'import finisce fuori da un viewport standard.
                 context = browser.new_context(accept_downloads=True,

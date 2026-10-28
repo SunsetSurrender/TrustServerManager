@@ -33,6 +33,7 @@ from app.auth.passwords import (
     needs_rehash,
     verify_password,
 )
+from app.auth.lockout import register_failure, reset_failures
 from app.auth.ratelimit import check_rate_limit, record_attempt
 from app.inventory import Actor
 from app.util import safe_ip
@@ -123,6 +124,22 @@ class RateLimiterUnavailable(AuthError):
     servizio, che è visibile e conservativo (§8.32).
     """
     code = "rate_limiter_unavailable"
+
+
+class AccountLocked(AuthError):
+    """Utenza bloccata dopo troppi accessi falliti (migrazione 0014).
+
+    Si dice esplicitamente, a differenza di «utenza inesistente» e «password
+    errata»: chi è bloccato deve sapere che riprovare non serve e che deve
+    rivolgersi a un amministratore. In un gruppo chiuso il valore di quella
+    informazione per chi lavora supera quello che dà a chi prova a indovinare.
+    """
+    code = "account_locked"
+
+    def __init__(self, message: str = (
+            "utenza bloccata dopo troppi accessi falliti: "
+            "rivolgersi a un amministratore per lo sblocco")):
+        super().__init__(message)
 
 
 class TooManyAttempts(AuthError):
@@ -217,7 +234,8 @@ def login(conn: Connection, username: str, password: str, *,
         raise TooManyAttempts(status.reason, status.retry_after_seconds)
 
     row = conn.execute(text("""
-        SELECT id, username, role, password_hash, must_change_pw, disabled_at
+        SELECT id, username, role, password_hash, must_change_pw, disabled_at,
+               locked_at
           FROM users WHERE username = :u
     """), {"u": username}).first()
 
@@ -226,6 +244,22 @@ def login(conn: Connection, username: str, password: str, *,
     # in decine di millisecondi, e la differenza è misurabile da remoto.
     stored = row[3] if row else _DUMMY_HASH
     ok = verify_password(stored, password)
+
+    # Utenza bloccata: niente sessione nemmeno con la password giusta. Si
+    # verifica la password comunque (sopra), così il tempo di risposta non
+    # distingue un'utenza bloccata da una che non lo è.
+    if row is not None and row[5] is None and row[6] is not None:
+        try:
+            _out_of_band(lambda c: record_attempt(c, username, ip, success=False))
+        except Exception as exc:
+            raise RateLimiterUnavailable(
+                "impossibile registrare il tentativo di accesso") from exc
+        _out_of_band_best_effort(
+            lambda c: record_auth_event(c, LOGIN_BLOCKED, username=username, ip=ip,
+                                        user_id=row[0], role=row[2],
+                                        detail={"reason": "utenza bloccata"}),
+            "audit dell'accesso a un'utenza bloccata")
+        raise AccountLocked()
 
     if row is None or not ok or row[5] is not None:
         uid = row[0] if row else None
@@ -244,6 +278,21 @@ def login(conn: Connection, username: str, password: str, *,
             lambda c: record_auth_event(c, LOGIN_FAILURE, username=username, ip=ip,
                                         user_id=uid, role=urole),
             "audit del tentativo fallito")
+        # 3. Il contatore dell'utenza, solo se esiste ed è attiva. Fuori banda come
+        #    gli altri: la transazione della richiesta viene annullata.
+        if row is not None and row[5] is None:
+            locked = [False]
+
+            def _count(c):
+                locked[0] = register_failure(c, row[0], str(row[1]), ip)
+            try:
+                _out_of_band(_count)
+            except Exception as exc:
+                raise RateLimiterUnavailable(
+                    "impossibile registrare il tentativo di accesso") from exc
+            if locked[0]:
+                raise AccountLocked()
+
         # Un solo errore per utenza inesistente, password errata e utenza
         # disabilitata: distinguerli direbbe a chi prova quali utenze esistono.
         raise InvalidCredentials()
@@ -277,6 +326,7 @@ def login(conn: Connection, username: str, password: str, *,
            "exp": _now() + SESSION_TTL, "ip": safe_ip(ip), "ua": user_agent})
     conn.execute(text("UPDATE users SET last_login_at = now() WHERE id = :uid"),
                  {"uid": row[0]})
+    reset_failures(conn, row[0])
     try:
         record_attempt(conn, username, ip, success=True)
     except Exception as exc:

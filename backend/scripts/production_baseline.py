@@ -186,7 +186,7 @@ MAINTENANCE_MUST_BE_IDLE = (
 #: e il cancello direbbe no a ogni installazione sana. È il primo esito che questo
 #: comando ha dato: «il bersaglio contiene dati: battito del worker (1)» su un
 #: database appena migrato, che è un rifiuto giusto per una ragione sbagliata.
-SINGLETONS = ("settings", "worker_heartbeat")
+SINGLETONS = ("settings", "worker_heartbeat", "security_policy")
 
 
 @dataclass
@@ -410,6 +410,14 @@ def gate_state(conn: Connection) -> tuple[Gate, dict]:
                     f"{'attive' if notifiche.get('enabled') else 'disattive'}, "
                     f"{len(notifiche.get('recipients') or [])} destinatari): "
                     f"questo database ha una storia.", TARGET_NOT_EMPTY), conteggi
+
+    # Migrazione 0014: la politica di accesso ha una riga, con la soglia
+    # predefinita. Il valore non dice niente sulla storia (si può cambiare prima
+    # dell'avvio senza che il database abbia dati), quindi si verifica che esista.
+    if conn.execute(text("SELECT count(*) FROM security_policy")).scalar_one() != 1:
+        return Gate("stato", False,
+                    "security_policy senza la sua riga: la migrazione 0014 ne "
+                    "inserisce una", SCHEMA_MISMATCH), conteggi
 
     return Gate("stato", True,
                 f"{len(MUST_BE_EMPTY)} tabelle vuote, {len(SINGLETONS)} righe "

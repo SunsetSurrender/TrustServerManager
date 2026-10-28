@@ -1,0 +1,122 @@
+@font-face { font-family: 'Public Sans'; src: url('../../frontend/fonts/PublicSans-400.woff2') format('woff2'); font-weight: 100 900; }
+@font-face { font-family: 'Roboto Mono'; src: url('../../frontend/fonts/RobotoMono-400.woff2') format('woff2'); font-weight: 100 700; }
+
+:root {
+  --blu: #004691;
+  --blu-scuro: #002d5c;
+  --rosso: #eb0028;
+  --inchiostro: #1d2530;
+  --grigio: #646e7b;
+  --grigio-2: #8b94a0;
+  --filetto: #d9dee5;
+  --fondo: #f4f6f9;
+  --fondo-blu: #eef3f9;
+}
+
+@page { size: A4; margin: 24mm 20mm 20mm 22mm; }
+
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: 'Public Sans', sans-serif; font-size: 9.5pt; line-height: 1.55; color: var(--inchiostro);
+       margin: 0; hyphens: auto; font-feature-settings: "tnum" 0; }
+
+/* ---------------------------------------------------------- copertina */
+.cover { width: 210mm; height: 297mm; position: relative; overflow: hidden; background: #fff; }
+.cover .logo { position: absolute; left: 24mm; top: 24mm; width: 74mm; }
+.cover .motivo { position: absolute; right: -38mm; top: 52mm; width: 118mm; }
+.cover .titolo { position: absolute; left: 24mm; top: 168mm; width: 150mm; }
+.cover .tipo { font-size: 8.5pt; font-weight: 600; letter-spacing: .08em; color: var(--grigio); text-transform: uppercase; margin-bottom: 5mm; }
+.cover h1 { font-size: 34pt; line-height: 1.04; margin: 0 0 5mm; color: var(--blu); font-weight: 700; letter-spacing: -.015em; }
+.cover .sub { font-size: 13pt; color: var(--inchiostro); font-weight: 400; }
+.cover .dati { position: absolute; left: 24mm; right: 24mm; bottom: 24mm; border-top: .6pt solid var(--inchiostro);
+               padding-top: 3mm; display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 6mm; font-size: 8pt; }
+.cover .dati span { display: block; color: var(--grigio); font-size: 7pt; margin-bottom: .6mm; }
+.cover .classif { position: absolute; left: 24mm; bottom: 38mm; font-size: 8pt; color: var(--rosso); font-weight: 600; }
+
+/* ---------------------------------------------------------- pagine iniziali */
+.front { page-break-before: always; }
+.front h2 { margin-top: 0; }
+table.ctrl td:first-child { width: 32%; color: var(--grigio); }
+table.ctrl td { border-bottom: .5pt solid var(--filetto); padding: 1.5mm 0; }
+table.ctrl { margin-bottom: 8mm; }
+
+.toc { page-break-before: always; }
+.toc ol { list-style: none; padding: 0; margin: 0; }
+.toc li { display: flex; align-items: baseline; padding: 1.15mm 0; }
+.toc li .n { width: 9mm; color: var(--blu); font-weight: 600; }
+.toc li .t { flex: 0 1 auto; }
+.toc li .d { flex: 1; border-bottom: .6pt dotted var(--grigio-2); margin: 0 2mm; transform: translateY(-1mm); }
+.toc li .p { width: 8mm; text-align: right; font-variant-numeric: tabular-nums; }
+.toc li.part { margin-top: 5mm; font-weight: 700; color: var(--inchiostro); }
+.toc li.part .t { letter-spacing: .02em; }
+.toc a { color: inherit; text-decoration: none; }
+
+/* ---------------------------------------------------------- separatori di parte */
+.partpage { page-break-before: always; page-break-after: always; position: relative; height: 252mm; }
+.partpage .motivo { position: absolute; left: 0; top: 18mm; width: 46mm; }
+.partpage .etichetta { position: absolute; left: 0; top: 112mm; font-size: 9pt; font-weight: 600; color: var(--grigio); letter-spacing: .08em; text-transform: uppercase; }
+.partpage h1 { position: absolute; left: 0; top: 120mm; margin: 0; font-size: 26pt; font-weight: 700; color: var(--blu); letter-spacing: -.01em; }
+.partpage p { position: absolute; left: 0; top: 136mm; width: 118mm; margin: 0; font-size: 10.5pt; color: var(--grigio); line-height: 1.5; }
+
+/* ---------------------------------------------------------- testo */
+section.cap { page-break-before: always; counter-reset: sub; }
+section.cap.cont { page-break-before: auto; margin-top: 9mm; }
+h2 { font-size: 15pt; font-weight: 700; color: var(--blu); margin: 0 0 5mm; padding-bottom: 2.2mm; border-bottom: .8pt solid var(--blu); page-break-after: avoid; letter-spacing: -.005em; }
+h2 .sn { display: inline-block; min-width: 9mm; }
+h3 { font-size: 10.6pt; font-weight: 700; color: var(--inchiostro); margin: 6mm 0 2mm; page-break-after: avoid; }
+section.cap h3::before { counter-increment: sub; content: var(--n) "." counter(sub); display: inline-block; min-width: 11mm; color: var(--blu); }
+h4 { font-size: 9.5pt; font-weight: 700; margin: 3mm 0 1mm; page-break-after: avoid; }
+p { margin: 0 0 2.4mm; }
+ul { margin: 0 0 3mm; padding-left: 4.5mm; }
+ul li { margin-bottom: .9mm; padding-left: .5mm; }
+ul li::marker { color: var(--blu); }
+ol.num { margin: 0 0 3mm; padding-left: 5.5mm; }
+ol.num li { margin-bottom: 1.2mm; padding-left: 1mm; }
+ol.num li::marker { color: var(--blu); font-weight: 700; }
+strong, b { font-weight: 650; }
+code { font-family: 'Roboto Mono', monospace; font-size: 8.1pt; color: var(--blu-scuro); }
+pre { font-family: 'Roboto Mono', monospace; font-size: 7.8pt; line-height: 1.5; background: var(--fondo); color: var(--inchiostro);
+      padding: 3mm 4mm; margin: 1mm 0 3.5mm; white-space: pre-wrap; border: .5pt solid var(--filetto); page-break-inside: avoid; }
+pre .c { color: var(--grigio-2); }
+.intro { font-size: 10pt; margin-bottom: 4mm; }
+
+table { width: 100%; border-collapse: collapse; margin: 1mm 0 4mm; font-size: 8.6pt; line-height: 1.45; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+th { text-align: left; font-weight: 650; color: var(--blu-scuro); padding: 1.6mm 2.2mm 1.4mm; border-top: .8pt solid var(--inchiostro); border-bottom: .5pt solid var(--inchiostro); background: var(--fondo-blu); }
+td { padding: 1.4mm 2.2mm; border-bottom: .5pt solid var(--filetto); vertical-align: top; }
+tbody tr:last-child td { border-bottom: .8pt solid var(--inchiostro); }
+td:first-child, th:first-child { padding-left: 0; }
+th:first-child { padding-left: 2.2mm; }
+td:first-child { padding-left: 2.2mm; }
+table.kv td:first-child { width: 30%; color: var(--grigio); }
+
+.nota { display: grid; grid-template-columns: 21mm 1fr; gap: 3mm; border-top: .5pt solid var(--filetto); border-bottom: .5pt solid var(--filetto);
+        padding: 2.4mm 0; margin: 2mm 0 4mm; page-break-inside: avoid; }
+.nota .l { font-size: 8pt; font-weight: 700; color: var(--blu); padding-top: .3mm; }
+.nota.att .l { color: var(--rosso); }
+.nota p:last-child, .nota pre:last-child { margin-bottom: 0; }
+
+.fig { margin: 2mm 0 4mm; page-break-inside: avoid; }
+.fig .cap { font-size: 7.8pt; color: var(--grigio); margin-top: 1.5mm; }
+.ruolo { font-weight: 650; }
+.sw { display: inline-block; width: 2.4mm; height: 2.4mm; border-radius: 50%; margin: 0 1.3mm 0 3mm; vertical-align: -0.15mm; }
+.sw:first-child { margin-left: 0; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; }
+.tree { font-family: 'Roboto Mono', monospace; font-size: 7.7pt; line-height: 1.55; background: var(--fondo); border: .5pt solid var(--filetto);
+        padding: 3mm 4mm; white-space: pre; margin: 1mm 0 4mm; page-break-inside: avoid; }
+.tree .k { color: var(--grigio-2); }
+dl.gloss { display: grid; grid-template-columns: 34mm 1fr; gap: 1.6mm 4mm; margin: 0; }
+dl.gloss dt { font-weight: 650; }
+dl.gloss dd { margin: 0; }
+
+/* ---------------------------------------------------------- schede di procedura */
+.scheda { page-break-before: always; }
+.scheda h3 { font-size: 12pt; margin-top: 0; padding-bottom: 1.5mm; border-bottom: .5pt solid var(--filetto); }
+.scheda table.kv { margin-bottom: 3mm; }
+table.firma { margin-top: 5mm; }
+table.firma td { height: 9mm; border-bottom: .5pt solid var(--inchiostro); }
+table.firma th { background: none; border-top: none; border-bottom: none; color: var(--grigio); font-weight: 600; font-size: 7.6pt; padding-bottom: .5mm; }
+.check li { list-style: none; position: relative; }
+.check li::before { content: ''; position: absolute; left: -5mm; top: 1mm; width: 2.8mm; height: 2.8mm; border: .6pt solid var(--inchiostro); }
+.check { padding-left: 6mm; }

@@ -117,6 +117,19 @@ export const disableUser = (id) => request('POST', `/api/users/${id}/disable`, {
 export const enableUser = (id) => request('POST', `/api/users/${id}/enable`, {});
 export const resetUserPassword = (id) =>
   request('POST', `/api/users/${id}/reset-password`, {});
+/** Sblocca un'utenza bloccata dopo troppi accessi falliti. Solo admin. */
+export const unlockUser = (id) => request('POST', `/api/users/${id}/unlock`, {});
+
+// ------------------------------------------------------------------ politica di accesso
+//
+// Soglia di accessi falliti consecutivi oltre la quale l'utenza si blocca.
+// Tabella propria sul server, NON il documento delle impostazioni: niente ETag.
+export const getSecurityPolicy = () => request('GET', '/api/security-policy');
+export const putSecurityPolicy = (maxFailedLogins) =>
+  request('PUT', '/api/security-policy', { maxFailedLogins });
+
+/** Versione dell'applicazione (liveness, nessuna autenticazione). */
+export const getHealth = () => request('GET', '/api/health');
 
 // ------------------------------------------------------------------ audit
 //
@@ -470,9 +483,20 @@ export function describeError(err) {
                           ? ` (campo: ${err.detail.field})` : ''),
                  azione: null };
       }
+      if (err.code === 'security_policy_invalid') {
+        return { titolo: 'Soglia non accettata',
+                 testo: err.message || 'Valore fuori dall\'intervallo consentito.',
+                 azione: null };
+      }
       return { titolo: 'Dati non accettati',
                testo: _problemsText(err) || 'Il server ha rifiutato il documento.',
                azione: null };
+    case 423:
+      // Utenza bloccata dopo troppi accessi falliti: non si risolve riprovando,
+      // solo un amministratore la sblocca. Dirlo evita altri tentativi inutili.
+      return { titolo: 'Utenza bloccata',
+               testo: 'Troppi accessi falliti. Rivolgiti a un amministratore '
+                    + 'per lo sblocco.', azione: null };
     case 429:
       if (err.code === 'notification_test_rate_limited') {
         return { titolo: 'Troppi invii di prova',

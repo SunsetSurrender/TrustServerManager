@@ -44,6 +44,7 @@ ID_WEB="sha256:2d22b6e27bb3d3f3036a485ead23a26a20b5a780ac9bca44448ba208a325c541"
 DIGEST_DB="sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
 TAG_API="tsm-api:0.2.0"
 TAG_WEB="tsm-web:0.2.0"
+TAG_DB="postgres:17-alpine"
 ALBERO_RILASCIO="18f712556844e6ba21b32603d2aa431f06569da60cbf5ea4f2197b292dd387cb"
 MIGRAZIONE="0013_domain"
 
@@ -103,6 +104,8 @@ DOCUMENTAZIONE=(
     deploy/release.pin
     deploy/make-internal-tls.sh
 )
+# NB: ops/ (Nagios, FIM, tsm-autoheal) è lato sistemistico e NON entra nel
+# pacchetto applicativo: si installa a parte, vedi ops/README.md.
 
 # Gli strumenti di accettazione viaggiano CON il pacchetto, ma in
 # `accettazione/`, non in `tools/`: `tools/` sull'host è vietato (contiene i
@@ -150,9 +153,15 @@ if [ "$MODO" = verify ]; then
         [ -n "$percorso" ] || continue
         f="$DEST/$percorso"
         if [ ! -f "$f" ]; then ko "assente: $percorso"; continue; fi
-        # Digest CANONICO, con i \r rimossi: è il numero che il rilascio
-        # nomina. Un digest sul file grezzo identificherebbe il trasporto.
-        vero="$(tr -d '\r' < "$f" | sha256sum | awk '{print $1}')"
+        # Testo: digest CANONICO, con i \r rimossi (il numero che il rilascio
+        # nomina; un digest sul file grezzo identificherebbe il trasporto).
+        # Binari (l'archivio delle immagini): digest dei BYTE. Togliere i \r da
+        # un tar ne cambia il contenuto, e il controllo fallirebbe su un file
+        # arrivato intatto — è successo al primo trasferimento reale.
+        case "$percorso" in
+            *.tar) vero="$(sha256sum < "$f" | awk '{print $1}')" ;;
+            *)     vero="$(tr -d '\r' < "$f" | sha256sum | awk '{print $1}')" ;;
+        esac
         [ "$vero" = "$atteso" ] && ok "$percorso" \
                                 || ko "$percorso: $vero" "atteso $atteso"
     done < "$S"
@@ -274,8 +283,13 @@ if [ "$IMMAGINI" = 1 ]; then
            "api $A / web $W — le immagini del rilascio si costruiscono su Linux da git archive"
         printf '        non le impacchetto: un archivio con immagini sbagliate è peggio di nessun archivio.\n'
     else
+        # PostgreSQL si esporta ANCHE con un nome: salvato solo per digest,
+        # sull'host (Docker 29, store containerd) arrivava senza repository e
+        # `postgres@sha256:…` non si risolveva più. Il tag punta allo stesso
+        # contenuto; è il digest, non il tag, che compose.yaml usa.
+        docker tag "postgres@${DIGEST_DB}" "$TAG_DB" || ko "docker tag di postgres fallito"
         docker save -o "$DEST/tsm-images.tar" \
-            "postgres@${DIGEST_DB}" "$TAG_API" "$TAG_WEB" \
+            "$TAG_DB" "$TAG_API" "$TAG_WEB" \
             && ok "tsm-images.tar ($(du -h "$DEST/tsm-images.tar" | cut -f1))" \
             || ko "docker save fallito"
         if [ -f "$DEST/tsm-images.tar" ]; then

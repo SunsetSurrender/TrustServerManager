@@ -113,15 +113,18 @@ _hasher = PasswordHasher(
 
 # ---------------------------------------------------------------- lunghezze
 #
-# 15 code point come minimo: è la lunghezza che rende inutile un attacco a
-# dizionario senza chiedere all'utente di ricordare caratteri strani. Le
-# passphrase con spazi sono il caso previsto, non tollerato.
+# 12 code point come minimo (era 15 fino al rilascio 0.3; abbassato su richiesta
+# dell'esercizio, 28/10/2026). Il compromesso regge perché la lunghezza non lavora
+# da sola: c'è la lista delle password note (che per questo contiene anche le
+# scelte tipiche da 12-14 caratteri), c'è Argon2id, e dalla 0.4 c'è il blocco
+# dell'utenza dopo pochi errori consecutivi, che rende inutile indovinare online.
+# Le passphrase con spazi restano il caso previsto, non tollerato.
 #
 # 128 come massimo, e si RIFIUTA invece di troncare. Troncare farebbe una cosa che
 # nessuno si aspetta: renderebbe equivalenti due password diverse, e l'utente che
 # ne digita 200 crederebbe di averne una da 200.
 
-MIN_LENGTH = 15
+MIN_LENGTH = 12
 MAX_LENGTH = 128
 
 #: Byte casuali di una password provvisoria: 24 byte = **192 bit** di entropia,

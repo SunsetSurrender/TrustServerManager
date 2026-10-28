@@ -1,0 +1,11 @@
+[Unit]
+Description=Trust Server Manager - ripristino automatico (lato sistemistico)
+Documentation=file:///opt/tsm-ops/README.md
+After=docker.service tsm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/tsm/tsm-autoheal.sh
+User=root
+Group=root
+TimeoutStartSec=300

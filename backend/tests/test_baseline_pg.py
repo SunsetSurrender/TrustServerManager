@@ -822,7 +822,11 @@ def test_il_comando_RIFIUTA_una_revisione_di_schema_SBAGLIATA(vergine):
         assert conta(vergine, "inventory_versions") == 0
     finally:
         with vergine.begin() as c:
-            c.execute(_text("UPDATE alembic_version SET version_num = '0013_domain'"))
+            # La testa vera, letta dai file: scritta a mano diventava falsa alla
+            # migrazione successiva e lasciava il database a metà per i test dopo.
+            from app.api.health import expected_head_revision
+            c.execute(_text("UPDATE alembic_version SET version_num = :v"),
+                      {"v": expected_head_revision()})
 
 
 # ==================================================================

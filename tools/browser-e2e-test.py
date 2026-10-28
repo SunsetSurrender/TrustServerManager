@@ -50,13 +50,16 @@ def main() -> int:
     ap.add_argument("--password", required=True)
     ap.add_argument("--new-password", default="")
     destructive_guard.add_arguments(ap)
+    ap.add_argument("--browser", default="chromium", choices=["chromium", "firefox"],
+                    help="motore del browser; chromium usa Chrome installato")
     args = ap.parse_args()
 
     base = args.base.rstrip("/")
     host = urlparse(base).hostname
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(channel="chrome", headless=True)
+        browser = (p.firefox.launch(headless=True) if args.browser == "firefox"
+                 else p.chromium.launch(channel="chrome", headless=True))
         # ignore_https_errors: il certificato di sviluppo è autofirmato.
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
@@ -141,7 +144,7 @@ def main() -> int:
 
             new_password = args.new_password or (args.password + "-cambiata")
             page.get_by_placeholder("password attuale").fill(args.password)
-            page.get_by_placeholder("nuova password (min. 15 caratteri)").fill(new_password)
+            page.get_by_placeholder("nuova password (min. 12 caratteri)").fill(new_password)
             forced.click()
             page.wait_for_timeout(3000)
 

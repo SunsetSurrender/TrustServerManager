@@ -1,0 +1,12 @@
+[Unit]
+Description=Trust Server Manager - controllo di ripristino ogni 2 minuti
+
+[Timer]
+# Dopo l'avvio si aspetta: tsm.service ha il suo preflight e i container il
+# loro start_period. Intervenire prima confonderebbe un avvio lento con un guasto.
+OnBootSec=5min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

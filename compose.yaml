@@ -110,7 +110,7 @@ services:
   migrate:
     build:
       context: ./backend
-    image: tsm-api:0.3.0
+    image: tsm-api:0.4.0
     # Applica le migrazioni E imposta la password del ruolo di runtime leggendola
     # dal secret: una password non può stare in una migrazione, che finisce nel
     # repository e nell'immagine.
@@ -137,7 +137,7 @@ services:
   api:
     build:
       context: ./backend
-    image: tsm-api:0.3.0
+    image: tsm-api:0.4.0
     networks: [internal, edge]
     # NESSUNA porta pubblicata (§8.34).
     #
@@ -245,7 +245,7 @@ services:
   worker:
     build:
       context: ./backend
-    image: tsm-api:0.3.0
+    image: tsm-api:0.4.0
     command: ["python", "scripts/worker.py"]
     # SOLO la rete interna: il worker parla con PostgreSQL e con il relay SMTP.
     # NESSUNA porta pubblicata — non ha una superficie da raggiungere.
@@ -302,7 +302,7 @@ services:
     build:
       context: .
       dockerfile: ./web/Dockerfile
-    image: tsm-web:0.3.0
+    image: tsm-web:0.4.0
     networks: [internal, edge]
     ports:
       # PORTE STANDARD sull'host: 80 e 443. Non è estetica (§8.31).

@@ -4,11 +4,16 @@ Durevole (tabella `login_attempts`) e non in memoria: un contatore in memoria si
 azzera a ogni riavvio, che è precisamente il momento in cui chi insiste ne
 approfitta, e non sopravvive a più repliche.
 
-Due finestre, perché rispondono a due attacchi diversi:
+Due difese, perché rispondono a due attacchi diversi:
 
-  per utenza  → qualcuno prova molte password su UNA persona
+  per utenza  → qualcuno prova molte password su UNA persona: blocco
+                dell'utenza, in `app.auth.lockout`
   per IP      → qualcuno prova UNA password su molte utenze (password spraying),
-                che il contatore per utenza non vedrebbe mai
+                che il contatore per utenza non vedrebbe mai: finestra qui
+
+⚠ Su `tsm-prd` tutti arrivano dal web gateway, quindi l'IP è condiviso: il limite
+per IP è alto (`TSM_LOGIN_MAX_FAILURES_PER_IP`, predefinito 100) e serve solo
+contro un tentativo in massa.
 
 Riferimento: BACKEND-PLAN.md §8.28.
 """
@@ -47,17 +52,11 @@ def check_rate_limit(conn: Connection, username: str,
     s = get_settings()
     window = f"{s.login_failure_window_seconds} seconds"
 
-    by_username = conn.execute(text(f"""
-        SELECT count(*) FROM login_attempts
-         WHERE username = :u AND success = FALSE
-           AND ts > now() - interval '{window}'
-    """), {"u": (username or "")[:200]}).scalar_one()
-
-    if by_username >= s.login_max_failures_per_username:
-        return RateLimitStatus(
-            True, "troppi tentativi per questa utenza",
-            s.login_failure_window_seconds)
-
+    # Il contatore PER UTENZA non sta più qui: dalla migrazione 0014 è il blocco
+    # dell'utenza (`app.auth.lockout`), permanente fino allo sblocco di un
+    # amministratore. Una finestra temporale sulla stessa utenza sarebbe un
+    # secondo limite, più basso o più alto della soglia scelta nell'interfaccia,
+    # che decide al posto suo.
     if ip:
         by_ip = conn.execute(text(f"""
             SELECT count(*) FROM login_attempts

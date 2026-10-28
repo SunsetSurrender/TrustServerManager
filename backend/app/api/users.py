@@ -6,6 +6,7 @@
     POST  /api/users/{id}/disable           disattivazione logica + revoca sessioni
     POST  /api/users/{id}/enable            riattivazione
     POST  /api/users/{id}/reset-password    password provvisoria + revoca sessioni
+    POST  /api/users/{id}/unlock            sblocco dopo troppi accessi falliti
 
 **Non esiste `DELETE`**, e non è una dimenticanza: `audit.actor_user_id` punta a
 `users`, quindi cancellare un utente romperebbe la tracciabilità (§8.6). Il ruolo
@@ -42,6 +43,9 @@ class UserOut(BaseModel):
     team: str | None = None
     lastLoginAt: str | None = None
     createdAt: str | None = None
+    locked: bool = False
+    lockedAt: str | None = None
+    failedLogins: int = 0
 
 
 class CreatedUserOut(BaseModel):
@@ -152,3 +156,16 @@ def reset_password(response: Response, user_id: uuid.UUID = Path(...),
     except Exception as exc:
         raise http_error_for(exc) from None
     return CreatedUserOut(user=UserOut(**row.as_dict()), temporaryPassword=temp)
+
+
+@router.post("/users/{user_id}/unlock", response_model=UserOut,
+             summary="Sblocca un'utenza bloccata dopo troppi accessi falliti")
+def unlock_user(response: Response, user_id: uuid.UUID = Path(...),
+                conn: Connection = Depends(get_connection),
+                actor: Actor = Depends(require_admin)) -> UserOut:
+    response.headers.update(NO_STORE)
+    try:
+        row = svc.unlock_user(conn, user_id, actor=actor)
+    except Exception as exc:
+        raise http_error_for(exc) from None
+    return UserOut(**row.as_dict())

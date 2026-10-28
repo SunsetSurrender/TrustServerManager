@@ -17,7 +17,9 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.auth.passwords import PasswordRejected
+from app.auth.lockout import PolicyRejected
 from app.auth.service import (
+    AccountLocked,
     AuthError,
     InvalidCredentials,
     NotAuthenticated,
@@ -84,6 +86,21 @@ def http_error_for(exc: Exception) -> HTTPException:
                              detail={"code": exc.code,
                                      "message": "servizio di autenticazione "
                                                 "temporaneamente non disponibile"},
+                             headers=NO_STORE)
+
+    # --- 423: utenza bloccata dopo troppi accessi falliti (migrazione 0014) ---
+    #
+    # Il messaggio esce: dice di rivolgersi a un amministratore, che è l'unica
+    # cosa utile da sapere per chi è bloccato.
+    if isinstance(exc, AccountLocked):
+        return HTTPException(423,
+                             detail={"code": exc.code, "message": exc.message},
+                             headers=NO_STORE)
+
+    # --- 422: soglia della politica di accesso fuori intervallo ---
+    if isinstance(exc, PolicyRejected):
+        return HTTPException(422,
+                             detail={"code": exc.code, "message": exc.message},
                              headers=NO_STORE)
 
     # --- 429: limitatore dei tentativi di accesso (§8.28) ---

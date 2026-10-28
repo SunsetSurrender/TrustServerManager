@@ -64,7 +64,13 @@
         <div style="text-align:center; font-size:14.5px; font-weight:700; color:#e6ecf2">Imposta una password personale</div>
         <div style="font-size:12px; color:#8a94a2; line-height:1.5">La password attuale è provvisoria. Fino al cambio, la sessione può fare solo questo.</div>
         <input placeholder="password attuale" type="password" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
-        <input placeholder="nuova password (min. 15 caratteri)" type="password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <input placeholder="nuova password (min. 12 caratteri)" type="password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
+        <sc-if value="{{ hasPwStrength }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:4px">
+            <div style="height:4px; border-radius:2px; background:#2b333d; overflow:hidden"><div style="{{ pwStrengthBar }}"></div></div>
+            <div style="{{ pwStrengthStyle }}">{{ pwStrengthLabel }}</div>
+          </div>
+        </sc-if>
         <sc-if value="{{ hasPwMsg }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:12px; color:#ffb020">{{ pwMsg }}</div>
         </sc-if>
@@ -92,6 +98,7 @@
         </sc-if>
         <button onClick="{{ doLogin }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit; letter-spacing:0.02em" style-hover="filter:brightness(1.12)">Accedi</button>
         <div style="font-size:10.5px; color:#57626f; text-align:center; line-height:1.5">Il privilegio è assegnato dal server in base all'utenza. Le credenziali non vengono mai verificate nel browser.</div>
+        <div style="font-size:10px; color:#3d4651; text-align:center; font-family:'Roboto Mono',monospace">{{ appVersionLabel }}</div>
       </div>
     </div>
   </sc-if>
@@ -672,7 +679,13 @@
             <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
               <div style="font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">SICUREZZA</div>
                 <input type="password" placeholder="Password attuale" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <input type="password" placeholder="Nuova password (min 15)" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <input type="password" placeholder="Nuova password (min 12)" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <sc-if value="{{ hasPwStrength }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; flex-direction:column; gap:4px">
+                    <div style="height:4px; border-radius:2px; background:#2b333d; overflow:hidden"><div style="{{ pwStrengthBar }}"></div></div>
+                    <div style="{{ pwStrengthStyle }}">{{ pwStrengthLabel }}</div>
+                  </div>
+                </sc-if>
                 <div style="display:flex; gap:8px">
                   <button onClick="{{ savePw }}" style="flex:1; background:var(--accent); color:var(--d0c0f13); border:none; border-radius:6px; padding:7px 0; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.15)">Aggiorna</button>
                   <button onClick="{{ resetPw }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 0; font-size:12px; cursor:pointer; font-family:inherit" style-hover="color:var(--dd7dde4)">Reimposta</button>
@@ -692,6 +705,17 @@
               <sc-if value="{{ hasUsersError }}" hint-placeholder-val="{{ false }}">
                 <div style="font-size:11.5px; color:#ff5c5c; line-height:1.5; background:var(--d2a1618); border:1px solid var(--d4a2b2b); border-radius:6px; padding:8px 10px">{{ usersError }}</div>
               </sc-if>
+
+              <!-- politica di blocco: soglia di accessi falliti consecutivi -->
+              <div id="sicurezza-accessi" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:8px; padding:8px 10px; background:var(--d0c0f13)">
+                <span style="font-weight:700; color:var(--dd7dde4)">Sicurezza accessi</span>
+                <span>blocca l'utenza dopo</span>
+                <input type="number" min="{{ secMin }}" max="{{ secMax }}" value="{{ secDraft }}" onChange="{{ onSecDraft }}" style="width:56px; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:4px 6px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <span>accessi falliti consecutivi ({{ secMin }}–{{ secMax }})</span>
+                <button onClick="{{ saveSecPolicy }}" disabled="{{ secSaveDisabled }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:5px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit">Salva</button>
+                <span id="sicurezza-accessi-esito" style="{{ secMsgStyle }}">{{ secMsg }}</span>
+                <div style="flex-basis:100%; font-size:10.5px; color:var(--d57626f)">Un'utenza bloccata non entra nemmeno con la password giusta: la sblocca solo un amministratore (pulsante «Sblocca» qui sotto). {{ secUpdated }}</div>
+              </div>
 
               <!-- creazione -->
               <sc-if value="{{ userFormOpen }}" hint-placeholder-val="{{ false }}">
@@ -739,6 +763,9 @@
                       </div>
                       <div style="font-size:10.5px; color:var(--d57626f); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.ruoloLabel }} · {{ ur.profilo }} · ultimo accesso {{ ur.ultimoAccesso }}</div>
                     </div>
+                    <sc-if value="{{ ur.isLocked }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ ur.sblocca }}" disabled="{{ ur.unlockDisabled }}" title="{{ ur.lockedTitle }}" style="background:#ff5c5c; color:#ffffff; border:none; border-radius:5px; padding:4px 8px; font-size:10.5px; font-weight:700; cursor:pointer; font-family:inherit; flex-shrink:0">{{ ur.unlockLabel }}</button>
+                    </sc-if>
                     <button onClick="{{ ur.apriModifica }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:5px; padding:4px 8px; font-size:10.5px; cursor:pointer; font-family:inherit; flex-shrink:0">Modifica</button>
                     <sc-if value="{{ ur.isActive }}" hint-placeholder-val="{{ true }}">
                       <button onClick="{{ ur.disattiva }}" disabled="{{ ur.disableDisabled }}" style="background:transparent; color:#ff8a3d; border:1px solid var(--d3a2f18); border-radius:5px; padding:4px 8px; font-size:10.5px; cursor:pointer; font-family:inherit; flex-shrink:0">{{ ur.disableLabel }}</button>
@@ -1433,6 +1460,59 @@ let IDENT = null;
 // nginx che fa da proxy all'API (§8.33).
 let API = null;
 
+/** Lunghezza minima della password: deve coincidere con `MIN_LENGTH` del server
+ *  (backend/app/auth/passwords.py). Se divergono vince il server. */
+const PW_MIN_LENGTH = 12;
+
+/** Valutazione INDICATIVA della robustezza di una password, per l'indicatore
+ *  sotto il campo. Non è un controllo di sicurezza: la regola vera (lunghezza e
+ *  lista delle password vietate) la applica il server. Qui si premia soprattutto
+ *  la LUNGHEZZA, che è ciò che conta davvero, e si penalizzano gli schemi che
+ *  chiunque prova per primi: ripetizioni, sequenze, parole ovvie.
+ *  Restituisce { livello: 0..3, etichetta, motivo }. */
+function pwStrength(pw, username) {
+  const chars = [...(pw || '')];
+  const n = chars.length;
+  if (!n) return null;
+  if (n < PW_MIN_LENGTH) {
+    return { livello: 0, etichetta: 'Non sicura',
+             motivo: 'troppo corta: ' + n + ' di ' + PW_MIN_LENGTH + ' caratteri minimi' };
+  }
+  const low = pw.toLowerCase();
+  const distinct = new Set(chars).size;
+  if (username && low.includes(String(username).toLowerCase())) {
+    return { livello: 0, etichetta: 'Non sicura', motivo: 'contiene il nome utente' };
+  }
+  if (distinct <= 3) {
+    return { livello: 0, etichetta: 'Non sicura', motivo: 'troppi caratteri ripetuti' };
+  }
+  const ovvie = ['password', 'qwerty', 'asdfgh', 'zxcvbn', '123456', 'abcdef',
+                 'admin', 'telecom', 'trust', 'welcome', 'benvenut', 'letmein',
+                 'iloveyou', 'tsm', 'server'];
+  // Sequenze: ogni carattere segue il precedente (abcd, 4321…).
+  let seq = 0, maxSeq = 0;
+  for (let i = 1; i < chars.length; i++) {
+    const d = chars[i].codePointAt(0) - chars[i - 1].codePointAt(0);
+    seq = (d === 1 || d === -1) ? seq + 1 : 0;
+    maxSeq = Math.max(maxSeq, seq);
+  }
+  const classi = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(r => r.test(pw)).length;
+  const conOvvie = ovvie.some(w => low.includes(w));
+  const soloCifre = /^[0-9]+$/.test(pw);
+  if (soloCifre || maxSeq >= 5 || (conOvvie && n < 16)) {
+    return { livello: 1, etichetta: 'Debole',
+             motivo: soloCifre ? 'solo cifre'
+               : (maxSeq >= 5 ? 'contiene una sequenza (abcde, 12345…)'
+                              : 'contiene una parola o uno schema molto comune') };
+  }
+  if (n >= 16 || (n >= 12 && classi >= 3 && distinct >= 8)) {
+    return { livello: 3, etichetta: 'Sicura',
+             motivo: n >= 16 ? 'lunga: ottima scelta' : 'buona varietà di caratteri' };
+  }
+  return { livello: 2, etichetta: 'Accettabile',
+           motivo: 'per renderla sicura allungala (16+) o aggiungi una parola' };
+}
+
 // Modello semantico del dominio (handoff/domain.js), caricato in _boot.
 //
 // ⚠ È la SEDE UNICA delle regole di business condivise col backend: capacità,
@@ -1486,7 +1566,7 @@ class Component extends DCLogic {
             usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
-            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
             // --- interrogazioni relazionali (fase 2H) ---
             //
             // Uno slot per interrogazione, sempre della stessa forma:
@@ -1637,6 +1717,9 @@ class Component extends DCLogic {
     ]);
     IDENT = ident;
     API = api;
+    // Versione dell'applicazione: informativa, non blocca l'avvio se manca.
+    api.getHealth().then(h => this.setState({ appVersion: (h && h.version) || '' }))
+                   .catch(() => {});
     QRY = qry;
     // ⚠ Il client si costruisce QUI, una volta, e non a ogni richiesta: i contatori di
     // generazione e gli `AbortController` vivono dentro di lui. Uno per richiesta
@@ -2062,7 +2145,7 @@ class Component extends DCLogic {
         B('Gestione delle utenze (Admin)', 'Dal menu Profilo (avatar con le iniziali) → Utenti e privilegi, un amministratore registra le utenze e assegna a ciascuna il livello di accesso appropriato. Le sezioni riservate (notifiche, registro, utenze) non sono visibili agli altri profili, e il server le rifiuta comunque a chi non è amministratore.')
       ]},
       { id: 'accesso', titolo: 'Accesso e profilo', blocchi: [
-        B('Entrare nell\'applicazione', 'Alla schermata di accesso inserisci la tua utenza e la password. Se un amministratore ha appena creato il tuo account, usa la password provvisoria che ti ha comunicato: al primo ingresso l\'app apre da sola il profilo e ti chiede di sostituirla con una personale (almeno 15 caratteri, anche una frase con spazi).'),
+        B('Entrare nell\'applicazione', 'Alla schermata di accesso inserisci la tua utenza e la password. Se un amministratore ha appena creato il tuo account, usa la password provvisoria che ti ha comunicato: al primo ingresso l\'app apre da sola il profilo e ti chiede di sostituirla con una personale (almeno 12 caratteri, anche una frase con spazi; l\'indicatore sotto il campo dice se è sicura). Dopo troppi tentativi sbagliati l\'utenza si blocca e la sblocca solo un amministratore.'),
         B('La pagina Profilo', 'Si apre dall\'avatar tondo con le tue iniziali, in fondo alla barra in alto. Contiene i tuoi dati personali (nome, cognome, telefono, team), il cambio password e, per gli amministratori, la gestione delle utenze. È sempre accessibile: non dipende dalla modalità Visualizzazione/Editing.'),
         B('Visualizzazione o Editing', 'Il selettore in alto a sinistra riguarda soltanto i dati delle sale: in Visualizzazione consulti senza rischio di modifiche accidentali, in Editing compaiono i comandi di modifica consentiti dal tuo privilegio. Se la tua utenza è di sola lettura, Editing resta disattivato.'),
         B('Creare e rimuovere utenze (Admin)', 'Nel Profilo, sezione Utenti e privilegi: scrivi il nome utenza, scegli il privilegio e premi Aggiungi. La password provvisoria la genera il SERVER, ed è mostrata una volta sola: va annotata subito e consegnata alla persona, che al primo accesso deve sostituirla con una personale. Le utenze con password non ancora cambiata sono segnalate come "pw provvisoria". Un\'utenza non si cancella: si disattiva, perché il registro delle modifiche continua a riferirsi a chi le ha fatte.')
@@ -2247,7 +2330,10 @@ class Component extends DCLogic {
       this.setState({ loginBusy: false, loginPw: '',
                       loginErr: err.status === 401
                         ? 'Credenziali non valide.'
-                        : d.titolo + ' — ' + d.testo });
+                        : (err.status === 423
+                            ? 'Utenza bloccata dopo troppi accessi falliti: '
+                              + 'rivolgiti a un amministratore per lo sblocco.'
+                            : d.titolo + ' — ' + d.testo) });
     }
   }
 
@@ -2268,9 +2354,9 @@ class Component extends DCLogic {
     // `password_too_short`, e questo numero non deve poter contraddirlo — se
     // divergono, vince il server e l'utente vede un errore che qui non era stato
     // previsto. Nessun controllo di composizione: non li chiede nemmeno il server.
-    if (nuova.length < 15) {
-      this.setState({ pwMsg: 'La nuova password deve avere almeno 15 caratteri. '
-                             + 'Una frase con spazi va benissimo.' });
+    if ([...nuova].length < PW_MIN_LENGTH) {
+      this.setState({ pwMsg: 'La nuova password deve avere almeno ' + PW_MIN_LENGTH
+                             + ' caratteri. Una frase con spazi va benissimo.' });
       return;
     }
     try {
@@ -2635,11 +2721,38 @@ class Component extends DCLogic {
     try {
       // includeDisabled: i disattivati restano VISIBILI con il loro stato. Non
       // sono cancellati, e nasconderli li farebbe sembrare tali (§8.30).
-      const rows = await API.listUsers(true);
-      this.setState({ usersList: rows, usersLoading: false, usersError: '' });
+      const [rows, pol] = await Promise.all([
+        API.listUsers(true),
+        API.getSecurityPolicy().catch(() => null),
+      ]);
+      this.setState({ usersList: rows, usersLoading: false, usersError: '',
+                      secPolicy: pol, secDraft: pol ? String(pol.maxFailedLogins) : '',
+                      secMsg: '' });
     } catch (err) {
       this.setState({ usersLoading: false, usersList: [] });
       this._handleUsersError(err);
+    }
+  }
+
+  async _saveSecPolicy() {
+    const pol = this.state.secPolicy;
+    const raw = String(this.state.secDraft || '').trim();
+    const n = Number(raw);
+    const lo = pol ? pol.minMaxFailedLogins : 3, hi = pol ? pol.maxMaxFailedLogins : 20;
+    if (!/^[0-9]+$/.test(raw) || n < lo || n > hi) {
+      this.setState({ secMsg: 'Inserisci un numero intero fra ' + lo + ' e ' + hi + '.', secMsgErr: true });
+      return;
+    }
+    this.setState({ secBusy: true, secMsg: '' });
+    try {
+      const out = await API.putSecurityPolicy(n);
+      this.setState({ secPolicy: out, secDraft: String(out.maxFailedLogins),
+                      secMsg: 'Salvato.', secMsgErr: false });
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ secMsg: d.titolo + ' — ' + d.testo, secMsgErr: true });
+    } finally {
+      this.setState({ secBusy: false });
     }
   }
 
@@ -3059,9 +3172,17 @@ class Component extends DCLogic {
       roomArea = room.area || '';
       quoteW = W.toFixed(2); quoteH = H.toFixed(2);
       roomMeta = (room.dim || (room.w.toFixed(2) + ' × ' + room.h.toFixed(2) + ' m')) + ' · ' + room.racks.length + ' rack';
+      // ⚠ In 2D le dimensioni sono in PIXEL, calcolate qui, e non affidate ad
+      // `height: 100%` + `aspect-ratio`. Firefox considera indefinita l'altezza
+      // percentuale dentro il contenitore flessibile dello zoom: l'aspect-ratio non
+      // trasferisce niente, il riquadro (che ha solo figli assoluti) collassa a
+      // larghezza ZERO e la pianta diventa una striscia di muro senza rack. Chrome
+      // la risolveva, ed è il motivo per cui i test (Chrome) non l'avevano vista.
+      // È la stessa misura che i rack usano già qui sotto (`planH`).
+      const plan2dH = Math.max(1, Math.min(S.vpH || 660, 660, (S.vpW || 2000) * H / W));
       roomBoxStyle = S.view3d
         ? { height: 660, aspectRatio: W + '/' + H, position: 'relative', transformStyle: 'preserve-3d', flexShrink: 0 }
-        : { height: '100%', maxHeight: 660, maxWidth: '100%', aspectRatio: W + '/' + H, position: 'relative' };
+        : { height: plan2dH, width: plan2dH * W / H, position: 'relative', flexShrink: 0 };
       const pctX = (m) => (m / W * 100) + '%';
       const pctY = (m) => (m / H * 100) + '%';
       const grid = 'repeating-linear-gradient(0deg, transparent, transparent 39px, var(--d1a212a) 39px, var(--d1a212a) 40px), repeating-linear-gradient(90deg, transparent, transparent 39px, var(--d1a212a) 39px, var(--d1a212a) 40px)';
@@ -3982,7 +4103,10 @@ class Component extends DCLogic {
       saving: !!S.saving,
       hasSaveError: !!S.saveError,
       saveError: S.saveError,
-      serverVersionLabel: S.serverVersion == null ? '' : ('v' + S.serverVersion),
+      // «TSM x.y.z» è la versione del software, «vN» la revisione dell'inventario.
+      serverVersionLabel: (S.appVersion ? 'TSM ' + S.appVersion : '')
+        + (S.serverVersion == null ? '' : ((S.appVersion ? ' · ' : '') + 'inventario v' + S.serverVersion)),
+      appVersionLabel: S.appVersion ? 'Trust Server Manager · versione ' + S.appVersion : '',
       loginEmail: S.loginEmail || '', loginPw: S.loginPw || '',
       onLoginEmail: (e) => this.setState({ loginEmail: e.target.value, loginErr: '' }),
       onLoginPw: (e) => this.setState({ loginPw: e.target.value, loginErr: '' }),
@@ -4119,6 +4243,17 @@ class Component extends DCLogic {
       pwCur: S.pwCur, pwNew: S.pwNew,
       onPwCur: (e) => this.setState({ pwCur: e.target.value, pwMsg: '' }),
       onPwNew: (e) => this.setState({ pwNew: e.target.value, pwMsg: '' }),
+      ...(() => {
+        const st = pwStrength(S.pwNew, S.session && S.session.username);
+        const col = st ? ['#ff5c5c', '#ff8a3d', '#ffb020', '#3ddc84'][st.livello] : '#57626f';
+        return {
+          hasPwStrength: !!st,
+          pwStrengthLabel: st ? (st.etichetta + ' — ' + st.motivo) : '',
+          pwStrengthStyle: { fontSize: 11, color: col, lineHeight: 1.4 },
+          pwStrengthBar: { height: '100%', width: (st ? [15, 40, 70, 100][st.livello] : 0) + '%',
+                           background: col, transition: 'width .2s' },
+        };
+      })(),
       savePw: () => { this._doChangePassword(); },
       resetPw: () => this.setState({ pwMsg: 'Email di reset inviata (demo — sarà attiva con il backend).' }),
       pwMsg: S.pwMsg, hasPwMsg: !!S.pwMsg,
@@ -4214,6 +4349,24 @@ class Component extends DCLogic {
       usersError: S.usersError,
       usersEmpty: !S.usersLoading && !(S.usersList || []).length,
       usersReload: () => this._loadUsers(),
+      secDraft: S.secDraft,
+      secMin: S.secPolicy ? S.secPolicy.minMaxFailedLogins : 3,
+      secMax: S.secPolicy ? S.secPolicy.maxMaxFailedLogins : 20,
+      // Il messaggio si cancella solo se il valore cambia davvero: il runtime può
+      // notificare un change anche quando è lo stato ad aggiornare il campo.
+      onSecDraft: (e) => {
+        const v = e.target.value;
+        if (v !== this.state.secDraft) this.setState({ secDraft: v, secMsg: '' });
+      },
+      saveSecPolicy: () => { this._saveSecPolicy(); },
+      secSaveDisabled: !!S.secBusy || !S.secPolicy,
+      secMsg: S.secMsg || '',
+      hasSecMsg: !!S.secMsg,
+      secMsgStyle: { fontSize: 11, color: S.secMsgErr ? '#ff5c5c' : '#3ddc84' },
+      secUpdated: S.secPolicy && S.secPolicy.updatedBy
+        ? ('Ultima modifica: ' + S.secPolicy.updatedBy
+           + (S.secPolicy.updatedAt ? ', ' + String(S.secPolicy.updatedAt).slice(0, 16).replace('T', ' ') : '') + '.')
+        : '',
 
       // Ogni riga porta il proprio UUID e i propri gestori: l'identità non è la
       // posizione nell'elenco né l'username.
@@ -4226,11 +4379,19 @@ class Component extends DCLogic {
           username: u.username,
           ruoloLabel: u.role === 'admin' ? 'Admin'
             : (u.role === 'edit' ? 'Operatore' : 'Visualizzazione'),
-          statoLabel: u.disabled ? 'disattivata' : 'attiva',
+          statoLabel: u.disabled ? 'disattivata' : (u.locked ? 'bloccata' : 'attiva'),
           statoStyle: {
             fontSize: 10.5, flexShrink: 0, fontWeight: 700,
-            color: u.disabled ? '#ff8a3d' : '#3ddc84',
+            color: u.disabled ? '#ff8a3d' : (u.locked ? '#ff5c5c' : '#3ddc84'),
           },
+          isLocked: !!u.locked && !u.disabled,
+          lockedTitle: u.locked
+            ? ('Bloccata' + (u.lockedAt ? ' il ' + String(u.lockedAt).slice(0, 16).replace('T', ' ') : '')
+               + ' dopo ' + (u.failedLogins || 0) + ' accessi falliti')
+            : '',
+          unlockDisabled: !!busy['unlock:' + u.id],
+          unlockLabel: busy['unlock:' + u.id] ? '…' : 'Sblocca',
+          sblocca: () => this._userAction('unlock:' + u.id, () => API.unlockUser(u.id)),
           rowStyle: {
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
             padding: '6px 0', borderBottom: '1px solid var(--d1c232c)',

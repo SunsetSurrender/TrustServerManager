@@ -24,12 +24,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import destructive_guard
+
+# Nome univoco: la prova si può ripetere sullo stesso stato senza «sito già esistente».
+SITO_PROVA = f"Sito E2E TLS {random.randint(1000, 9999)}"
 
 try:
     from playwright.sync_api import sync_playwright
@@ -186,7 +190,7 @@ def main() -> int:
         page.get_by_role("button", name="Editing", exact=True).click()
         page.wait_for_timeout(800)
         page.get_by_role("button", name="+ Sito").click()
-        page.get_by_placeholder("Nome (es. Oriolo Romano — A0)").fill("Sito E2E TLS")
+        page.get_by_placeholder("Nome (es. Oriolo Romano — A0)").fill(SITO_PROVA)
         page.get_by_role("button", name="Crea").click()
         page.wait_for_timeout(4000)
 
@@ -201,7 +205,7 @@ def main() -> int:
         page.wait_for_timeout(5000)
         body = page.inner_text("body")
         check("la modifica è persistita e ricompare dopo il ricaricamento",
-              "Sito E2E TLS" in body, body[:300])
+              SITO_PROVA in body, body[:300])
 
         # ---------------- 6. nessun errore inatteso ----------------
         check("nessun errore JavaScript non gestito", not console_errors,

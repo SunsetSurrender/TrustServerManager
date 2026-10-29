@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import destructive_guard
+from ui_helpers import scheda
 
 try:
     from playwright.sync_api import sync_playwright
@@ -68,9 +69,9 @@ def user_id(page, base, username: str) -> str:
 
 
 def open_profile(page) -> None:
-    """Apre il pannello Profilo, dove vive la gestione utenze."""
-    page.locator('button[title*="—"]').first.click()
-    page.wait_for_timeout(1500)
+    """Apre la gestione utenze: dalla 0.4.3 è la scheda «Utenti e privilegi»
+    della pagina Impostazioni (il nome della funzione è rimasto)."""
+    scheda(page, "utenti", 1500)
 
 
 def temp_password_shown(page) -> str:

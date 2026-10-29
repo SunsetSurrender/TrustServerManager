@@ -4,7 +4,7 @@
 <table class="ctrl"><tbody>
 <tr><td>Titolo</td><td>Trust Server Manager. Manuale tecnico e applicativo</td></tr>
 <tr><td>Codice</td><td>TT-TSM-MAN-01</td></tr>
-<tr><td>Versione</td><td>0.4.2</td></tr>
+<tr><td>Versione</td><td>0.4.3</td></tr>
 <tr><td>Data</td><td>28 ottobre 2026</td></tr>
 <tr><td>Stato</td><td>Bozza</td></tr>
 <tr><td>Redatto da</td><td>M. Zandonella</td></tr>
@@ -18,7 +18,8 @@
 <tbody><tr><td>0.3</td><td>27/10/2026</td><td>Prima emissione, in concomitanza con l'installazione su <code>tsm-prd</code>.</td></tr>
 <tr><td>0.4</td><td>28/10/2026</td><td>Password minima di 12 caratteri con indicatore di robustezza; blocco dell'utenza dopo accessi falliti, con soglia impostabile e sblocco da amministratore; monitoraggio, FIM e ripristino automatico spostati nella cartella sistemistica <code>ops/</code>.</td></tr>
 <tr><td>0.4.1</td><td>28/10/2026</td><td>Recupero della password via email con codice monouso; indirizzo email sulle utenze; reimpostazione da amministratore con password scelta; provvisorie in gruppi facili da ridigitare; al cambio obbligatorio la provvisoria non si ridigita e la nuova va confermata.</td></tr>
-<tr><td>0.4.2</td><td>29/10/2026</td><td>Schermate nella parte applicativa; import dei seriali dei rack dall'applicazione; tetto ai log dei container; pulizia notturna dei dati di accesso dopo 90 giorni; controllo Nagios della manutenzione.; dump notturno del database con 14 copie e procedura di ripristino; uscita per inattività; dati personali modificabili dal Profilo; pagina «Stato del sistema» per gli amministratori</td></tr></tbody></table>
+<tr><td>0.4.2</td><td>29/10/2026</td><td>Schermate nella parte applicativa; import dei seriali dei rack dall'applicazione; tetto ai log dei container; pulizia notturna dei dati di accesso dopo 90 giorni; controllo Nagios della manutenzione.; dump notturno del database con 14 copie e procedura di ripristino; uscita per inattività; dati personali modificabili dal Profilo; pagina «Stato del sistema» per gli amministratori</td></tr>
+<tr><td>0.4.3</td><td>29/10/2026</td><td>Impostazioni come pagina a schede; Profilo solo personale; email in HTML con logo; failover fra due relay SMTP; uscita di rete per gli avvisi di scadenza; «Password dimenticata?» sempre visibile; motivi espliciti nello stato del sistema.</td></tr></tbody></table>
 
 <h3>Scopo</h3>
 <p>Il documento descrive l'installazione di produzione di Trust Server Manager (TSM) e il suo utilizzo. La Parte I è rivolta a chi amministra il server; la Parte II a chi usa l'applicazione.</p>
@@ -205,7 +206,7 @@ curl -sk https://10.11.43.230/api/ready</pre>
 <h3>Uscita per inattività</h3>
 <p>Una sessione senza richieste per più dei minuti impostati in «Sicurezza accessi» (60 in modo predefinito; 0 la disattiva, altrimenti fra 15 e 720) viene chiusa dal server e revocata; il browser torna da solo alla schermata di accesso con il motivo. Resta comunque la durata massima di 12 ore.</p>
 <h3>Blocco dell'utenza dopo accessi falliti</h3>
-<p>Dopo un numero di accessi falliti consecutivi (5 in modo predefinito, impostabile fra 3 e 20 dagli amministratori in Profilo, «Utenti e privilegi», riquadro «Sicurezza accessi») l'utenza viene bloccata. Il blocco non scade: un'utenza bloccata non entra nemmeno con la password corretta finché un amministratore non la sblocca con il pulsante «Sblocca». Anche la reimpostazione della password e la riattivazione sbloccano l'utenza. Blocco, sblocco e cambio di soglia sono registrati nel registro di audit.</p>
+<p>Dopo un numero di accessi falliti consecutivi (5 in modo predefinito, impostabile fra 3 e 20 dagli amministratori in Impostazioni, scheda «Sicurezza accessi») l'utenza viene bloccata. Il blocco non scade: un'utenza bloccata non entra nemmeno con la password corretta finché un amministratore non la sblocca con il pulsante «Sblocca». Anche la reimpostazione della password e la riattivazione sbloccano l'utenza. Blocco, sblocco e cambio di soglia sono registrati nel registro di audit.</p>
 <p>Se l'unico amministratore è bloccato, lo sblocco si esegue dal server:</p>
 <pre>cd /opt/tsm
 docker compose run --rm migrate python scripts/unlock_user.py &lt;utenza&gt;</pre>
@@ -220,7 +221,7 @@ docker compose run --rm migrate python scripts/unlock_user.py &lt;utenza&gt;</pr
 <ul>
 <li>La risposta alla richiesta è sempre la stessa, che l'utenza esista o no: il modulo non permette di scoprire quali utenze esistono. L'esito reale (inviato, utenza inesistente, senza email, bloccata…) è nel registro di audit.</li>
 <li>Il recupero <b>non sblocca</b> un'utenza bloccata per accessi falliti: lo sblocco resta riservato agli amministratori.</li>
-<li>Funziona solo con la posta configurata (paragrafo 6) e per le utenze con un indirizzo email; gli amministratori possono disattivarlo nel riquadro «Sicurezza accessi».</li>
+<li>Funziona solo con la posta configurata (paragrafo 6) e per le utenze con un indirizzo email; gli amministratori possono disattivarlo nella scheda «Sicurezza accessi».</li>
 <li>Poiché l'applicazione si raggiunge dal web gateway, il link della mail spesso non si apre dove la mail viene letta: in quel caso si usa «Ho un codice» e si ricopia il codice.</li>
 </ul>
 
@@ -240,11 +241,11 @@ docker compose restart web</pre>
 <h2><span class="sn">6</span>Configurazione</h2>
 <p>I parametri non riservati sono nel file <code>/opt/tsm/.env</code>, letto automaticamente da Docker Compose.</p>
 <pre>TSM_PUBLIC_ORIGIN=https://10.11.43.230
-TSM_SMTP_HOST=                 <span class="c"># vuoto: invio non configurato</span>
-TSM_SMTP_PORT=587
-TSM_SMTP_TLS_MODE=starttls     <span class="c"># starttls, tls oppure none</span>
-TSM_SMTP_SENDER=
-TSM_SMTP_USERNAME=             <span class="c"># vuoto: relay senza autenticazione</span></pre>
+TSM_SMTP_HOST=legolas1,legolas2  <span class="c"># uno o più relay, provati in ordine</span>
+TSM_SMTP_PORT=25
+TSM_SMTP_TLS_MODE=none           <span class="c"># starttls, tls oppure none (Legolas su 25: none)</span>
+TSM_SMTP_SENDER=t-servermanager@ittelecom.it
+TSM_SMTP_USERNAME=               <span class="c"># vuoto: relay che accetta per indirizzo IP</span></pre>
 <ul>
 <li>La password SMTP si inserisce in <code>secrets/smtp_password</code> (permessi 0400, uid 10001), non in <code>.env</code>.</li>
 <li><code>TSM_ENV</code> e <code>TSM_COOKIE_SECURE</code> non vanno impostati: i valori predefiniti sono quelli di produzione e un valore diverso blocca l'avvio (codice 40).</li>
@@ -252,7 +253,12 @@ TSM_SMTP_USERNAME=             <span class="c"># vuoto: relay senza autenticazio
 <h3>Posta elettronica</h3>
 <p>Dall'applicazione si configurano destinatari, anticipo e orario degli avvisi. Server, porta, cifratura, mittente e credenziali del relay si configurano esclusivamente nel file <code>.env</code>. Dopo una modifica:</p>
 <pre>docker compose up -d api worker</pre>
-<p>La configurazione si verifica con il pulsante «Invia messaggio di prova» in Impostazioni, Notifiche.</p>
+<p>La configurazione si verifica con il pulsante «Invia messaggio di prova» in Impostazioni, scheda Notifiche (al massimo 3 prove all'ora per utente).</p>
+<ul>
+<li><b>Più relay.</b> Con più nomi in <code>TSM_SMTP_HOST</code> si passa al successivo solo se il precedente non risponde; un rifiuto (destinatario, mittente, cifratura) non fa cambiare relay, perché gli altri risponderebbero allo stesso modo.</li>
+<li><b>Rete.</b> Le email partono dai container verso il relay con l'indirizzo della VM: non serve pubblicare porte né installare Postfix. Gli avvisi di scadenza partono dal worker, che dalla 0.4.3 ha una rete di sola uscita (<code>egress</code>).</li>
+<li><b>Messaggi.</b> Ogni email ha un corpo HTML con il logo incorporato e un corpo di solo testo equivalente, per i client che non mostrano l'HTML.</li>
+</ul>
 </section>
 
 <section class="cap" style="--n:'7'" id="t-upd" data-toc="7|Aggiornamento">
@@ -413,7 +419,10 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 <h3>Visualizzazione ed Editing</h3>
 <p>Il selettore in alto a sinistra (Ctrl+E) alterna la modalità di consultazione e quella di modifica. In Editing sono disponibili i comandi consentiti dal proprio privilegio; per le utenze in sola lettura la modalità Editing non è attivabile.</p>
 <h3>Profilo</h3>
-<p>Il profilo si apre dall'icona con le iniziali, nella barra superiore. Contiene i dati personali, il cambio password e, per gli amministratori, la gestione delle utenze e lo stato del sistema. Nome, cognome, telefono ed email si modificano da sé con «Salva dati»; il team lo imposta un amministratore.</p>
+<p>Il profilo si apre dall'icona con le iniziali, nella barra superiore, ed è personale: nome, cognome, telefono ed email si modificano da sé con «Salva dati» (il team lo imposta un amministratore), e da qui si cambia la propria password.</p>
+<h3>Impostazioni</h3>
+<p>«⚙ Impostazioni» apre una pagina a schede. Per tutti: <b>Generale</b> (manuale, numero di modifiche annullabili, tema Scuro, Chiaro o TIM). Per gli amministratori anche: <b>Importa / Esporta</b>, <b>Notifiche</b>, <b>Utenti e privilegi</b>, <b>Sicurezza accessi</b>, <b>Stato del sistema</b> e <b>Registro</b>.</p>
+<div class="fig shot"><img src="img/12-impostazioni.png"><div class="cap">Figura 12 — La pagina Impostazioni, scheda «Utenti e privilegi».</div></div>
 <p>Dopo un periodo senza attività (60 minuti in modo predefinito) la sessione si chiude e si torna alla schermata di accesso: il web gateway è condiviso, e una sessione lasciata aperta resterebbe usabile da chi si siede dopo.</p>
 </section>
 
@@ -512,7 +521,7 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 </ol>
 <p>L'importazione può avvenire in più riprese, per esempio una sala alla volta. Nel foglio sono evidenziate in rosso le righe con dispositivi che eccedono l'altezza del rack.</p>
 <h3>Seriali dei rack</h3>
-<p>I seriali dei rack si caricano dall'applicazione, in modalità Editing, dal pannello Impostazioni:</p>
+<p>I seriali dei rack si caricano dall'applicazione, in modalità Editing, dalla pagina Impostazioni, scheda «Importa / Esporta»:</p>
 <ol class="num">
 <li>«Scarica foglio Seriali rack da compilare»: un file con una riga per ogni rack esistente e i seriali attuali;</li>
 <li>si compilano «seriale effettivo 1» e, se il rack ne ha due, «seriale effettivo 2». Le righe con entrambe le colonne vuote non cambiano il rack; <code>NESSUNO</code> nella prima colonna lo lascia senza seriali. La colonna <code>_uid</code> non va modificata;</li>
@@ -536,7 +545,7 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 <h2><span class="sn">17</span>Amministrazione</h2>
 <h3>Utenze</h3>
 <ul>
-<li>Le utenze si creano dal Profilo, sezione «Utenti e privilegi», indicando nome utenza e privilegio.</li>
+<li>Le utenze si creano da Impostazioni, scheda «Utenti e privilegi», indicando nome utenza e privilegio.</li>
 <li>L'indirizzo email, facoltativo, serve al recupero della password: si imposta alla creazione o con «Modifica».</li>
 <li>La password provvisoria è generata dal sistema (sei gruppi di cinque lettere minuscole e cifre, senza caratteri ambigui, facili da ridigitare dal web gateway) e mostrata una sola volta; va comunicata all'interessato, che la sostituisce al primo accesso. Le utenze in attesa sono contrassegnate come «pw provvisoria».</li>
 <li>Le utenze non si cancellano ma si disattivano, in modo che il registro resti riconducibile agli autori delle modifiche.</li>
@@ -551,10 +560,10 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 <h3>Registro delle modifiche</h3>
 <p>Il registro elenca in sola lettura tutte le modifiche, con autore, data e contenuto.</p>
 <h3>Stato del sistema</h3>
-<p>Nel Profilo, sotto «Utenti e privilegi», gli amministratori trovano un riepilogo dello stato: versione, migrazione del database, battito del worker, ultimi giri di manutenzione, ultimo dump e spazio sul disco dati, configurazione della posta, scadenza del certificato, utenze bloccate o senza email. Ogni voce è verde, ambra o rossa con le stesse soglie dei controlli Nagios. Non sostituisce il monitoraggio: è un colpo d'occhio per chi usa l'applicazione.</p>
+<p>In Impostazioni, scheda «Stato del sistema», gli amministratori trovano un riepilogo dello stato: versione, migrazione del database, battito del worker, ultimi giri di manutenzione, ultimo dump e spazio sul disco dati, configurazione della posta, scadenza del certificato, utenze bloccate o senza email. Ogni voce è verde, ambra o rossa con le stesse soglie dei controlli Nagios; sotto il titolo sono elencate per nome le voci da controllare (per esempio SMTP non configurato o utenze senza email). Non sostituisce il monitoraggio: è un colpo d'occhio per chi usa l'applicazione.</p>
 <div class="fig shot"><img src="img/11-stato.png" style="width:62%"><div class="cap">Figura 11 — Stato del sistema.</div></div>
-<h3>Impostazioni</h3>
-<p>Sono disponibili i temi Scuro (predefinito), Chiaro e TIM, e la scelta del numero di modifiche annullabili (5, 10, 15 o 20).</p>
+<h3>Preferenze</h3>
+<p>Nella scheda Generale di Impostazioni sono disponibili i temi Scuro (predefinito), Chiaro e TIM, e la scelta del numero di modifiche annullabili (5, 10, 15 o 20).</p>
 </section>
 
 <section class="cap cont" style="--n:'18'" id="a-kb" data-toc="18|Scorciatoie da tastiera">
@@ -738,14 +747,14 @@ systemctl restart tsm.service</pre>
 </tbody></table>
 <h4>Creazione</h4>
 <ol class="num">
-<li>Profilo, «Utenti e privilegi»: inserire il nome utenza e scegliere il privilegio.</li>
+<li>Impostazioni, «Utenti e privilegi»: inserire il nome utenza e scegliere il privilegio.</li>
 <li>Annotare la password provvisoria, mostrata una sola volta.</li>
 <li>Consegnarla all'interessato tramite un canale riservato.</li>
 <li>Verificare che al primo accesso l'utenza non risulti più «pw provvisoria».</li>
 </ol>
 <h4>Disattivazione</h4>
 <ol class="num">
-<li>Profilo, «Utenti e privilegi»: disattivare l'utenza. Le utenze non si cancellano.</li>
+<li>Impostazioni, «Utenti e privilegi»: disattivare l'utenza. Le utenze non si cancellano.</li>
 <li>Verificare che l'accesso con quell'utenza venga rifiutato.</li>
 </ol>
 <table class="firma"><thead><tr><th>Data</th><th>Utenza e privilegio</th><th>Operazione</th><th>Eseguito da</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td><td></td></tr></tbody></table>

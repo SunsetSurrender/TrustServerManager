@@ -27,6 +27,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 import destructive_guard
+from ui_helpers import scheda
 
 ESITI: list[tuple[str, bool, str]] = []
 
@@ -85,6 +86,7 @@ def main() -> int:
         login(adm, base, a.admin, a.password)
         adm.get_by_role("button", name="AD", exact=True).first.click()
         adm.wait_for_timeout(1200)
+        scheda(adm, "utenti")
         adm.get_by_role("button", name="+ Utenza").click()
         adm.get_by_placeholder("utenza (es. m.rossi)").fill(utenza)
         adm.get_by_placeholder("email (per il recupero password)").first.fill(f"{utenza}@example.it")
@@ -185,6 +187,7 @@ def main() -> int:
         # ---- interruttore ----
         adm.locator("#btn-aggiorna-utenze").click()
         adm.wait_for_timeout(1200)
+        scheda(adm, "sicurezza")
         sez = adm.locator("#sicurezza-accessi")
         sez.get_by_role("button", name="attivo", exact=True).click()
         adm.wait_for_timeout(1000)
@@ -192,12 +195,19 @@ def main() -> int:
               sez.get_by_role("button", name="disattivato").count() == 1, sez.inner_text())
         ctx2.goto(base + "/")
         ctx2.wait_for_load_state("networkidle")
-        check("a recupero spento il link non compare",
-              ctx2.get_by_role("button", name="Password dimenticata?").count() == 0)
+        # Dalla 0.4.3 il link c'è sempre: a recupero spento spiega a chi rivolgersi.
+        ctx2.get_by_role("button", name="Password dimenticata?").click()
+        ctx2.wait_for_timeout(400)
+        t2 = testo(ctx2)
+        check("a recupero spento: niente modulo, si rimanda all'amministratore",
+              "Chiedi a un amministratore" in t2
+              and ctx2.get_by_role("button", name="Invia il codice").count() == 0, t2[:300])
+        ctx2.get_by_role("button", name="Torna all'accesso").click()
         sez.get_by_role("button", name="disattivato").click()
         adm.wait_for_timeout(1000)
 
         # ---- pulizia ----
+        scheda(adm, "utenti")
         riga = adm.locator("div", has_text=utenza).filter(has=adm.get_by_role("button", name="Disattiva"))
         if riga.count():
             riga.last.get_by_role("button", name="Disattiva").click()

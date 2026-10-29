@@ -24,6 +24,7 @@ from openpyxl import load_workbook
 from playwright.sync_api import sync_playwright
 
 import destructive_guard
+from ui_helpers import scheda
 
 ESITI = []
 
@@ -61,8 +62,7 @@ def main() -> int:
         page.wait_for_timeout(3000)
         page.get_by_role("button", name="Editing", exact=True).dispatch_event("click")
         page.wait_for_timeout(800)
-        page.get_by_role("button", name="⚙ Impostazioni").click()
-        page.wait_for_timeout(600)
+        scheda(page, "importa")
 
         # ---- 1. scarico ----
         with page.expect_download(timeout=30000) as dl:

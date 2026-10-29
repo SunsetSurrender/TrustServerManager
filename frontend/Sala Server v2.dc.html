@@ -101,15 +101,18 @@
           <div style="font-size:12px; color:#ffb020; line-height:1.5">{{ bootError }}</div>
         </sc-if>
         <button onClick="{{ doLogin }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit; letter-spacing:0.02em" style-hover="filter:brightness(1.12)">Accedi</button>
-        <sc-if value="{{ resetAvailable }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ loginLinks }}" hint-placeholder-val="{{ true }}">
           <div style="display:flex; justify-content:space-between">
             <button onClick="{{ apriRecupero }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Password dimenticata?</button>
-            <button onClick="{{ apriCodice }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Ho un codice</button>
+            <sc-if value="{{ resetAvailable }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ apriCodice }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Ho un codice</button>
+            </sc-if>
           </div>
         </sc-if>
         </sc-if>
         <sc-if value="{{ loginModeForgot }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:13px; font-weight:700; color:#e6ecf2">Recupero password</div>
+          <sc-if value="{{ resetAvailable }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:11.5px; color:#8a94a2; line-height:1.5">Indica la tua utenza: se ha un indirizzo email registrato riceverai un codice valido 30 minuti.</div>
           <input placeholder="utente" autoComplete="username" value="{{ rcUser }}" onChange="{{ onRcUser }}" style="width:100%; box-sizing:border-box; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; color:#e6ecf2; padding:10px 12px; font-family:'Roboto Mono',monospace; font-size:13px">
           <button onClick="{{ inviaRecupero }}" disabled="{{ rcBusy }}" style="background:#e2231a; color:#ffffff; border:none; border-radius:6px; padding:11px 0; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit">Invia il codice</button>
@@ -117,6 +120,11 @@
             <button onClick="{{ tornaLogin }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Torna all'accesso</button>
             <button onClick="{{ apriCodice }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0">Ho già un codice</button>
           </div>
+                  </sc-if>
+          <sc-if value="{{ resetUnavailable }}" hint-placeholder-val="{{ true }}">
+            <div style="font-size:12px; color:#c9d1db; line-height:1.55; background:#0c0f13; border:1px solid #2b333d; border-radius:6px; padding:12px">Il recupero via email non è attivo su questa installazione. <b>Chiedi a un amministratore</b> di reimpostare la password: ti darà una password provvisoria da cambiare al primo accesso.</div>
+            <button onClick="{{ tornaLogin }}" style="background:transparent; border:none; color:#8a94a2; font-size:11.5px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0; align-self:flex-start">Torna all'accesso</button>
+          </sc-if>
         </sc-if>
         <sc-if value="{{ loginModeCode }}" hint-placeholder-val="{{ false }}">
           <div style="font-size:13px; font-weight:700; color:#e6ecf2">Nuova password con il codice</div>
@@ -299,146 +307,6 @@
           </sc-if>
           <span style="font-size:10.5px; color:var(--d57626f); font-family:'Roboto Mono',monospace; white-space:nowrap; flex-shrink:0">{{ serverVersionLabel }}</span>
           <button onClick="{{ toggleAccount }}" style="background:var(--d161b22); color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:8px; padding:7px 14px; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0" style-hover="color:var(--accent); border-color:var(--d2c4a45)">⚙ Impostazioni</button>
-          <sc-if value="{{ accountOpen }}" hint-placeholder-val="{{ false }}">
-            <div class="pop-in" style="position:absolute; top:calc(100% + 6px); right:0; width:300px; max-height:calc(100vh - 240px); overflow-y:auto; background:var(--d161b22); border:1px solid var(--d2b333d); border-radius:8px; box-shadow:0 12px 32px var(--sh55); z-index:60; padding:14px 16px; display:flex; flex-direction:column; gap:16px">
-              
-              <div>
-                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">MANUALE D'USO</div>
-                <button onClick="{{ toggleManual }}" style="width:100%; background:transparent; color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:6px; padding:8px 0; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit" style-hover="border-color:var(--d3a4552)">Apri il manuale</button>
-              </div>
-              <div>
-                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">ANNULLA MODIFICHE</div>
-                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--d7c8794)">Modifiche in memoria
-                  <select value="{{ undoDepth }}" onChange="{{ onUndoDepth }}" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:5px 6px; font-family:inherit; font-size:12px">
-                    <option value="5">5</option><option value="10">10</option><option value="15">15</option><option value="20">20</option>
-                  </select>
-                </label>
-              </div>
-              <div>
-                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">TEMA</div>
-                <div style="display:flex; gap:6px">
-                  <button onClick="{{ setDark }}" style="{{ darkBtnStyle }}">Scuro</button>
-                  <button onClick="{{ setLight }}" style="{{ lightBtnStyle }}">Chiaro</button>
-                  <button onClick="{{ setTim }}" style="{{ timBtnStyle }}">TIM</button>
-                </div>
-              </div>
-              <sc-if value="{{ isAdminUser }}" hint-placeholder-val="{{ false }}">
-
-              <!-- NOTIFICHE DI SCADENZA — solo /api/settings (§8.38).
-                   Non stanno nel documento dell'inventario: il server rifiuterebbe
-                   un documento che le contenesse. Non c'è nessun campo password:
-                   le credenziali SMTP sono gestite dai sistemisti con un secret,
-                   e qui si vede soltanto se ci sono. -->
-              <div id="settings-notifiche" style="display:flex; flex-direction:column; gap:8px">
-                <div style="display:flex; align-items:baseline; gap:8px">
-                  <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">NOTIFICHE SCADENZE</div>
-                  <span id="settings-version" style="font-size:10px; color:var(--d57626f); font-family:'Roboto Mono',monospace">{{ setVersionLabel }}</span>
-                </div>
-
-                <sc-if value="{{ setLoading }}" hint-placeholder-val="{{ false }}">
-                  <div style="font-size:11.5px; color:var(--d8a94a2)">Caricamento…</div>
-                </sc-if>
-
-                <sc-if value="{{ setLoaded }}" hint-placeholder-val="{{ true }}">
-                  <div style="display:flex; flex-direction:column; gap:8px">
-                    <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--dd7dde4); cursor:pointer">
-                      <input id="set-enabled" type="checkbox" checked="{{ setEnabled }}" onChange="{{ onSetEnabled }}"> Promemoria via email attivi
-                    </label>
-
-                    <label style="font-size:11px; color:var(--d7c8794)">Destinatari (uno per riga)
-                      <textarea id="set-recipients" rows="3" value="{{ setRecipients }}" onChange="{{ onSetRecipients }}" placeholder="ced@azienda.it" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px; resize:vertical"></textarea>
-                    </label>
-
-                    <label style="font-size:11px; color:var(--d7c8794)">Preavviso, giorni (separati da virgola)
-                      <input id="set-warning-days" value="{{ setWarningDays }}" onChange="{{ onSetWarningDays }}" placeholder="7, 30, 90" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                    </label>
-
-                    <div style="display:flex; gap:8px; align-items:flex-end">
-                      <label style="flex:1; min-width:0; font-size:11px; color:var(--d7c8794)">Fuso orario
-                        <input id="set-timezone" value="{{ setTimezone }}" onChange="{{ onSetTimezone }}" placeholder="Europe/Rome" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                      </label>
-                      <label style="font-size:11px; color:var(--d7c8794)">Ora
-                        <input id="set-hour" type="number" min="0" max="23" value="{{ setHour }}" onChange="{{ onSetHour }}" style="width:62px; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                      </label>
-                      <label style="font-size:11px; color:var(--d7c8794)">Minuti
-                        <input id="set-minute" type="number" min="0" max="59" value="{{ setMinute }}" onChange="{{ onSetMinute }}" style="width:62px; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                      </label>
-                    </div>
-
-                    <div style="font-size:11px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace">{{ setPreview }}</div>
-
-                    <!-- Stato delle credenziali SMTP: un sì/no e nient'altro.
-                         Né host, né utenza, né percorso del secret. -->
-                    <div id="settings-smtp-status" style="{{ setSmtpStyle }}">{{ setSmtpLabel }}</div>
-
-                    <div style="display:flex; gap:8px">
-                      <button id="btn-settings-save" onClick="{{ salvaSettings }}" disabled="{{ setSaveDisabled }}" style="{{ setSaveBtnStyle }}">{{ setSaveLabel }}</button>
-                      <button id="btn-settings-test" onClick="{{ provaSettings }}" disabled="{{ setTestDisabled }}" style="{{ setTestBtnStyle }}">{{ setTestLabel }}</button>
-                    </div>
-
-                    <!-- Esito del SALVATAGGIO. Separato da quello dell'invio di
-                         prova: sono due operazioni distinte, e un messaggio unico
-                         farebbe credere che l'una dica qualcosa dell'altra. -->
-                    <sc-if value="{{ setHasSaveMsg }}" hint-placeholder-val="{{ false }}">
-                      <div id="settings-save-msg" style="{{ setSaveMsgStyle }}">{{ setSaveMsg }}</div>
-                    </sc-if>
-
-                    <!-- Esito dell'INVIO DI PROVA. -->
-                    <sc-if value="{{ setHasTestMsg }}" hint-placeholder-val="{{ false }}">
-                      <div id="settings-test-msg" style="{{ setTestMsgStyle }}">{{ setTestMsg }}</div>
-                    </sc-if>
-
-                    <div style="font-size:10.5px; color:var(--d57626f)">Il server di posta e le sue credenziali sono configurati dai sistemisti e non da questa schermata. L'invio automatico agli orari indicati arriverà con lo scheduler.</div>
-                  </div>
-                </sc-if>
-              </div>
-              <div style="display:flex; flex-direction:column; gap:8px">
-                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">IMPORTA DATI</div>
-                <button onClick="{{ scaricaModello }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; text-align:left" style-hover="border-color:var(--d3a4552)">↓ Scarica modello Excel da compilare</button>
-                <label style="display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--d7c8794)">Righe già presenti
-                  <select value="{{ impMode }}" onChange="{{ onImpMode }}" style="flex:1; min-width:0; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:5px 6px; font-family:inherit; font-size:11.5px">
-                    <option value="merge">aggiorna i dispositivi esistenti</option>
-                    <option value="new">salta: inserisci solo i nuovi</option>
-                  </select>
-                </label>
-                <sc-if value="{{ impNeedsEdit }}" hint-placeholder-val="{{ false }}">
-                  <div style="font-size:11px; color:var(--dd9a13f)">Per importare passa in modalità Editing (Ctrl+E): in Visualizzazione i dati non sono modificabili.</div>
-                </sc-if>
-                <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Analizza file CSV o Excel…
-                  <input type="file" accept=".csv,.xlsx" onChange="{{ onImportCsv }}" style="display:none">
-                </label>
-                <button onClick="{{ scaricaSerialiRack }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; text-align:left" style-hover="border-color:var(--d3a4552)">↓ Scarica foglio «Seriali rack» da compilare</button>
-                <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Importa seriali rack (Excel)…
-                  <input type="file" accept=".xlsx" onChange="{{ onImportSeriali }}" style="display:none">
-                </label>
-                <sc-if value="{{ impPreviewOpen }}" hint-placeholder-val="{{ false }}">
-                  <div style="border:1px solid var(--d2b333d); border-radius:6px; background:var(--d0c0f13); padding:10px; display:flex; flex-direction:column; gap:6px">
-                    <div style="font-size:11.5px; font-weight:700; color:var(--dd7dde4)">{{ impFileName }}</div>
-                    <div style="font-size:11px; color:var(--d8a94a2); font-family:'Roboto Mono',monospace">{{ impSummary }}</div>
-                    <div style="max-height:170px; overflow-y:auto">
-                      <sc-for list="{{ impRows }}" as="ip" hint-placeholder-count="0">
-                        <div style="{{ ip.style }}">{{ ip.txt }}</div>
-                      </sc-for>
-                    </div>
-                    <div style="font-size:10.5px; color:var(--d57626f)">Nulla è stato ancora scritto. Applicando l'import potrai comunque annullare con ↩ Annulla.</div>
-                    <div style="display:flex; gap:8px">
-                      <sc-if value="{{ impCanApply }}" hint-placeholder-val="{{ false }}">
-                        <button onClick="{{ impApply }}" style="{{ impApplyBtnStyle }}" style-hover="filter:brightness(1.12)">Applica import</button>
-                      </sc-if>
-                      <button onClick="{{ impCancel }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 0; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--dd7dde4)">Annulla</button>
-                    </div>
-                  </div>
-                </sc-if>
-                <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Ripristina backup JSON completo…
-                  <input type="file" accept=".json" onChange="{{ onImportFile }}" style="display:none">
-                </label>
-                <div style="font-size:10.5px; color:var(--d57626f)">Il CSV/Excel aggiunge o aggiorna solo i dispositivi indicati. Il JSON sostituisce integralmente i dati: usalo solo per ripristinare un backup.</div>
-              </div>
-              
-              </sc-if>
-              
-            </div>
-          </sc-if>
         </div>
       </div>
 
@@ -687,63 +555,165 @@
       </div>
     </sc-if>
 
-    <!-- Profilo utente -->
-    <sc-if value="{{ profileOpen }}" hint-placeholder-val="{{ false }}">
-      <div class="view-in" style="flex:1; min-height:0; overflow:auto; padding:24px">
-        <div style="max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:16px">
-          <div style="display:flex; align-items:center; gap:14px">
-            <div style="{{ avatarBigStyle }}">{{ userInitials }}</div>
-            <div style="flex:1; min-width:0">
-              <div style="font-size:17px; font-weight:700">{{ profNomeCompleto }}</div>
-              <div style="font-size:12px; color:var(--d8a94a2); font-family:'Roboto Mono',monospace">{{ userEmail }} · {{ userRuoloLabel }}</div>
-            </div>
-            <button onClick="{{ closeProfile }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 13px; font-size:12px; cursor:pointer; font-family:inherit" style-hover="color:var(--dd7dde4)">✕ Chiudi</button>
+    <!-- Impostazioni: pagina a schede (0.4.3). Le schede amministrative compaiono
+         solo agli amministratori; l'autorità resta comunque del server. -->
+    <sc-if value="{{ accountOpen }}" hint-placeholder-val="{{ false }}">
+      <div id="pagina-impostazioni" class="view-in" style="flex:1; min-height:0; overflow:auto; padding:24px">
+        <div style="max-width:1000px; margin:0 auto; display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap">
+          <div style="width:210px; flex-shrink:0; display:flex; flex-direction:column; gap:4px; position:sticky; top:0">
+            <div style="font-size:17px; font-weight:700; padding:0 10px 10px">⚙ Impostazioni</div>
+            <sc-for list="{{ setTabs }}" as="tb" hint-placeholder-count="3">
+              <button id="{{ tb.id }}" onClick="{{ tb.onClick }}" style="{{ tb.style }}">{{ tb.label }}</button>
+            </sc-for>
+            <button onClick="{{ toggleAccount }}" style="margin-top:12px; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 0; font-size:12px; cursor:pointer; font-family:inherit">✕ Chiudi</button>
           </div>
-            <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
-              <div style="font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">DATI PERSONALI</div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
-                <label style="font-size:11px; color:var(--d7c8794)">Nome
-                  <input name="nome" value="{{ profDraft.nome }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
-                </label>
-                <label style="font-size:11px; color:var(--d7c8794)">Cognome
-                  <input name="cognome" value="{{ profDraft.cognome }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
-                </label>
-                <label style="font-size:11px; color:var(--d7c8794)">Telefono
-                  <input name="telefono" value="{{ profDraft.telefono }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
-                </label>
-                <label style="font-size:11px; color:var(--d7c8794)">Team / reparto
-                  <input name="team" value="{{ profDraft.team }}" disabled="{{ profTeamLocked }}" title="Il team lo imposta un amministratore" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
-                </label>
-                <label style="font-size:11px; color:var(--d7c8794); grid-column:1 / -1">Email (serve al recupero della password)
-                  <input name="email" type="email" value="{{ profDraft.email }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
+          <div style="flex:1; min-width:320px; display:flex; flex-direction:column; gap:16px">
+          <sc-if value="{{ setTabGenerale }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:14px">
+            <div><div style="font-size:15px; font-weight:700; color:var(--de6ecf2)">Generale</div><div style="font-size:11.5px; color:var(--d8a94a2); margin-top:3px">Preferenze di questa postazione: manuale, annullamento delle modifiche, tema.</div></div>
+<div>
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">MANUALE D'USO</div>
+                <button onClick="{{ toggleManual }}" style="width:100%; background:transparent; color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:6px; padding:8px 0; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit" style-hover="border-color:var(--d3a4552)">Apri il manuale</button>
+              </div>
+              <div>
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">ANNULLA MODIFICHE</div>
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--d7c8794)">Modifiche in memoria
+                  <select value="{{ undoDepth }}" onChange="{{ onUndoDepth }}" style="background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:5px 6px; font-family:inherit; font-size:12px">
+                    <option value="5">5</option><option value="10">10</option><option value="15">15</option><option value="20">20</option>
+                  </select>
                 </label>
               </div>
-              <div style="display:flex; align-items:center; gap:10px">
-                <button onClick="{{ saveProf }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:8px 18px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.12)">Salva dati</button>
-                <sc-if value="{{ hasProfMsg }}" hint-placeholder-val="{{ false }}">
-                  <span style="{{ profMsgStyle }}">{{ profMsg }}</span>
+              <div>
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2); margin-bottom:8px">TEMA</div>
+                <div style="display:flex; gap:6px">
+                  <button onClick="{{ setDark }}" style="{{ darkBtnStyle }}">Scuro</button>
+                  <button onClick="{{ setLight }}" style="{{ lightBtnStyle }}">Chiaro</button>
+                  <button onClick="{{ setTim }}" style="{{ timBtnStyle }}">TIM</button>
+                </div>
+              </div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ setTabImporta }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:14px">
+            <div><div style="font-size:15px; font-weight:700; color:var(--de6ecf2)">Importa ed esporta</div><div style="font-size:11.5px; color:var(--d8a94a2); margin-top:3px">Dispositivi da Excel o CSV, seriali dei rack, backup completo JSON. L'esportazione è nel menu «Esporta» in alto.</div></div>
+<div style="display:flex; flex-direction:column; gap:8px">
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">IMPORTA DATI</div>
+                <button onClick="{{ scaricaModello }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; text-align:left" style-hover="border-color:var(--d3a4552)">↓ Scarica modello Excel da compilare</button>
+                <label style="display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--d7c8794)">Righe già presenti
+                  <select value="{{ impMode }}" onChange="{{ onImpMode }}" style="flex:1; min-width:0; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:5px 6px; font-family:inherit; font-size:11.5px">
+                    <option value="merge">aggiorna i dispositivi esistenti</option>
+                    <option value="new">salta: inserisci solo i nuovi</option>
+                  </select>
+                </label>
+                <sc-if value="{{ impNeedsEdit }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11px; color:var(--dd9a13f)">Per importare passa in modalità Editing (Ctrl+E): in Visualizzazione i dati non sono modificabili.</div>
                 </sc-if>
-              </div>
-            </div>
-            <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
-              <div style="font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">SICUREZZA</div>
-                <input type="password" placeholder="Password attuale" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <input type="password" placeholder="Nuova password (min 12)" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <sc-if value="{{ hasPwStrength }}" hint-placeholder-val="{{ false }}">
-                  <div style="display:flex; flex-direction:column; gap:4px">
-                    <div style="height:4px; border-radius:2px; background:#2b333d; overflow:hidden"><div style="{{ pwStrengthBar }}"></div></div>
-                    <div style="{{ pwStrengthStyle }}">{{ pwStrengthLabel }}</div>
+                <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Analizza file CSV o Excel…
+                  <input type="file" accept=".csv,.xlsx" onChange="{{ onImportCsv }}" style="display:none">
+                </label>
+                <button onClick="{{ scaricaSerialiRack }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; text-align:left" style-hover="border-color:var(--d3a4552)">↓ Scarica foglio «Seriali rack» da compilare</button>
+                <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Importa seriali rack (Excel)…
+                  <input type="file" accept=".xlsx" onChange="{{ onImportSeriali }}" style="display:none">
+                </label>
+                <sc-if value="{{ impPreviewOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="border:1px solid var(--d2b333d); border-radius:6px; background:var(--d0c0f13); padding:10px; display:flex; flex-direction:column; gap:6px">
+                    <div style="font-size:11.5px; font-weight:700; color:var(--dd7dde4)">{{ impFileName }}</div>
+                    <div style="font-size:11px; color:var(--d8a94a2); font-family:'Roboto Mono',monospace">{{ impSummary }}</div>
+                    <div style="max-height:170px; overflow-y:auto">
+                      <sc-for list="{{ impRows }}" as="ip" hint-placeholder-count="0">
+                        <div style="{{ ip.style }}">{{ ip.txt }}</div>
+                      </sc-for>
+                    </div>
+                    <div style="font-size:10.5px; color:var(--d57626f)">Nulla è stato ancora scritto. Applicando l'import potrai comunque annullare con ↩ Annulla.</div>
+                    <div style="display:flex; gap:8px">
+                      <sc-if value="{{ impCanApply }}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{ impApply }}" style="{{ impApplyBtnStyle }}" style-hover="filter:brightness(1.12)">Applica import</button>
+                      </sc-if>
+                      <button onClick="{{ impCancel }}" style="flex:1; background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 0; font-size:11.5px; cursor:pointer; font-family:inherit" style-hover="color:var(--dd7dde4)">Annulla</button>
+                    </div>
                   </div>
                 </sc-if>
-                <input type="password" placeholder="Ripeti la nuova password" autoComplete="new-password" value="{{ pwNew2 }}" onChange="{{ onPwNew2 }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <div style="display:flex; gap:8px">
-                  <button onClick="{{ savePw }}" style="flex:1; background:var(--accent); color:var(--d0c0f13); border:none; border-radius:6px; padding:7px 0; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.15)">Aggiorna</button>
-                                  </div>
-                <sc-if value="{{ hasPwMsg }}" hint-placeholder-val="{{ false }}">
-                  <div style="font-size:11.5px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace">{{ pwMsg }}</div>
+                <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Ripristina backup JSON completo…
+                  <input type="file" accept=".json" onChange="{{ onImportFile }}" style="display:none">
+                </label>
+                <div style="font-size:10.5px; color:var(--d57626f)">Il CSV/Excel aggiunge o aggiorna solo i dispositivi indicati. Il JSON sostituisce integralmente i dati: usalo solo per ripristinare un backup.</div>
+              </div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ setTabNotifiche }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:14px">
+            <div><div style="font-size:15px; font-weight:700; color:var(--de6ecf2)">Notifiche di scadenza</div><div style="font-size:11.5px; color:var(--d8a94a2); margin-top:3px">Destinatari, preavvisi e orario dell'avviso giornaliero; invio di prova.</div></div>
+<!-- NOTIFICHE DI SCADENZA — solo /api/settings (§8.38).
+                   Non stanno nel documento dell'inventario: il server rifiuterebbe
+                   un documento che le contenesse. Non c'è nessun campo password:
+                   le credenziali SMTP sono gestite dai sistemisti con un secret,
+                   e qui si vede soltanto se ci sono. -->
+              <div id="settings-notifiche" style="display:flex; flex-direction:column; gap:8px">
+                <div style="display:flex; align-items:baseline; gap:8px">
+                  <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">NOTIFICHE SCADENZE</div>
+                  <span id="settings-version" style="font-size:10px; color:var(--d57626f); font-family:'Roboto Mono',monospace">{{ setVersionLabel }}</span>
+                </div>
+
+                <sc-if value="{{ setLoading }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11.5px; color:var(--d8a94a2)">Caricamento…</div>
                 </sc-if>
-            </div>
-          <sc-if value="{{ isAdminUser }}" hint-placeholder-val="{{ false }}">
+
+                <sc-if value="{{ setLoaded }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex; flex-direction:column; gap:8px">
+                    <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--dd7dde4); cursor:pointer">
+                      <input id="set-enabled" type="checkbox" checked="{{ setEnabled }}" onChange="{{ onSetEnabled }}"> Promemoria via email attivi
+                    </label>
+
+                    <label style="font-size:11px; color:var(--d7c8794)">Destinatari (uno per riga)
+                      <textarea id="set-recipients" rows="3" value="{{ setRecipients }}" onChange="{{ onSetRecipients }}" placeholder="ced@azienda.it" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px; resize:vertical"></textarea>
+                    </label>
+
+                    <label style="font-size:11px; color:var(--d7c8794)">Preavviso, giorni (separati da virgola)
+                      <input id="set-warning-days" value="{{ setWarningDays }}" onChange="{{ onSetWarningDays }}" placeholder="7, 30, 90" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                    </label>
+
+                    <div style="display:flex; gap:8px; align-items:flex-end">
+                      <label style="flex:1; min-width:0; font-size:11px; color:var(--d7c8794)">Fuso orario
+                        <input id="set-timezone" value="{{ setTimezone }}" onChange="{{ onSetTimezone }}" placeholder="Europe/Rome" style="width:100%; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                      </label>
+                      <label style="font-size:11px; color:var(--d7c8794)">Ora
+                        <input id="set-hour" type="number" min="0" max="23" value="{{ setHour }}" onChange="{{ onSetHour }}" style="width:62px; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                      </label>
+                      <label style="font-size:11px; color:var(--d7c8794)">Minuti
+                        <input id="set-minute" type="number" min="0" max="59" value="{{ setMinute }}" onChange="{{ onSetMinute }}" style="width:62px; box-sizing:border-box; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                      </label>
+                    </div>
+
+                    <div style="font-size:11px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace">{{ setPreview }}</div>
+
+                    <!-- Stato delle credenziali SMTP: un sì/no e nient'altro.
+                         Né host, né utenza, né percorso del secret. -->
+                    <div id="settings-smtp-status" style="{{ setSmtpStyle }}">{{ setSmtpLabel }}</div>
+
+                    <div style="display:flex; gap:8px">
+                      <button id="btn-settings-save" onClick="{{ salvaSettings }}" disabled="{{ setSaveDisabled }}" style="{{ setSaveBtnStyle }}">{{ setSaveLabel }}</button>
+                      <button id="btn-settings-test" onClick="{{ provaSettings }}" disabled="{{ setTestDisabled }}" style="{{ setTestBtnStyle }}">{{ setTestLabel }}</button>
+                    </div>
+
+                    <!-- Esito del SALVATAGGIO. Separato da quello dell'invio di
+                         prova: sono due operazioni distinte, e un messaggio unico
+                         farebbe credere che l'una dica qualcosa dell'altra. -->
+                    <sc-if value="{{ setHasSaveMsg }}" hint-placeholder-val="{{ false }}">
+                      <div id="settings-save-msg" style="{{ setSaveMsgStyle }}">{{ setSaveMsg }}</div>
+                    </sc-if>
+
+                    <!-- Esito dell'INVIO DI PROVA. -->
+                    <sc-if value="{{ setHasTestMsg }}" hint-placeholder-val="{{ false }}">
+                      <div id="settings-test-msg" style="{{ setTestMsgStyle }}">{{ setTestMsg }}</div>
+                    </sc-if>
+
+                    <div style="font-size:10.5px; color:var(--d57626f)">Il server di posta e le sue credenziali sono configurati dai sistemisti e non da questa schermata. L'invio automatico agli orari indicati arriverà con lo scheduler.</div>
+                  </div>
+                </sc-if>
+              </div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ setTabUtenti }}" hint-placeholder-val="{{ false }}">
             <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:12px">
               <div style="display:flex; align-items:center; gap:10px">
                 <div style="flex:1; font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">UTENTI E PRIVILEGI</div>
@@ -758,24 +728,6 @@
               <sc-if value="{{ hasUsersInfo }}" hint-placeholder-val="{{ false }}">
                 <div style="font-size:11.5px; color:#3ddc84; line-height:1.5; border:1px solid var(--d21362f); border-radius:6px; padding:8px 10px">{{ usersInfo }}</div>
               </sc-if>
-              <!-- politica di blocco: soglia di accessi falliti consecutivi -->
-              <div id="sicurezza-accessi" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:8px; padding:8px 10px; background:var(--d0c0f13)">
-                <span style="font-weight:700; color:var(--dd7dde4)">Sicurezza accessi</span>
-                <span>blocca l'utenza dopo</span>
-                <input type="number" min="{{ secMin }}" max="{{ secMax }}" value="{{ secDraft }}" onChange="{{ onSecDraft }}" style="width:56px; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:4px 6px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <span>accessi falliti consecutivi ({{ secMin }}–{{ secMax }}); esci dopo</span>
-                <input type="number" min="0" max="720" value="{{ secIdleDraft }}" onChange="{{ onSecIdle }}" style="width:62px; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:4px 6px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <span>minuti di inattività (0 = mai, altrimenti 15–720)</span>
-                <button onClick="{{ saveSecPolicy }}" disabled="{{ secSaveDisabled }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:5px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit">Salva</button>
-                <span id="sicurezza-accessi-esito" style="{{ secMsgStyle }}">{{ secMsg }}</span>
-                <div style="flex-basis:100%; display:flex; align-items:center; gap:8px; margin-top:2px">
-                  <span>Recupero password via email:</span>
-                  <button onClick="{{ toggleResetEnabled }}" disabled="{{ secSaveDisabled }}" style="{{ resetEnabledStyle }}">{{ resetEnabledLabel }}</button>
-                  <span style="font-size:10.5px; color:var(--d57626f)">funziona solo con l'invio email configurato e per le utenze con un indirizzo</span>
-                </div>
-                <div style="flex-basis:100%; font-size:10.5px; color:var(--d57626f)">Un'utenza bloccata non entra nemmeno con la password giusta: la sblocca solo un amministratore (pulsante «Sblocca» qui sotto). {{ secUpdated }}</div>
-              </div>
-
               <!-- creazione -->
               <sc-if value="{{ userFormOpen }}" hint-placeholder-val="{{ false }}">
                 <div id="form-nuova-utenza" style="border:1px solid var(--d2c4a45); border-radius:8px; background:var(--d0c0f13); padding:12px; display:flex; flex-direction:column; gap:8px">
@@ -821,7 +773,7 @@
                           <span style="font-size:10px; color:var(--accent); flex-shrink:0">tu</span>
                         </sc-if>
                       </div>
-                      <div style="font-size:10.5px; color:var(--d57626f); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.ruoloLabel }} · {{ ur.profilo }} · {{ ur.emailLabel }} · ultimo accesso {{ ur.ultimoAccesso }}</div>
+                      <div style="font-size:10.5px; color:var(--d57626f); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.dettagli }}</div>
                     </div>
                     <sc-if value="{{ ur.isLocked }}" hint-placeholder-val="{{ false }}">
                       <button onClick="{{ ur.sblocca }}" disabled="{{ ur.unlockDisabled }}" title="{{ ur.lockedTitle }}" style="background:#ff5c5c; color:#ffffff; border:none; border-radius:5px; padding:4px 8px; font-size:10.5px; font-weight:700; cursor:pointer; font-family:inherit; flex-shrink:0">{{ ur.unlockLabel }}</button>
@@ -840,12 +792,39 @@
 
               <div style="font-size:10.5px; color:var(--d57626f); line-height:1.5">Le utenze non si cancellano: si disattivano, così il registro delle modifiche resta attribuibile. Le regole (ultimo amministratore, sé stessi) sono applicate dal server.</div>
             </div>
-            <div id="stato-sistema" style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:8px; margin-top:16px">
+          </sc-if>
+          <sc-if value="{{ setTabSicurezza }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:14px">
+            <div><div style="font-size:15px; font-weight:700; color:var(--de6ecf2)">Sicurezza accessi</div><div style="font-size:11.5px; color:var(--d8a94a2); margin-top:3px">Blocco dopo accessi falliti, uscita per inattività, recupero della password via email.</div></div>
+              <!-- politica di blocco: soglia di accessi falliti consecutivi -->
+              <div id="sicurezza-accessi" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:8px; padding:8px 10px; background:var(--d0c0f13)">
+                <span style="font-weight:700; color:var(--dd7dde4)">Sicurezza accessi</span>
+                <span>blocca l'utenza dopo</span>
+                <input type="number" min="{{ secMin }}" max="{{ secMax }}" value="{{ secDraft }}" onChange="{{ onSecDraft }}" style="width:56px; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:4px 6px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <span>accessi falliti consecutivi ({{ secMin }}–{{ secMax }}); esci dopo</span>
+                <input type="number" min="0" max="720" value="{{ secIdleDraft }}" onChange="{{ onSecIdle }}" style="width:62px; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:4px 6px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <span>minuti di inattività (0 = mai, altrimenti 15–720)</span>
+                <button onClick="{{ saveSecPolicy }}" disabled="{{ secSaveDisabled }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:5px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit">Salva</button>
+                <span id="sicurezza-accessi-esito" style="{{ secMsgStyle }}">{{ secMsg }}</span>
+                <div style="flex-basis:100%; display:flex; align-items:center; gap:8px; margin-top:2px">
+                  <span>Recupero password via email:</span>
+                  <button onClick="{{ toggleResetEnabled }}" disabled="{{ secSaveDisabled }}" style="{{ resetEnabledStyle }}">{{ resetEnabledLabel }}</button>
+                  <span style="font-size:10.5px; color:var(--d57626f)">funziona solo con l'invio email configurato e per le utenze con un indirizzo</span>
+                </div>
+                <div style="flex-basis:100%; font-size:10.5px; color:var(--d57626f)">Un'utenza bloccata non entra nemmeno con la password giusta: la sblocca solo un amministratore (pulsante «Sblocca» qui sotto). {{ secUpdated }}</div>
+              </div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ setTabStato }}" hint-placeholder-val="{{ false }}">
+            <div id="stato-sistema" style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:8px; ">
               <div style="display:flex; align-items:center; gap:10px">
                 <div style="flex:1; font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">STATO DEL SISTEMA</div>
                 <span style="{{ statoBadgeStyle }}">{{ statoBadge }}</span>
                 <button onClick="{{ statoReload }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; font-family:inherit">Aggiorna</button>
               </div>
+              <sc-if value="{{ hasStatoMotivi }}" hint-placeholder-val="{{ false }}">
+                <div id="stato-motivi" style="font-size:12px; color:#ffb020; line-height:1.5">{{ statoMotivi }}</div>
+              </sc-if>
               <sc-if value="{{ hasStatoErr }}" hint-placeholder-val="{{ false }}">
                 <div style="font-size:11.5px; color:#ff5c5c">{{ statoErr }}</div>
               </sc-if>
@@ -860,7 +839,14 @@
               <div style="font-size:10.5px; color:var(--d57626f)">{{ statoGenerato }}</div>
             </div>
           </sc-if>
-
+          <sc-if value="{{ setTabRegistro }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:14px">
+            <div><div style="font-size:15px; font-weight:700; color:var(--de6ecf2)">Registro delle modifiche</div><div style="font-size:11.5px; color:var(--d8a94a2); margin-top:3px">Chi ha fatto cosa e quando: modifiche all'inventario, accessi, utenze, impostazioni. Sola lettura.</div></div>
+            <button id="btn-apri-registro" onClick="{{ toggleAudit }}" style="align-self:flex-start; background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:8px 16px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit">Apri il registro</button>
+          </div>
+          </sc-if>
+          </div>
+        </div>
           <!-- modifica utenza -->
           <sc-if value="{{ userEditOpen }}" hint-placeholder-val="{{ false }}">
             <div style="position:fixed; inset:0; z-index:215; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; font-family:'Public Sans',Helvetica,sans-serif">
@@ -943,7 +929,65 @@
               </div>
             </div>
           </sc-if>
+      </div>
+    </sc-if>
 
+    <!-- Profilo utente -->
+    <sc-if value="{{ profileOpen }}" hint-placeholder-val="{{ false }}">
+      <div class="view-in" style="flex:1; min-height:0; overflow:auto; padding:24px">
+        <div style="max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:16px">
+          <div style="display:flex; align-items:center; gap:14px">
+            <div style="{{ avatarBigStyle }}">{{ userInitials }}</div>
+            <div style="flex:1; min-width:0">
+              <div style="font-size:17px; font-weight:700">{{ profNomeCompleto }}</div>
+              <div style="font-size:12px; color:var(--d8a94a2); font-family:'Roboto Mono',monospace">{{ userEmail }} · {{ userRuoloLabel }}</div>
+            </div>
+            <button onClick="{{ closeProfile }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:7px 13px; font-size:12px; cursor:pointer; font-family:inherit" style-hover="color:var(--dd7dde4)">✕ Chiudi</button>
+          </div>
+            <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+              <div style="font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">DATI PERSONALI</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+                <label style="font-size:11px; color:var(--d7c8794)">Nome
+                  <input name="nome" value="{{ profDraft.nome }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
+                </label>
+                <label style="font-size:11px; color:var(--d7c8794)">Cognome
+                  <input name="cognome" value="{{ profDraft.cognome }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
+                </label>
+                <label style="font-size:11px; color:var(--d7c8794)">Telefono
+                  <input name="telefono" value="{{ profDraft.telefono }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
+                </label>
+                <label style="font-size:11px; color:var(--d7c8794)">Team / reparto
+                  <input name="team" value="{{ profDraft.team }}" disabled="{{ profTeamLocked }}" title="Il team lo imposta un amministratore" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
+                </label>
+                <label style="font-size:11px; color:var(--d7c8794); grid-column:1 / -1">Email (serve al recupero della password)
+                  <input name="email" type="email" value="{{ profDraft.email }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
+                </label>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px">
+                <button onClick="{{ saveProf }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:8px 18px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.12)">Salva dati</button>
+                <sc-if value="{{ hasProfMsg }}" hint-placeholder-val="{{ false }}">
+                  <span style="{{ profMsgStyle }}">{{ profMsg }}</span>
+                </sc-if>
+              </div>
+            </div>
+            <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+              <div style="font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">SICUREZZA</div>
+                <input type="password" placeholder="Password attuale" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <input type="password" placeholder="Nuova password (min 12)" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <sc-if value="{{ hasPwStrength }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; flex-direction:column; gap:4px">
+                    <div style="height:4px; border-radius:2px; background:#2b333d; overflow:hidden"><div style="{{ pwStrengthBar }}"></div></div>
+                    <div style="{{ pwStrengthStyle }}">{{ pwStrengthLabel }}</div>
+                  </div>
+                </sc-if>
+                <input type="password" placeholder="Ripeti la nuova password" autoComplete="new-password" value="{{ pwNew2 }}" onChange="{{ onPwNew2 }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <div style="display:flex; gap:8px">
+                  <button onClick="{{ savePw }}" style="flex:1; background:var(--accent); color:var(--d0c0f13); border:none; border-radius:6px; padding:7px 0; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.15)">Aggiorna</button>
+                                  </div>
+                <sc-if value="{{ hasPwMsg }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11.5px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace">{{ pwMsg }}</div>
+                </sc-if>
+            </div>
           <button onClick="{{ logout }}" style="align-self:flex-start; background:transparent; color:#ff5c5c; border:1px solid var(--d4a2b2b); border-radius:6px; padding:9px 20px; font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit" style-hover="background:var(--d2a1618)">Esci dall'applicazione</button>
         </div>
       </div>
@@ -1681,7 +1725,7 @@ class Component extends DCLogic {
             usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
-            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', sysStatus: null, sysStatusErr: '', secIdleDraft: '', loginMode: 'login', rcUser: '', rcCode: '', rcBusy: false, rcMsg: '', rcMsgErr: false, resetAvailable: false, pwNew2: '', forceCurKnown: false, userReset: null, usersInfo: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', setTab: 'generale', sysStatus: null, sysStatusErr: '', secIdleDraft: '', loginMode: 'login', rcUser: '', rcCode: '', rcBusy: false, rcMsg: '', rcMsgErr: false, resetAvailable: false, pwNew2: '', forceCurKnown: false, userReset: null, usersInfo: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
             // --- interrogazioni relazionali (fase 2H) ---
             //
             // Uno slot per interrogazione, sempre della stessa forma:
@@ -4006,7 +4050,7 @@ class Component extends DCLogic {
 
     const scadUrgenti = scadTot.scadute + scadTot.entro90;
     const piantaActive = !S.invOpen && !S.capOpen && !S.scadOpen && !S.dashOpen
-                      && !S.manualOpen && !S.profileOpen && !S.dismOpen;
+                      && !S.manualOpen && !S.profileOpen && !S.dismOpen && !S.accountOpen;
 
     // --- dashboard riepilogo ---
     const dashTot = { sale: 0, rack: 0, dev: 0, tot: 0, used: 0, manut: 0, dismInCorso: 0, dism: 0, rimossi: 0 };
@@ -4469,8 +4513,14 @@ class Component extends DCLogic {
       accountOpen: S.accountOpen,
       toggleAccount: () => {
         const opening = !this.state.accountOpen;
+        // Dalla 0.4.3 è una pagina: chiude le altre viste come fa il Profilo.
         this.setState({ accountOpen: opening, profileOpen: false, expOpen: false,
-                        regOpen: false, setSaveMsg: '', setTestMsg: '' });
+                        regOpen: false, setSaveMsg: '', setTestMsg: '',
+                        invOpen: false, capOpen: false, scadOpen: false, dashOpen: false,
+                        manualOpen: false, dismOpen: false, auditOpen: false });
+        if (opening && S_user && S_user.ruolo === 'admin') { this._loadUsers(); this._loadStatus(); }
+        if (!opening) this.setState({ userEdit: null, userFormOpen: false, tempPw: null,
+                                      tempPwCopied: false, usersError: '', userReset: null });
         // Si ricarica a ogni apertura, non una volta sola: fra due aperture un
         // altro amministratore può aver salvato, e partire da un ETag vecchio
         // significherebbe un conflitto al primo salvataggio.
@@ -4479,6 +4529,36 @@ class Component extends DCLogic {
         // il pannello si chiuderebbe da sé (`_handleSettingsError`).
         if (opening && S_user && S_user.ruolo === 'admin') this._settingsLoad();
       },
+      // --- pagina Impostazioni: schede ---
+      ...(() => {
+        const admin = !!(S_user && S_user.ruolo === 'admin');
+        const voci = [['generale', 'Generale']];
+        if (admin) voci.push(['importa', 'Importa / Esporta'], ['notifiche', 'Notifiche'],
+                             ['utenti', 'Utenti e privilegi'], ['sicurezza', 'Sicurezza accessi'],
+                             ['stato', 'Stato del sistema'], ['registro', 'Registro']);
+        const cur = voci.some(v => v[0] === S.setTab) ? S.setTab : 'generale';
+        return {
+          setTabs: voci.map(([k, l]) => ({
+            id: 'tab-' + k, label: l + (k === 'stato' && S.sysStatus && S.sysStatus.overall !== 'ok'
+                                        ? ' •' : ''),
+            onClick: () => {
+              this.setState({ setTab: k });
+              if (k === 'utenti' || k === 'sicurezza') this._loadUsers();
+              if (k === 'stato') this._loadStatus();
+            },
+            style: { textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13,
+                     cursor: 'pointer', fontFamily: 'inherit', border: 'none',
+                     background: cur === k ? 'var(--d1a2a27)' : 'transparent',
+                     color: cur === k ? 'var(--accent)' : 'var(--dd7dde4)',
+                     fontWeight: cur === k ? 700 : 500,
+                     borderLeft: '3px solid ' + (cur === k ? 'var(--accent)' : 'transparent') },
+          })),
+          setTabGenerale: cur === 'generale', setTabImporta: cur === 'importa',
+          setTabNotifiche: cur === 'notifiche', setTabUtenti: cur === 'utenti',
+          setTabSicurezza: cur === 'sicurezza', setTabStato: cur === 'stato',
+          setTabRegistro: cur === 'registro',
+        };
+      })(),
       // --- profilo ---
       profileOpen: S.profileOpen,
       toggleProfile: () => {
@@ -4487,8 +4567,6 @@ class Component extends DCLogic {
         // L'elenco utenze si carica dal server quando il pannello si apre, e solo
         // per gli amministratori: è l'API a decidere, ma non ha senso chiederlo
         // per poi mostrare un 403.
-        if (opening && S_user && S_user.ruolo === 'admin') { this._loadUsers(); this._loadStatus(); }
-        if (!opening) this.setState({ userEdit: null, userFormOpen: false, tempPw: null, tempPwCopied: false, usersError: '' });
       },
       closeProfile: () => this.setState({ profileOpen: false }),
       profDraft: S.profDraft || this._profOf(),
@@ -4534,6 +4612,8 @@ class Component extends DCLogic {
       loginModeForgot: S.loginMode === 'forgot',
       loginModeCode: S.loginMode === 'code',
       resetAvailable: !!S.resetAvailable,
+      resetUnavailable: !S.resetAvailable,
+      loginLinks: true,
       apriRecupero: () => this.setState(s => ({ loginMode: 'forgot', rcMsg: '', loginErr: '',
                                                rcUser: s.rcUser || s.loginEmail || '' })),
       apriCodice: () => this.setState(s => ({ loginMode: 'code', rcMsg: '', loginErr: '',
@@ -4687,8 +4767,12 @@ class Component extends DCLogic {
                                background: COL[it.stato] || COL.info } };
         });
         const ov = st ? st.overall : null;
+        const motivi = (st && st.items || []).filter(it => it.stato === 'warn' || it.stato === 'crit')
+                                             .map(it => it.nome);
         return {
           statoRows: rows,
+          statoMotivi: motivi.length ? 'Da controllare: ' + motivi.join(' · ') : '',
+          hasStatoMotivi: motivi.length > 0,
           statoBadge: ov ? LBL[ov] : 'caricamento…',
           statoBadgeStyle: { fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10,
                              color: '#ffffff', background: ov ? COL[ov] : '#57626f' },
@@ -4773,6 +4857,11 @@ class Component extends DCLogic {
                          mustChange: true },
             usersError: '', usersInfo: '' }),
           emailLabel: u.email ? u.email : 'nessuna email',
+          dettagli: [u.role === 'admin' ? 'Admin' : (u.role === 'edit' ? 'Operatore' : 'Visualizzazione'),
+                     [u.nome, u.cognome].filter(Boolean).join(' ') + (u.team ? ' · ' + u.team : ''),
+                     u.email ? u.email : 'nessuna email',
+                     'ultimo accesso ' + (u.lastLoginAt ? String(u.lastLoginAt).slice(0, 16).replace('T', ' ') : 'mai')]
+                    .filter(Boolean).join(' · '),
         };
       }),
 

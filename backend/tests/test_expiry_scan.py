@@ -246,7 +246,7 @@ def test_hostile_name_survives_as_plain_body_text():
     """Non si censura il nome: un dispositivo che si chiama `<b>` si chiama così.
     Si neutralizzano i CARATTERI DI CONTROLLO, non i caratteri sospetti."""
     msg = digest_of([i for i in scan() if i.entity_uid.endswith("30")])
-    body = msg.get_content()
+    body = msg.get_body(("plain",)).get_content()
     assert "<b>srv-x</b>" in body
     assert "\r" not in body.replace("\r\n", "\n")
 
@@ -283,7 +283,7 @@ def test_message_id_comes_from_the_caller():
 
 
 def test_digest_groups_by_kind():
-    body = digest_of(scan()).get_content()
+    body = digest_of(scan()).get_body(("plain",)).get_content()
     assert "GARANZIA" in body
     assert "CONTRATTO DI SUPPORTO" in body
     assert body.index("GARANZIA") < body.index("CONTRATTO DI SUPPORTO")
@@ -292,7 +292,7 @@ def test_digest_groups_by_kind():
 def test_digest_contains_only_safe_fields():
     """Nome, posizione, data e giorni. NON le note: sono testo libero che può
     contenere qualunque cosa e nessuno ha chiesto di spedirlo."""
-    body = digest_of(scan()).get_content()
+    body = digest_of(scan()).get_body(("plain",)).get_content()
     # Etichette dalla 2G: il sito e la sala compaiono col nome (§8.50.9).
     assert "srv-7" in body and "R01" in body and "Sala 1" in body
     assert "note" not in body.lower()
@@ -300,7 +300,7 @@ def test_digest_contains_only_safe_fields():
 
 
 def test_digest_says_expired_items_are_elsewhere():
-    body = digest_of(scan()).get_content()
+    body = digest_of(scan()).get_body(("plain",)).get_content()
     assert "già scadut" in body
 
 

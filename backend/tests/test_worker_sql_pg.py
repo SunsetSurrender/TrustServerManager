@@ -1450,7 +1450,7 @@ def test_a_retry_rebuilds_its_names_from_the_projection(db, engine, smtp):
     _sblocca_ritentativi(engine)
     risultato = wk.run_once(engine, now_utc=_at(TODAY, hour_utc=12))
     assert risultato.reason == "sent", risultato.reason
-    corpo = smtp.sent[-1].get_content()
+    corpo = smtp.sent[-1].get_body(("plain",)).get_content()
     assert "RINOMINATO" in corpo
 
 
@@ -1840,7 +1840,7 @@ def test_the_digest_body_carries_the_context_from_the_joins(db, engine, smtp):
     """Sito, sala e rack nel corpo del messaggio vengono dalle JOIN."""
     bootstrap(engine, CORPORA["tree"])
     assert wk.run_once(engine, now_utc=_at(TODAY)).reason == "sent"
-    corpo = smtp.sent[0].get_content()
+    corpo = smtp.sent[0].get_body(("plain",)).get_content()
     # ⚠ Le etichette, non i codici: dalla 2G la catena preferisce il nome mostrabile
     # (§9). Il corpus `tree` dà ai siti i nomi «Alfa» e «Beta» e alle sale «Sala A».
     with read_snapshot() as snap:
@@ -1872,7 +1872,7 @@ def test_a_hostile_name_from_the_projection_adds_no_header(db, engine, smtp):
     msg = smtp.sent[0]
     assert msg["Bcc"] is None
     assert len(msg.get_all("To") or []) == 1
-    assert "\r\nBcc:" not in msg.get_content()
+    assert "\r\nBcc:" not in msg.get_body(("plain",)).get_content()
 
 
 def test_an_empty_inventory_is_nothing_due_not_a_failure(db, engine, smtp):
@@ -1912,7 +1912,7 @@ def test_the_seed_inventory_produces_the_same_digest_from_both_sources(db, engin
                  for n, v in enumerate(voci)]
         return build_digest(finte, sender="ced@example.internal",
                             recipients=RECIPIENTS, message_id="<x@tsm.local>",
-                            now=ora, today=TODAY).get_content()
+                            now=ora, today=TODAY).get_body(("plain",)).get_content()
 
     assert corpo(dalla_proiezione) == corpo(dall_oracolo)
 

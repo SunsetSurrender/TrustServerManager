@@ -18,6 +18,7 @@ import sys
 from playwright.sync_api import sync_playwright
 
 import destructive_guard
+from ui_helpers import scheda
 
 ESITI: list[tuple[str, bool, str]] = []
 
@@ -85,6 +86,7 @@ def main() -> int:
         campo.fill("")
 
         # ---- soglia ----
+        scheda(adm, "sicurezza")
         sez = adm.locator("#sicurezza-accessi")
         check("riquadro «Sicurezza accessi» presente", sez.count() == 1)
         soglia = sez.locator("input[type=number]").first
@@ -100,6 +102,7 @@ def main() -> int:
         check("soglia 3 salvata", "Salvato." in sez.inner_text(), sez.inner_text())
 
         # ---- nuova utenza ----
+        scheda(adm, "utenti")
         adm.get_by_role("button", name="+ Utenza").click()
         adm.get_by_placeholder("utenza (es. m.rossi)").fill(utenza)
         adm.locator("#btn-crea-utenza").click()
@@ -152,11 +155,15 @@ def main() -> int:
                   usr.get_by_role("button", name="Esporta ▾").count() == 1, testo(usr)[:300])
 
         # ---- pulizia: soglia originale, utenza disattivata ----
+        scheda(adm, "sicurezza")
+        soglia = adm.locator("#sicurezza-accessi input[type=number]").first
+        sez = adm.locator("#sicurezza-accessi")
         soglia.fill(iniziale)
         sez.get_by_role("button", name="Salva").click()
         adm.wait_for_timeout(800)
         r = adm.request.get(base + "/api/security-policy")
         check("soglia ripristinata", r.ok and r.json()["maxFailedLogins"] == int(iniziale), r.text()[:200])
+        scheda(adm, "utenti")
         riga = adm.locator("div", has_text=utenza).filter(has=adm.get_by_role("button", name="Disattiva"))
         if riga.count():
             riga.last.get_by_role("button", name="Disattiva").click()

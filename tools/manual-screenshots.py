@@ -20,6 +20,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 import destructive_guard
+from ui_helpers import scheda
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "manuale" / "img"
 
@@ -122,17 +123,17 @@ def main() -> int:
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(2500)
         # tema chiaro: si legge meglio stampato (dopo il reload, che lo azzera)
-        page.get_by_role("button", name="⚙ Impostazioni").click()
-        page.wait_for_timeout(400)
-        page.get_by_role("button", name="Chiaro", exact=True).click()
-        page.wait_for_timeout(300)
-        page.get_by_role("button", name="⚙ Impostazioni").click()
-        page.wait_for_timeout(400)
-        shot("03-dashboard")                       # all'accesso si apre la Dashboard
-
         def vista(etichetta):
             page.get_by_role("button", name=re.compile("^" + etichetta)).first.click()
             page.wait_for_timeout(900)
+
+        scheda(page, "generale", 400)
+        page.get_by_role("button", name="Chiaro", exact=True).click()
+        page.wait_for_timeout(300)
+        page.get_by_role("button", name="⚙ Impostazioni").first.click()   # chiude la pagina
+        page.wait_for_timeout(400)
+        vista("Dashboard")
+        shot("03-dashboard")
 
         vista("Pianta")
         shot("04-pianta")
@@ -148,18 +149,24 @@ def main() -> int:
         shot("08-capacita")
         vista("Pianta")
 
-        # ---- profilo e utenze ----
+        # ---- profilo ----
         page.get_by_role("button", name="AD", exact=True).first.click()
         page.wait_for_timeout(1200)
         shot("09-profilo", full_page=True)
+        page.get_by_role("button", name="AD", exact=True).first.click()
+        page.wait_for_timeout(400)
+
+        # ---- pagina Impostazioni ----
+        scheda(page, "utenti", 1500)
+        shot("12-impostazioni")
         righe = page.locator("[data-tsm-reset]")
         if righe.count():
             righe.first.click()
             page.get_by_role("button", name="Scegli tu la password").click()
             shot("10-reimposta", el=page.locator("#form-reimposta-password"))
             page.locator("#form-reimposta-password").get_by_role("button", name="Annulla").click()
+        scheda(page, "stato", 1500)
         if page.locator("#stato-sistema").count():
-            page.wait_for_timeout(1200)
             shot("11-stato", el=page.locator("#stato-sistema"))
         b.close()
     return 0

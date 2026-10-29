@@ -16,6 +16,8 @@ networks:
     internal: true
   # Solo per ciò che deve essere raggiungibile dall'esterno (oggi: l'API).
   edge: {}
+  # Uscita del worker verso il relay SMTP (0.4.3). Nessun servizio vi pubblica porte.
+  egress: {}
 
 volumes:
   # Volume con nome, ma ANCORATO al secondo disco (§8.40).
@@ -132,7 +134,7 @@ services:
     logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.2
+    image: tsm-api:0.4.3
     # Applica le migrazioni E imposta la password del ruolo di runtime leggendola
     # dal secret: una password non può stare in una migrazione, che finisce nel
     # repository e nell'immagine.
@@ -160,7 +162,7 @@ services:
     logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.2
+    image: tsm-api:0.4.3
     networks: [internal, edge]
     # NESSUNA porta pubblicata (§8.34).
     #
@@ -273,11 +275,13 @@ services:
     logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.2
+    image: tsm-api:0.4.3
     command: ["python", "scripts/worker.py"]
-    # SOLO la rete interna: il worker parla con PostgreSQL e con il relay SMTP.
-    # NESSUNA porta pubblicata — non ha una superficie da raggiungere.
-    networks: [internal]
+    # Rete interna per PostgreSQL, più `egress` (0.4.3) per raggiungere il relay
+    # SMTP: `internal` non ha uscita per costruzione, e fino alla 0.4.2 gli avvisi
+    # di scadenza non potevano partire. `egress` è solo in USCITA: nessuna porta
+    # pubblicata, nessun altro servizio sopra.
+    networks: [internal, egress]
     depends_on:
       db:
         condition: service_healthy
@@ -375,7 +379,7 @@ services:
     build:
       context: .
       dockerfile: ./web/Dockerfile
-    image: tsm-web:0.4.2
+    image: tsm-web:0.4.3
     networks: [internal, edge]
     ports:
       # PORTE STANDARD sull'host: 80 e 443. Non è estetica (§8.31).

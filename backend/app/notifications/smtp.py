@@ -113,14 +113,38 @@ def build_test_message(sender: str, recipients: list[str],
         "di scadenza raggiungeranno questo indirizzo.\n\n"
         "Nessuna azione richiesta.\n"
     )
-    return msg
+    from app.notifications import mailtheme as T
+    locale = _ora_locale(now)
+    corpo = (T.titolo("Messaggio di prova", T.VERDE)
+             + T.p("Se stai leggendo questo messaggio, <strong>l'invio della posta funziona</strong>: "
+                   "gli avvisi di scadenza e i codici di recupero della password raggiungeranno "
+                   "questo indirizzo.")
+             + T.chiave_valore([("Richiesto da", T.esc(actor_username)),
+                                ("Inviato il", T.esc(locale))])
+             + T.avviso("Nessuna azione richiesta.", T.VERDE))
+    return T.con_html(msg, T.pagina(corpo, anteprima="L'invio della posta di TSM funziona.",
+                                    piede=T.PIEDE_STANDARD))
 
 
-def _connect(s, context: ssl.SSLContext | None):
+def _ora_locale(now: datetime | None = None) -> str:
+    """Data e ora in ora italiana, per chi legge (le intestazioni restano in UTC)."""
+    from zoneinfo import ZoneInfo
+    t = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/Rome"))
+    return t.strftime("%d/%m/%Y alle %H:%M") + " (ora italiana)"
+
+
+def relay_hosts(s=None) -> list[str]:
+    """I relay configurati, in ordine. `TSM_SMTP_HOST=legolas1,legolas2` (0.4.3)."""
+    s = s or get_settings()
+    return [h.strip() for h in (s.smtp_host or "").split(",") if h.strip()]
+
+
+def _connect(s, context: ssl.SSLContext | None, host: str | None = None):
+    host = host or relay_hosts(s)[0]
     if s.smtp_tls_mode == "tls":
-        return smtplib.SMTP_SSL(s.smtp_host, s.smtp_port,
+        return smtplib.SMTP_SSL(host, s.smtp_port,
                                 timeout=s.smtp_timeout_seconds, context=context)
-    return smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout_seconds)
+    return smtplib.SMTP(host, s.smtp_port, timeout=s.smtp_timeout_seconds)
 
 
 def tls_context(s) -> "ssl.SSLContext | None":
@@ -160,10 +184,26 @@ def deliver(msg: EmailMessage, *, what: str = "invio") -> None:
     s = get_settings()
     if not s.smtp_configured():
         raise SmtpNotConfigured()
-    context = tls_context(s)
+    hosts = relay_hosts(s)
+    # Failover fra relay (0.4.3): si passa al successivo SOLO se il precedente
+    # non è raggiungibile o non risponde. Un rifiuto (destinatari, mittente,
+    # credenziali, TLS) è una risposta, e il relay successivo darebbe la stessa.
+    for n, host in enumerate(hosts):
+        try:
+            _deliver_via(s, host, msg, what)
+            return
+        except SmtpSendFailed as exc:
+            if exc.reason in ("connection_failed", "timeout") and n + 1 < len(hosts):
+                log.warning("%s: relay %d di %d non disponibile (%s), provo il successivo",
+                            what, n + 1, len(hosts), exc.reason)
+                continue
+            raise
 
+
+def _deliver_via(s, host: str, msg: EmailMessage, what: str) -> None:
+    context = tls_context(s)
     try:
-        with _connect(s, context) as server:
+        with _connect(s, context, host) as server:
             if s.smtp_tls_mode == "starttls":
                 server.starttls(context=context)
                 server.ehlo()
@@ -258,4 +298,22 @@ def build_reset_message(sender: str, to: str, *, username: str, code: str,
                   "attuale resta valida. Se ricevi richieste che non hai fatto, "
                   "avvisa un amministratore.", ""]
     msg.set_content("\n".join(righe))
-    return msg
+    from app.notifications import mailtheme as T
+    corpo = (T.titolo("Reimposta la tua password")
+             + T.p(f"È stato chiesto di reimpostare la password dell'utenza {T.b(username)} "
+                   "su Trust Server Manager. Questo è il tuo codice:")
+             + T.codice(code)
+             + T.p(f"Vale <strong>{expires_minutes} minuti</strong> e si usa <strong>una sola "
+                   "volta</strong>.")
+             + T.sottotitolo("Come si usa")
+             + T.p("1. Nella schermata di accesso scegli <strong>«Password dimenticata?»</strong> "
+                   "e poi <strong>«Ho un codice»</strong>.<br>"
+                   "2. Inserisci utenza, codice e la nuova password (almeno 12 caratteri; "
+                   "una frase va benissimo).")
+             + (T.p("Se da qui puoi aprire l'applicazione, il pulsante compila già utenza e codice:")
+                + T.pulsante("Imposta la nuova password", link) if link else "")
+             + T.avviso("<strong>Non sei stato tu?</strong> Ignora questo messaggio: la password "
+                        "attuale resta valida. Se ricevi richieste che non hai fatto, avvisa un "
+                        "amministratore.", T.ROSSO))
+    return T.con_html(msg, T.pagina(corpo, anteprima=f"Codice di recupero: valido {expires_minutes} minuti.",
+                                    piede=T.PIEDE_STANDARD))

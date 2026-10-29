@@ -189,7 +189,7 @@ def audit_actions(engine):
 
 
 def bodies(smtp):
-    return [m.get_content() for m in smtp.sent]
+    return [m.get_body(("plain",)).get_content() for m in smtp.sent]
 
 
 # ==================================================================
@@ -266,7 +266,7 @@ def test_hostile_device_name_adds_no_header(db, engine, smtp):
     msg = smtp.sent[0]
     assert msg["Bcc"] is None
     assert "qualcuno@altrove.example" not in (msg["To"] or "")
-    assert "<b>srv-x</b>" in msg.get_content()
+    assert "<b>srv-x</b>" in msg.get_body(("plain",)).get_content()
 
 
 # ==================================================================

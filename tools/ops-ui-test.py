@@ -18,6 +18,7 @@ import sys
 from playwright.sync_api import sync_playwright
 
 import destructive_guard
+from ui_helpers import scheda
 
 ESITI = []
 
@@ -69,6 +70,7 @@ def main() -> int:
               == ("Prova", "06 555 0101", "prova.admin@example.it"), me)
 
         # ---- stato del sistema ----
+        scheda(page, "stato")
         stato = page.locator("#stato-sistema")
         page.wait_for_timeout(800)
         testo = stato.inner_text() if stato.count() else ""
@@ -78,6 +80,7 @@ def main() -> int:
             check(f"stato: voce «{voce}»", voce in testo, testo[:400])
 
         # ---- inattività: impostazione ----
+        scheda(page, "sicurezza")
         sez = page.locator("#sicurezza-accessi")
         idle = sez.locator('input[type="number"]').nth(1)
         idle.fill("10")

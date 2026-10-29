@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 import destructive_guard  # noqa: E402
+from ui_helpers import scheda  # noqa: E402
 
 try:
     from playwright.sync_api import sync_playwright
@@ -69,8 +70,8 @@ def login(page, base, username, password):
 
 
 def apri_impostazioni(page):
-    page.get_by_role("button", name="Impostazioni").first.click()
-    page.wait_for_timeout(2500)
+    # Dalla 0.4.3 le notifiche sono una scheda della pagina Impostazioni.
+    scheda(page, "notifiche", 2500)
 
 
 def api(page, base, method, path, body=None, headers=None):

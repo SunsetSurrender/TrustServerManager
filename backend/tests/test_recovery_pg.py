@@ -258,7 +258,7 @@ def test_mail_text_never_contains_a_password():
     m = build_reset_message("tsm@example.it", "op@example.it", username="op",
                             code="ABCD-EFGH-JKMN", expires_minutes=30,
                             link="https://10.11.43.230/#reset?u=op&c=ABCD-EFGH-JKMN")
-    body = m.get_content()
+    body = m.get_body(("plain",)).get_content()
     assert "ABCD-EFGH-JKMN" in body and "30 minuti" in body
     assert m["To"] == "op@example.it"
 

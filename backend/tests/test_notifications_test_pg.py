@@ -206,7 +206,7 @@ def test_subject_and_body_are_server_defined(client, smtp):
     msg = smtp.inviati[0]
     assert msg["Subject"] == "Trust Server Manager — messaggio di prova"
     assert msg["From"] == "ced@example.internal"
-    testo = msg.get_content()
+    testo = msg.get_body(("plain",)).get_content()
     assert "capo" in testo, "chi riceve deve capire da chi arriva"
     assert "prova" in testo.lower()
 

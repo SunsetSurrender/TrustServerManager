@@ -60,6 +60,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import destructive_guard                                        # noqa: E402
+from ui_helpers import scheda                                  # noqa: E402
 
 try:
     from playwright.sync_api import sync_playwright
@@ -250,8 +251,7 @@ def main() -> int:
                 # tabellare, e va aperto perché gli input esistano. Selettore su accept
                 # ESATTO: `accept*=".json"` peschererebbe anche l'input del "confronto
                 # rilievi" (.json,.csv,.xlsx), che fa una cosa diversa.
-                page.get_by_role("button", name="⚙ Impostazioni").click()
-                page.wait_for_timeout(600)
+                scheda(page, "importa", 600)
                 json_input = page.locator('input[type="file"][accept=".json"]')
                 check("input import JSON trovato", json_input.count() == 1, f"{json_input.count()}")
                 json_input.first.set_input_files(str(prepared))
@@ -276,8 +276,7 @@ def main() -> int:
                 # aprirlo l'input non esiste affatto, e un selettore per accept*=".xlsx"
                 # finirebbe sull'input del "confronto rilievi", che accetta anch'esso
                 # .xlsx ma fa una cosa completamente diversa.
-                page.get_by_role("button", name="⚙ Impostazioni").click()
-                page.wait_for_timeout(600)
+                scheda(page, "importa", 600)
                 import_input = page.locator('input[type="file"][accept=".csv,.xlsx"]')
                 check("pannello import aperto", import_input.count() == 1,
                       f"{import_input.count()} input trovati")

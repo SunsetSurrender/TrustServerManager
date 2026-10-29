@@ -124,4 +124,53 @@ def build_digest(selected: list[dict], *, sender: str, recipients: list[str],
     # ciò che evita un ciclo fra un fuori-sede e questo indirizzo.
     msg["Auto-Submitted"] = "auto-generated"
     msg.set_content("\n".join(parti))
-    return msg
+    return _con_html(msg, by_kind, total, today)
+
+
+def _con_html(msg: EmailMessage, by_kind: dict, total: int, today: date) -> EmailMessage:
+    """La versione HTML del digest: stesse voci del testo, in tabella, con l'urgenza a
+    colori. I valori dell'inventario passano tutti da `T.esc` (oltre che da
+    `sanitise_field`): un nome di dispositivo è testo, mai markup."""
+    from app.notifications import mailtheme as T
+
+    def colore(giorni: int) -> str:
+        return T.ROSSO if giorni <= 7 else (T.AMBRA if giorni <= 30 else T.VERDE)
+
+    def quando(giorni: int) -> str:
+        return "oggi" if giorni == 0 else ("domani" if giorni == 1 else f"fra {giorni} giorni")
+
+    urgenti = sum(1 for es in by_kind.values() for e in es if e["item"].days_remaining <= 7)
+    corpo = [T.titolo(f"{total} {'scadenza' if total == 1 else 'scadenze'} in avvicinamento"),
+             T.p(f"Riepilogo del controllo del <strong>{today.strftime('%d/%m/%Y')}</strong>. "
+                 "Le voci sono ordinate per urgenza."
+                 + (f" <strong style=\"color:{T.ROSSO}\">{urgenti} "
+                    f"{'scade' if urgenti == 1 else 'scadono'} entro 7 giorni.</strong>"
+                    if urgenti else ""))]
+    for kind in ("garanzia", "supporto"):
+        entries = by_kind.get(kind)
+        if not entries:
+            continue
+        corpo.append(T.sottotitolo(f"{KIND_LABEL[kind]} · {len(entries)}"))
+        righe, colori = [], []
+        for e in sorted(entries, key=lambda e: (e["item"].days_remaining, e["item"].device)):
+            it = e["item"]
+            c = colore(it.days_remaining)
+            righe.append([
+                f"<strong>{T.esc(it.expiry.strftime('%d/%m/%Y'))}</strong><br>"
+                f"<span style=\"color:{c};font-weight:600\">{T.esc(quando(it.days_remaining))}</span>",
+                f"<strong>{T.esc(sanitise_field(it.device))}</strong>",
+                T.esc(f"{sanitise_field(it.location)} / {sanitise_field(it.room)}")
+                + f"<br>rack <strong>{T.esc(sanitise_field(it.rack))}</strong>",
+                T.esc(f"{e['threshold_days']} giorni"),
+            ])
+            colori.append(c)
+        corpo.append(T.tabella(["Scadenza", "Dispositivo", "Posizione", "Preavviso"], righe, colori))
+    corpo.append(T.avviso(
+        "Gli elementi <strong>già scaduti</strong> non sono in questo elenco: si consultano "
+        "nella vista <strong>Scadenze</strong> dell'applicazione. Finestre di preavviso e "
+        "destinatari si cambiano in <strong>Impostazioni → Notifiche</strong>.", T.BLU))
+    return T.con_html(msg, T.pagina(
+        "".join(corpo),
+        anteprima=f"{total} scadenze in avvicinamento"
+                  + (f", {urgenti} entro 7 giorni" if urgenti else ""),
+        piede=T.PIEDE_STANDARD))

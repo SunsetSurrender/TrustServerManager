@@ -194,7 +194,7 @@ def consegne(engine):
 
 
 def corpi(smtp):
-    return [m.get_content() for m in smtp.sent]
+    return [m.get_body(("plain",)).get_content() for m in smtp.sent]
 
 
 def _ripulito(valore: str) -> str:

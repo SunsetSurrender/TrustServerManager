@@ -90,7 +90,7 @@ giro() {
     mkdir -p "$POSTA"
     chown -R 10001:10001 "$POSTA"
     docker run -d --name tsm-qual-sink --network tsm_internal --network-alias sink \
-        -v "$APP":/w:ro -v "$POSTA":/posta tsm-api:0.4.2 \
+        -v "$APP":/w:ro -v "$POSTA":/posta tsm-api:0.4.3 \
         python /w/tools/smtp-sink.py --dir /posta --port 2525 \
         --fail-first "$fallire" >/dev/null
     sleep 3
@@ -116,7 +116,7 @@ giro() {
         -e TSM_SMTP_HOST=sink -e TSM_SMTP_PORT=2525 -e TSM_SMTP_TLS_MODE=none \
         -e TSM_SMTP_SENDER=tsm@example.invalid \
         -e TSM_SMTP_USERNAME= -e TSM_SMTP_PASSWORD_FILE=/run/secrets/smtp_password \
-        tsm-api:0.4.2 python -c "
+        tsm-api:0.4.3 python -c "
 from datetime import datetime, timezone
 from app.db import get_engine
 from app.notifications.worker import run_once

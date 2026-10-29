@@ -126,8 +126,13 @@ check("il worker esegue lo script del worker, non uvicorn",
       str(worker.get("command")))
 worker_networks = set((worker.get("networks") or {}).keys()) \
     if isinstance(worker.get("networks"), dict) else set(worker.get("networks") or [])
-check("il worker è SOLO sulla rete interna, quella di PostgreSQL",
-      worker_networks == {"internal"}, str(worker_networks))
+# Dalla 0.4.3 anche `egress`, sola uscita verso il relay SMTP: senza, gli avvisi
+# di scadenza non partivano (la rete `internal` non ha uscita).
+check("il worker è sulla rete interna e su quella di sola uscita",
+      worker_networks == {"internal", "egress"}, str(worker_networks))
+check("sulla rete di uscita non c'è nessun altro servizio",
+      [n for n, sv in cfg["services"].items()
+       if "egress" in (sv.get("networks") or {}) and n != "worker"] == [])
 check("il worker dichiara una sola replica",
       ((worker.get("deploy") or {}).get("replicas")) == 1,
       str((worker.get("deploy") or {}).get("replicas")))

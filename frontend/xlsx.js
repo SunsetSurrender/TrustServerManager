@@ -151,8 +151,29 @@ function primoFoglio(parts) {
   return fogli[0];
 }
 
-// ---- Lettura: restituisce { intestazioni, righe } del primo foglio ----
-export async function leggiXlsx(buffer) {
+/** Il foglio con quel NOME (es. «Seriali rack»), oppure null. */
+function foglioPerNome(parts, nome) {
+  const wb = parts['xl/workbook.xml'] || '';
+  const rels = parts['xl/_rels/workbook.xml.rels'] || '';
+  for (const m of wb.matchAll(/<sheet\b[^>]*>/g)) {
+    const n = decodifica((m[0].match(/\bname="([^"]*)"/) || [])[1] || '');
+    if (n.trim().toLowerCase() !== String(nome).trim().toLowerCase()) continue;
+    const rid = (m[0].match(/\br:id="([^"]+)"/) || [])[1];
+    for (const rel of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = (rel[0].match(/\bId="([^"]+)"/) || [])[1];
+      let target = (rel[0].match(/\bTarget="([^"]+)"/) || [])[1];
+      if (id !== rid || !target) continue;
+      target = target.startsWith('/') ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '');
+      if (parts[target]) return target;
+    }
+  }
+  return null;
+}
+
+// ---- Lettura: restituisce { intestazioni, righe, foglio } ----
+// Senza `opzioni.foglio` legge il primo foglio. Con `opzioni.foglio` legge quello
+// con quel nome se c'è, altrimenti il primo (`foglio` nel risultato dice quale).
+export async function leggiXlsx(buffer, opzioni = {}) {
   const parts = await unzip(buffer);
   const shared = [];
   const ss = parts['xl/sharedStrings.xml'];
@@ -163,7 +184,8 @@ export async function leggiXlsx(buffer) {
       shared.push(decodifica(texts.join('')));
     }
   }
-  const sheetName = primoFoglio(parts);
+  const perNome = opzioni.foglio ? foglioPerNome(parts, opzioni.foglio) : null;
+  const sheetName = perNome || primoFoglio(parts);
   if (!sheetName) throw new Error('nessun foglio trovato');
   const xml = parts[sheetName];
   const rows = [];
@@ -197,5 +219,6 @@ export async function leggiXlsx(buffer) {
     rows.push(Array.from(cells, x => x == null ? '' : x));
   }
   const intestazioni = (rows.shift() || []).map(x => String(x).trim());
-  return { intestazioni, righe: rows.filter(r => r.some(c => String(c).trim())) };
+  return { intestazioni, righe: rows.filter(r => r.some(c => String(c).trim())),
+           foglio: perNome ? opzioni.foglio : null };
 }

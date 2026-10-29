@@ -192,8 +192,11 @@ all_devices = [
     ((v.get("driver_opts") or {}).get("device") or "")
     for v in (cfg.get("volumes") or {}).values()
 ]
-check("solo pgdata punta al disco dei dati",
-      [d for d in all_devices if d.startswith(DATA_MOUNT)] == [PG_DIR],
+# Dalla 0.4.2 anche i dump notturni stanno sul disco dei dati, nella directory
+# sorella `backups`: sono dati, e devono sparire con il disco se il disco manca.
+check("sul disco dei dati solo pgdata e i dump",
+      sorted(d for d in all_devices if d.startswith(DATA_MOUNT))
+      == sorted([PG_DIR, DATA_MOUNT + "/backups"]),
       str(all_devices))
 check("nessun servizio monta /var/lib/docker",
       not any("/var/lib/docker" in json.dumps(s.get("volumes") or [])
@@ -336,7 +339,7 @@ check("il runbook di produzione esiste", doc_path.is_file())
 doc = doc_path.read_text(encoding="utf-8") if doc_path.is_file() else ""
 
 for needle, why in [
-    ("tsm-prd-01", "hostname della macchina"),
+    ("tsm-prd", "hostname della macchina"),
     ("blkid", "scoperta dell'UUID"),
     ("UUID=", "fstab per UUID"),
     ("mount -a", "applicazione di fstab"),
@@ -1111,12 +1114,19 @@ check("la riscrittura sta nella transazione della richiesta",
 
 # --- provvisorie ---
 users_src = code_only(ROOT / "backend" / "app" / "auth" / "users.py")
+# Dalla 0.4.1 la provvisoria è a gruppi di caratteri non ambigui (si ridigita dal
+# web gateway): l'entropia si calcola da alfabeto e lunghezza, non dai byte.
+import math as _math
+_alf = re.search(r"^TEMP_PASSWORD_ALPHABET = ['\"]([^'\"]+)['\"]", pw_src, re.M)
+_grp = re.search(r"^TEMP_PASSWORD_GROUPS = (\d+)", pw_src, re.M)
+_len = re.search(r"^TEMP_PASSWORD_GROUP_LEN = (\d+)", pw_src, re.M)
+_bit = (int(_grp.group(1)) * int(_len.group(1)) * _math.log2(len(set(_alf.group(1))))
+        if _alf and _grp and _len else 0)
 check("le password provvisorie vengono da un CSPRNG con almeno 128 bit",
-      "TEMP_PASSWORD_BYTES = 24" in pw_src and "secrets.token_urlsafe" in pw_src,
-      "24 byte = 192 bit. `random` è deterministico e non va mai vicino a una "
-      "credenziale")
+      _bit >= 128 and "secrets.choice" in pw_src and "random." not in pw_src,
+      f"{_bit:.0f} bit. `random` è deterministico e non va mai vicino a una credenziale")
 check("la generazione della provvisoria vive accanto alla politica",
-      "TEMP_PASSWORD_BYTES" not in users_src
+      "TEMP_PASSWORD_" not in users_src
       and "generate_temporary_password" in users_src,
       "erano 12 byte — 96 bit, sotto il minimo — proprio perché quel numero stava "
       "lontano dalla lunghezza minima delle password")
@@ -1154,8 +1164,8 @@ check("le rotte non accettano una password scelta dall'amministratore",
 
 # --- il numero della lunghezza minima esiste in un posto solo ---
 min_length = int(re.search(r"^MIN_LENGTH = (\d+)", pw_src, re.M).group(1))
-check("la lunghezza minima è 15 code point",
-      min_length == 15)
+check("la lunghezza minima è 12 code point",
+      min_length == 12)
 # Sulla CLASSE, non sul file: `LoginIn` usa `min_length=1` sullo username, che è
 # un limite di dimensione e non una regola di politica.
 password_in = class_source(ROOT / "backend" / "app" / "api" / "auth.py", "PasswordIn")
@@ -1169,7 +1179,7 @@ check("la rotta non duplica la lunghezza minima",
 frontend = (ROOT / "frontend" / "Sala Server v2.dc.html").read_text(encoding="utf-8")
 check("il suggerimento del frontend coincide con la politica",
       f"min. {min_length} caratteri" in frontend
-      and f"nuova.length < {min_length}" in frontend
+      and f"const PW_MIN_LENGTH = {min_length};" in frontend
       and "min. 10 caratteri" not in frontend and "(min 8)" not in frontend,
       f"un numero diverso nell'interfaccia fa vedere all'utente un errore che il "
       f"client non aveva previsto (atteso {min_length})")
@@ -2593,11 +2603,16 @@ if QUAL_BUILD.is_file():
 
 # --- niente migrazioni e niente privilegi nuovi ---
 _migrazioni = sorted((ROOT / "backend" / "migrations" / "versions").glob("0*.py"))
-check("la fase 2I non aggiunge nessuna migrazione",
-      len(_migrazioni) == 13 and _migrazioni[-1].name.startswith("0013"),
-      f"trovate {len(_migrazioni)} migrazioni, l'ultima {_migrazioni[-1].name if _migrazioni else '-'}: "
-      f"una baseline e' dati, non schema, e non ha nessuna ragione di cambiare le "
-      f"tabelle o i privilegi")
+# La fase 2I (baseline) si fermava alla 0013. Le successive sono rilasci
+# applicativi DICHIARATI qui uno per uno: una migrazione nuova è una decisione da
+# scrivere in questa lista, non una che passa inosservata.
+_DOPO_2I = ["0014_account_lockout.py", "0015_account_recovery.py", "0016_auth_purge.py",
+            "0017_idle_and_dumps.py"]
+_nomi = [p.name for p in _migrazioni]
+check("dopo la fase 2I solo le migrazioni dichiarate",
+      len(_nomi) == 13 + len(_DOPO_2I) and _nomi[12].startswith("0013")
+      and _nomi[13:] == _DOPO_2I,
+      f"trovate {len(_nomi)} migrazioni, dopo la 0013: {_nomi[13:]} (attese {_DOPO_2I})")
 
 # --- la documentazione operativa ---
 _deploy = (ROOT / "deploy" / "README.md").read_text(encoding="utf-8")

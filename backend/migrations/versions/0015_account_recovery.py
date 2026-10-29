@@ -13,7 +13,7 @@ Tre cose:
    il link della mail spesso non si può aprire dove la mail si legge: il codice
    si ricopia a mano.
 
-3. `security_policy.password_reset_enabled`: l'amministratore può spegnere il
+3. `security_policy.recovery_enabled`: l'amministratore può spegnere il
    recupero dall'interfaccia. Acceso per impostazione predefinita, ma senza SMTP
    configurato non fa comunque niente.
 
@@ -46,7 +46,7 @@ def upgrade() -> None:
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True,
                   server_default=sa.text("gen_random_uuid()")),
         sa.Column("user_id", pg.UUID(as_uuid=True),
-                  sa.ForeignKey("users.id"), nullable=False),
+                  sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("code_hash", sa.Text, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True),
                   server_default=sa.text("now()"), nullable=False),
@@ -63,7 +63,7 @@ def upgrade() -> None:
                     ["user_id", "created_at"])
 
     op.add_column("security_policy", sa.Column(
-        "password_reset_enabled", sa.Boolean, nullable=False,
+        "recovery_enabled", sa.Boolean, nullable=False,
         server_default=sa.text("true")))
 
     # Niente DELETE: i codici usati o scaduti restano come traccia, e il ruolo
@@ -73,7 +73,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("security_policy", "password_reset_enabled")
+    op.drop_column("security_policy", "recovery_enabled")
     op.drop_index("ix_recovery_codes_user", table_name="recovery_codes")
     op.drop_table("recovery_codes")
     op.drop_constraint("ck_users_email", "users", type_="check")

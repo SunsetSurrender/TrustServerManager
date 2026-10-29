@@ -49,7 +49,7 @@ def db(engine):
         c.execute(text("DELETE FROM audit"))
         c.execute(text("DELETE FROM users"))
         c.execute(text("UPDATE security_policy SET max_failed_logins = 5, "
-                       "password_reset_enabled = TRUE, updated_by = NULL WHERE id = 1"))
+                       "recovery_enabled = TRUE, updated_by = NULL WHERE id = 1"))
         create_user(c, "op", "password-lunga-1", "edit", must_change_pw=False)
         create_user(c, "capo", "password-lunga-3", "admin", must_change_pw=False)
         c.execute(text("UPDATE users SET email = 'op@example.it' WHERE username = 'op'"))

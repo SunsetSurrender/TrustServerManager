@@ -407,6 +407,10 @@
                 <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Analizza file CSV o Excel…
                   <input type="file" accept=".csv,.xlsx" onChange="{{ onImportCsv }}" style="display:none">
                 </label>
+                <button onClick="{{ scaricaSerialiRack }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; text-align:left" style-hover="border-color:var(--d3a4552)">↓ Scarica foglio «Seriali rack» da compilare</button>
+                <label style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Public Sans',sans-serif; font-size:12px; cursor:pointer; display:block" style-hover="border-color:var(--d3a4552)">↑ Importa seriali rack (Excel)…
+                  <input type="file" accept=".xlsx" onChange="{{ onImportSeriali }}" style="display:none">
+                </label>
                 <sc-if value="{{ impPreviewOpen }}" hint-placeholder-val="{{ false }}">
                   <div style="border:1px solid var(--d2b333d); border-radius:6px; background:var(--d0c0f13); padding:10px; display:flex; flex-direction:column; gap:6px">
                     <div style="font-size:11.5px; font-weight:700; color:var(--dd7dde4)">{{ impFileName }}</div>
@@ -708,13 +712,16 @@
                   <input name="telefono" value="{{ profDraft.telefono }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
                 </label>
                 <label style="font-size:11px; color:var(--d7c8794)">Team / reparto
-                  <input name="team" value="{{ profDraft.team }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
+                  <input name="team" value="{{ profDraft.team }}" disabled="{{ profTeamLocked }}" title="Il team lo imposta un amministratore" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:'Public Sans',sans-serif; font-size:13px; margin-top:4px">
+                </label>
+                <label style="font-size:11px; color:var(--d7c8794); grid-column:1 / -1">Email (serve al recupero della password)
+                  <input name="email" type="email" value="{{ profDraft.email }}" onChange="{{ onProfChange }}" style="width:100%; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:6px; color:var(--de6ecf2); padding:8px 10px; font-family:inherit; font-size:12.5px">
                 </label>
               </div>
               <div style="display:flex; align-items:center; gap:10px">
                 <button onClick="{{ saveProf }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:8px 18px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit" style-hover="filter:brightness(1.12)">Salva dati</button>
                 <sc-if value="{{ hasProfMsg }}" hint-placeholder-val="{{ false }}">
-                  <span style="font-size:12px; color:#3ddc84">{{ profMsg }}</span>
+                  <span style="{{ profMsgStyle }}">{{ profMsg }}</span>
                 </sc-if>
               </div>
             </div>
@@ -740,7 +747,7 @@
             <div style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:12px">
               <div style="display:flex; align-items:center; gap:10px">
                 <div style="flex:1; font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">UTENTI E PRIVILEGI</div>
-                <button onClick="{{ usersReload }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; font-family:inherit">Aggiorna</button>
+                <button id="btn-aggiorna-utenze" onClick="{{ usersReload }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; font-family:inherit">Aggiorna</button>
                 <button onClick="{{ toggleUserForm }}" style="background:var(--d1a2a27); color:var(--accent); border:1px solid var(--d2c4a45); border-radius:6px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit">+ Utenza</button>
               </div>
 
@@ -756,7 +763,9 @@
                 <span style="font-weight:700; color:var(--dd7dde4)">Sicurezza accessi</span>
                 <span>blocca l'utenza dopo</span>
                 <input type="number" min="{{ secMin }}" max="{{ secMax }}" value="{{ secDraft }}" onChange="{{ onSecDraft }}" style="width:56px; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:4px 6px; font-family:'Roboto Mono',monospace; font-size:12px">
-                <span>accessi falliti consecutivi ({{ secMin }}–{{ secMax }})</span>
+                <span>accessi falliti consecutivi ({{ secMin }}–{{ secMax }}); esci dopo</span>
+                <input type="number" min="0" max="720" value="{{ secIdleDraft }}" onChange="{{ onSecIdle }}" style="width:62px; box-sizing:border-box; background:var(--d10141a); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:4px 6px; font-family:'Roboto Mono',monospace; font-size:12px">
+                <span>minuti di inattività (0 = mai, altrimenti 15–720)</span>
                 <button onClick="{{ saveSecPolicy }}" disabled="{{ secSaveDisabled }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:5px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit">Salva</button>
                 <span id="sicurezza-accessi-esito" style="{{ secMsgStyle }}">{{ secMsg }}</span>
                 <div style="flex-basis:100%; display:flex; align-items:center; gap:8px; margin-top:2px">
@@ -830,6 +839,25 @@
               </div>
 
               <div style="font-size:10.5px; color:var(--d57626f); line-height:1.5">Le utenze non si cancellano: si disattivano, così il registro delle modifiche resta attribuibile. Le regole (ultimo amministratore, sé stessi) sono applicate dal server.</div>
+            </div>
+            <div id="stato-sistema" style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:8px; margin-top:16px">
+              <div style="display:flex; align-items:center; gap:10px">
+                <div style="flex:1; font-size:12.5px; font-weight:700; letter-spacing:0.06em; color:var(--d8a94a2)">STATO DEL SISTEMA</div>
+                <span style="{{ statoBadgeStyle }}">{{ statoBadge }}</span>
+                <button onClick="{{ statoReload }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; font-family:inherit">Aggiorna</button>
+              </div>
+              <sc-if value="{{ hasStatoErr }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:11.5px; color:#ff5c5c">{{ statoErr }}</div>
+              </sc-if>
+              <sc-for list="{{ statoRows }}" as="sr" hint-placeholder-count="0">
+                <div style="{{ sr.rowStyle }}">
+                  <span style="width:110px; flex-shrink:0; font-size:10.5px; letter-spacing:0.04em; color:var(--d57626f); text-transform:uppercase">{{ sr.gruppo }}</span>
+                  <span style="{{ sr.dotStyle }}"></span>
+                  <span style="width:210px; flex-shrink:0; color:var(--dd7dde4)">{{ sr.nome }}</span>
+                  <span style="flex:1; min-width:0; color:var(--d8a94a2); font-family:'Roboto Mono',monospace; font-size:11px; overflow-wrap:anywhere">{{ sr.valore }}</span>
+                </div>
+              </sc-for>
+              <div style="font-size:10.5px; color:var(--d57626f)">{{ statoGenerato }}</div>
             </div>
           </sc-if>
 
@@ -1653,7 +1681,7 @@ class Component extends DCLogic {
             usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
-            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', loginMode: 'login', rcUser: '', rcCode: '', rcBusy: false, rcMsg: '', rcMsgErr: false, resetAvailable: false, pwNew2: '', forceCurKnown: false, userReset: null, usersInfo: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', sysStatus: null, sysStatusErr: '', secIdleDraft: '', loginMode: 'login', rcUser: '', rcCode: '', rcBusy: false, rcMsg: '', rcMsgErr: false, resetAvailable: false, pwNew2: '', forceCurKnown: false, userReset: null, usersInfo: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
             // --- interrogazioni relazionali (fase 2H) ---
             //
             // Uno slot per interrogazione, sempre della stessa forma:
@@ -2185,6 +2213,13 @@ class Component extends DCLogic {
   componentDidMount() {
     this._syncTheme();
     this._boot();
+    // Attività dell'utente per l'uscita per inattività (0.4.2).
+    this._lastActivity = Date.now();
+    this._onActivity = () => { this._lastActivity = Date.now(); };
+    for (const ev of ['mousedown', 'keydown', 'wheel', 'touchstart']) {
+      window.addEventListener(ev, this._onActivity, { passive: true, capture: true });
+    }
+    this._idleTimer = setInterval(() => this._idleTick(), 30000);
     this._onKey = (e) => {
       const ae = document.activeElement;
       // Ctrl/Cmd+Z = annulla, Ctrl+Y o Ctrl/Cmd+Shift+Z = ripristina (non dentro i campi di testo)
@@ -2234,7 +2269,13 @@ class Component extends DCLogic {
     };
     window.addEventListener('keydown', this._onKey);
   }
-  componentWillUnmount() { window.removeEventListener('keydown', this._onKey); }
+  componentWillUnmount() {
+    window.removeEventListener('keydown', this._onKey);
+    for (const ev of ['mousedown', 'keydown', 'wheel', 'touchstart']) {
+      window.removeEventListener(ev, this._onActivity, { capture: true });
+    }
+    clearInterval(this._idleTimer);
+  }
 
   static manual() {
     const B = (titolo, ...paragrafi) => ({ titolo, paragrafi });
@@ -2399,10 +2440,48 @@ class Component extends DCLogic {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  /** Dati personali dalla sessione (GET /api/auth/me), non dal documento. */
   _profOf() {
-    const em = ((this.state.session && this.state.session.username) || '').toLowerCase();
-    const u = (((this.state.data || {}).utenti) || []).find(x => (x.email || '').toLowerCase() === em) || {};
-    return { nome: u.nome || '', cognome: u.cognome || '', telefono: u.telefono || '', team: u.team || '' };
+    const u = this.state.session || {};
+    return { nome: u.nome || '', cognome: u.cognome || '', telefono: u.telefono || '',
+             team: u.team || '', email: u.email || '' };
+  }
+
+  async _saveProfile() {
+    const p = this.state.profDraft || this._profOf();
+    const t = (x) => (x || '').trim() || null;
+    try {
+      const me = await API.updateMyProfile({ nome: t(p.nome), cognome: t(p.cognome),
+                                             telefono: t(p.telefono), email: t(p.email) });
+      this.setState(s => ({ session: { ...(s.session || {}), ...me }, profDraft: null,
+                            profMsg: 'Dati salvati.', profMsgErr: false }));
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ profMsg: d.titolo + ' — ' + d.testo, profMsgErr: true });
+    }
+  }
+
+  /** Stato del sistema (solo amministratori). */
+  async _loadStatus() {
+    try {
+      const st = await API.getSystemStatus();
+      this.setState({ sysStatus: st, sysStatusErr: '' });
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ sysStatusErr: d.titolo + ' — ' + d.testo });
+    }
+  }
+
+  /** Uscita per inattività lato client: la regola vera è del server, qui si
+   *  evita di lasciare l'interfaccia aperta su un dato che non è più accessibile. */
+  _idleTick() {
+    const S = this.state;
+    const min = (S.session && S.session.idleTimeoutMinutes) || 0;
+    if (!min || !S.session) return;
+    if (Date.now() - (this._lastActivity || Date.now()) > min * 60000) {
+      this._doLogout().then(() => this.setState({
+        loginErr: 'Sessione chiusa dopo ' + min + ' minuti di inattività. Accedi di nuovo.' }));
+    }
   }
 
   // Nessun confronto di password lato client, e nessun ripiego che concede
@@ -2843,6 +2922,7 @@ class Component extends DCLogic {
       ]);
       this.setState({ usersList: rows, usersLoading: false, usersError: '',
                       secPolicy: pol, secDraft: pol ? String(pol.maxFailedLogins) : '',
+                      secIdleDraft: pol ? String(pol.idleTimeoutMinutes) : '',
                       secMsg: '' });
     } catch (err) {
       this.setState({ usersLoading: false, usersList: [] });
@@ -2945,10 +3025,17 @@ class Component extends DCLogic {
       this.setState({ secMsg: 'Inserisci un numero intero fra ' + lo + ' e ' + hi + '.', secMsgErr: true });
       return;
     }
+    const rawIdle = String(this.state.secIdleDraft || '').trim();
+    const idle = Number(rawIdle);
+    if (!/^[0-9]+$/.test(rawIdle) || (idle !== 0 && (idle < 15 || idle > 720))) {
+      this.setState({ secMsg: 'Inattività: 0 (mai) oppure un numero fra 15 e 720 minuti.', secMsgErr: true });
+      return;
+    }
     this.setState({ secBusy: true, secMsg: '' });
     try {
-      const out = await API.putSecurityPolicy({ maxFailedLogins: n });
+      const out = await API.putSecurityPolicy({ maxFailedLogins: n, idleTimeoutMinutes: idle });
       this.setState({ secPolicy: out, secDraft: String(out.maxFailedLogins),
+                      secIdleDraft: String(out.idleTimeoutMinutes),
                       secMsg: 'Salvato.', secMsgErr: false });
     } catch (err) {
       const d = API.describeError(err);
@@ -4400,23 +4487,16 @@ class Component extends DCLogic {
         // L'elenco utenze si carica dal server quando il pannello si apre, e solo
         // per gli amministratori: è l'API a decidere, ma non ha senso chiederlo
         // per poi mostrare un 403.
-        if (opening && S_user && S_user.ruolo === 'admin') this._loadUsers();
+        if (opening && S_user && S_user.ruolo === 'admin') { this._loadUsers(); this._loadStatus(); }
         if (!opening) this.setState({ userEdit: null, userFormOpen: false, tempPw: null, tempPwCopied: false, usersError: '' });
       },
       closeProfile: () => this.setState({ profileOpen: false }),
       profDraft: S.profDraft || this._profOf(),
       profNomeCompleto: (() => { const p = S.profDraft || this._profOf(); return [p.nome, p.cognome].filter(Boolean).join(' ') || (S_user ? S_user.email : ''); })(),
       onProfChange: (e) => { const { name, value } = e.target; this.setState(s => ({ profDraft: { ...(s.profDraft || this._profOf()), [name]: value }, profMsg: '' })); },
-      saveProf: () => {
-        const p = this.state.profDraft || {};
-        const next = JSON.parse(JSON.stringify(data));
-        // I dati personali NON vivono più nel documento: stanno nella tabella
-        // `users`. La modifica dal profilo arriverà con PATCH /api/users/{id};
-        // per ora non si fa credere che salvi.
-        this.setState({ profMsg: 'I dati personali sono gestiti dagli amministratori.' });
-        return;
-        this.setState({ profMsg: 'Dati salvati.' });
-      },
+      saveProf: () => { this._saveProfile(); },
+      profTeamLocked: true,
+      profMsgStyle: { fontSize: 12, color: S.profMsgErr ? '#ff5c5c' : '#3ddc84' },
       profMsg: S.profMsg || '', hasProfMsg: !!S.profMsg,
       profileTip: S_user ? S_user.email + ' — ' + (S_user.ruolo === 'admin' ? 'Admin' : (S_user.ruolo === 'edit' ? 'Operatore' : 'Visualizzazione')) : 'Profilo',
       userInitials: (() => {
@@ -4585,6 +4665,36 @@ class Component extends DCLogic {
       saveSecPolicy: () => { this._saveSecPolicy(); },
       secSaveDisabled: !!S.secBusy || !S.secPolicy,
       secMsg: S.secMsg || '',
+      secIdleDraft: S.secIdleDraft,
+      onSecIdle: (e) => {
+        const v = e.target.value;
+        if (v !== this.state.secIdleDraft) this.setState({ secIdleDraft: v, secMsg: '' });
+      },
+      // --- stato del sistema ---
+      statoReload: () => { this._loadStatus(); },
+      hasStatoErr: !!S.sysStatusErr, statoErr: S.sysStatusErr || '',
+      ...(() => {
+        const st = S.sysStatus;
+        const COL = { ok: '#3ddc84', warn: '#ffb020', crit: '#ff5c5c', info: '#57626f' };
+        const LBL = { ok: 'tutto in ordine', warn: 'da controllare', crit: 'problema' };
+        let prev = null;
+        const rows = (st && st.items || []).map(it => {
+          const g = it.gruppo === prev ? '' : it.gruppo; prev = it.gruppo;
+          return { gruppo: g, nome: it.nome, valore: it.valore,
+                   rowStyle: { display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12, padding: '4px 0',
+                               borderTop: g ? '1px solid var(--d1c232c)' : 'none' },
+                   dotStyle: { width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+                               background: COL[it.stato] || COL.info } };
+        });
+        const ov = st ? st.overall : null;
+        return {
+          statoRows: rows,
+          statoBadge: ov ? LBL[ov] : 'caricamento…',
+          statoBadgeStyle: { fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10,
+                             color: '#ffffff', background: ov ? COL[ov] : '#57626f' },
+          statoGenerato: st ? 'Rilevato alle ' + new Date(st.generatedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '',
+        };
+      })(),
       toggleResetEnabled: () => { this._toggleResetEnabled(); },
       resetEnabledLabel: (S.secPolicy && S.secPolicy.passwordResetEnabled) ? 'attivo' : 'disattivato',
       resetEnabledStyle: { background: 'transparent', borderRadius: 5, padding: '3px 10px', fontSize: 11,
@@ -5350,10 +5460,91 @@ class Component extends DCLogic {
           this.setState({ impPreview: { file: f.name, summary, nuovi, aggiornati, saltati, azioni, rows: rows.map(r => ({ txt: r.txt, style: { fontFamily: "'Roboto Mono',monospace", fontSize: 11, color: 'var(--dd7dde4)', padding: '3px 0 3px 8px', borderLeft: '2px solid ' + r.color } })) } });
         } catch (err) { alert('File non importabile: ' + err.message); }
       },
+      // --- seriali dei rack: foglio «Seriali rack» (lo stesso del modello di
+      // compilazione). Si aggiornano SOLO i seriali di rack esistenti, mai la
+      // posizione né la struttura. Regole di riga, come tools/apply-rack-serials.py:
+      //   entrambe le colonne «seriale effettivo» vuote → il rack non cambia;
+      //   «seriale effettivo 1» = NESSUNO              → il rack resta senza seriali;
+      //   altrimenti                                   → seriali = quelli scritti (1 o 2).
+      scaricaSerialiRack: async () => {
+        const mod = await import((window.__resources && window.__resources.xlsx) || './xlsx.js');
+        const righe = [];
+        for (const L of locations) for (const R of L.sale) for (const rk of R.racks) {
+          righe.push([rk._uid || '', L.nome, R.nome, rk.id, rk.name || '', rk.row || '', rk.u,
+                      (rk.seriali || []).join(' / '), '', '', '']);
+        }
+        const blob = mod.creaXlsx([
+          { nome: 'Seriali rack', intestazioni: ['_uid', 'location', 'sala', 'rack', 'nome rack', 'fila', 'U',
+              'seriali attuali', 'seriale effettivo 1', 'seriale effettivo 2', 'note'], righe },
+          { nome: 'Istruzioni', intestazioni: ['Colonna', 'Come si compila'], righe: [
+            ['_uid', 'identità del rack: NON modificare'],
+            ['seriale effettivo 1 / 2', 'il numero sulla targhetta. Vuoti = il rack non cambia. NESSUNO in «seriale effettivo 1» = il rack resta senza seriali'],
+            ['le altre colonne', 'solo riferimento: non vengono importate'],
+          ] },
+        ]);
+        this._scarica(blob, 'seriali-rack.xlsx');
+      },
+      onImportSeriali: async (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        e.target.value = '';
+        try {
+          const mod = await import((window.__resources && window.__resources.xlsx) || './xlsx.js');
+          const tab = await mod.leggiXlsx(await f.arrayBuffer(), { foglio: 'Seriali rack' });
+          const hdr = tab.intestazioni.map(h => String(h).trim().toLowerCase());
+          const idx = (n) => hdr.indexOf(n);
+          if (idx('seriale effettivo 1') < 0) throw new Error('manca la colonna «seriale effettivo 1»: usa il foglio «Seriali rack» del modello');
+          if (idx('_uid') < 0 && (idx('location') < 0 || idx('sala') < 0 || idx('rack') < 0)) throw new Error('servono la colonna _uid oppure location, sala e rack');
+          const tutti = [];
+          for (const L of locations) for (const R of L.sale) for (const rk of R.racks) tutti.push({ L, R, rk });
+          const rows = [], azioni = [], visti = new Set();
+          let aggiornati = 0, saltati = 0, invariati = 0;
+          tab.righe.forEach((c, ri) => {
+            const g = (n) => { const k = idx(n); return k >= 0 ? String(c[k] == null ? '' : c[k]).replace(/\s+/g, ' ').trim() : ''; };
+            const rigaN = ri + 2;
+            const s1 = g('seriale effettivo 1'), s2 = g('seriale effettivo 2');
+            if (!s1 && !s2) { invariati++; return; }
+            const skip = (m) => { saltati++; rows.push({ txt: 'Riga ' + rigaN + ' — ' + m, color: '#ff5c5c' }); };
+            const uid = g('_uid');
+            let hit = uid ? tutti.find(t => t.rk._uid === uid) : null;
+            if (!hit && !uid) hit = tutti.find(t => (t.L.nome === g('location') || t.L.id === g('location'))
+                                             && (t.R.nome === g('sala') || t.R.id === g('sala')) && t.rk.id === g('rack'));
+            if (!hit) return skip('rack non trovato' + (uid ? ' (_uid ' + uid.slice(0, 8) + '…)' : ' (' + g('location') + ' / ' + g('sala') + ' / ' + g('rack') + ')'));
+            if (visti.has(hit.rk._uid)) return skip(hit.rk.id + ': rack già presente in una riga precedente');
+            if (!s1 && s2) return skip(hit.rk.id + ': c\'è il seriale 2 ma non l\'1');
+            if (s1.toUpperCase() !== 'NESSUNO' && s1 === s2) return skip(hit.rk.id + ': seriale 1 e 2 uguali');
+            visti.add(hit.rk._uid);
+            const nuovi = s1.toUpperCase() === 'NESSUNO' ? [] : [s1, s2].filter(Boolean);
+            const prima = (hit.rk.seriali || []).join(' / ') || '—';
+            const dopo = nuovi.join(' / ') || '—';
+            if (prima === dopo) { invariati++; return; }
+            aggiornati++;
+            azioni.push({ rackUid: hit.rk._uid, seriali: nuovi });
+            rows.push({ txt: hit.L.nome + ' / ' + hit.R.nome + ' / ' + hit.rk.id + ': ' + prima + ' → ' + dopo, color: '#ffb020' });
+          });
+          const summary = aggiornati + ' rack da aggiornare · ' + invariati + ' invariati · ' + saltati + ' righe da saltare'
+            + (tab.foglio ? '' : ' (foglio «Seriali rack» non trovato: letto il primo foglio)');
+          this.setState({ impPreview: { kind: 'seriali', file: f.name, summary, nuovi: 0, aggiornati, saltati, azioni,
+            rows: rows.map(r => ({ txt: r.txt, style: { fontFamily: "'Roboto Mono',monospace", fontSize: 11, color: 'var(--dd7dde4)', padding: '3px 0 3px 8px', borderLeft: '2px solid ' + r.color } })) } });
+        } catch (err) { alert('File non importabile: ' + err.message); }
+      },
       impApply: () => {
         const p = this.state.impPreview;
         if (!p || !p.azioni.length) return;
         if (!canEdit) { alert('Passa in modalità Editing per applicare l\'import.'); return; }
+        if (p.kind === 'seriali') {
+          const next = JSON.parse(JSON.stringify(data));
+          const per = new Map(p.azioni.map(a => [a.rackUid, a.seriali]));
+          for (const L of next.locations) for (const R of L.sale) for (const rk of R.racks) {
+            if (per.has(rk._uid)) rk.seriali = per.get(rk._uid);
+          }
+          const errs = IDENT.validateAgainstBase(data, next);
+          if (errs.length) { alert('Import annullato: ' + errs.slice(0, 3).map(e => e.message).join('; ')); return; }
+          this.persist(next, 'Seriali rack da ' + p.file + ': ' + p.aggiornati + ' rack aggiornati');
+          this.setState({ impPreview: null });
+          alert('Seriali applicati a ' + p.aggiornati + ' rack.' + (p.saltati ? ' ' + p.saltati + ' righe ignorate.' : '') + '\nPuoi annullare con ↩ Annulla o Ctrl+Z.');
+          return;
+        }
         const next = JSON.parse(JSON.stringify(data));
         for (const a of p.azioni) {
           // Si rimuove l'entità per _uid, non per nome: prima un omonimo qualsiasi

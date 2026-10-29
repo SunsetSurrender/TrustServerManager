@@ -50,6 +50,15 @@ volumes:
       type: none
       o: bind
       device: /srv/tsm-data/postgres
+  # Dump notturni del database (0.4.2). Stesso disco dei dati, directory sorella:
+  # la crea il preflight (root:root 0700) se manca. Ancorata come pgdata e per lo
+  # stesso motivo: senza il secondo disco il servizio non deve partire.
+  backups:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/tsm-data/backups
 
 secrets:
   # Proprietario dello schema: migrazioni, DDL, bootstrap.
@@ -77,8 +86,20 @@ secrets:
   smtp_password:
     file: ./secrets/smtp_password
 
+x-logging: &logging
+  # Log dei container con un TETTO: senza, il driver json-file di Docker scrive
+  # all'infinito sotto /var/lib/docker/containers e prima o poi riempie il disco
+  # di sistema. 5 file da 10 MB per container = al massimo 50 MB ciascuno; Docker
+  # ruota da solo. Vale anche se `/etc/docker/daemon.json` non imposta niente
+  # (vedi ops/README.md per il predefinito a livello di demone).
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
+    logging: *logging
     image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193  # postgres:17-alpine
     networks: [internal]
     # NESSUNA sezione `ports`. Postgres non è raggiungibile dall'host:
@@ -108,9 +129,10 @@ services:
   # Migrazioni come servizio one-shot: l'API non ha bisogno di privilegi DDL a runtime
   # e l'ordine di avvio è esplicito invece di essere nascosto in un entrypoint.
   migrate:
+    logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.1
+    image: tsm-api:0.4.2
     # Applica le migrazioni E imposta la password del ruolo di runtime leggendola
     # dal secret: una password non può stare in una migrazione, che finisce nel
     # repository e nell'immagine.
@@ -135,9 +157,10 @@ services:
     restart: "no"
 
   api:
+    logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.1
+    image: tsm-api:0.4.2
     networks: [internal, edge]
     # NESSUNA porta pubblicata (§8.34).
     #
@@ -228,6 +251,10 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+    # Solo la catena PUBBLICA del certificato, in sola lettura: serve alla pagina
+    # «Stato del sistema» per dire quando scade. La chiave resta solo a nginx.
+    volumes:
+      - ./secrets/tls/fullchain.pem:/run/tls/fullchain.pem:ro
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: [ALL]
@@ -243,9 +270,10 @@ services:
   # il difetto comparirebbe il giorno in cui qualcuno scala l'API per un motivo
   # che con le notifiche non c'entra niente.
   worker:
+    logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.1
+    image: tsm-api:0.4.2
     command: ["python", "scripts/worker.py"]
     # SOLO la rete interna: il worker parla con PostgreSQL e con il relay SMTP.
     # NESSUNA porta pubblicata — non ha una superficie da raggiungere.
@@ -277,6 +305,9 @@ services:
       TSM_SMTP_USERNAME: ${TSM_SMTP_USERNAME:-}
       TSM_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
       TSM_SMTP_TLS_VERIFY: ${TSM_SMTP_TLS_VERIFY:-true}
+      # Giorni di conservazione di tentativi di accesso, sessioni chiuse e codici di
+      # recupero (migrazione 0016). Minimo 30: un valore più basso viene alzato.
+      TSM_AUTH_RETENTION_DAYS: ${TSM_AUTH_RETENTION_DAYS:-90}
     # ESATTAMENTE UNO. `deploy.replicas` è la dichiarazione d'intenti; la
     # garanzia sta nel database, dove un lock consultivo di sessione fa uscire
     # il secondo worker con un messaggio invece di lasciarlo mandare doppioni
@@ -298,11 +329,53 @@ services:
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
 
+  # Dump notturno del database (0.4.2): deploy/backup.sh. Stessa immagine del
+  # server, quindi pg_dump della stessa versione.
+  #
+  # Gira come root DENTRO il container ma senza capacità, tranne
+  # DAC_READ_SEARCH: serve a leggere il secret della password del proprietario
+  # (0400, uid 10001 sull'host). Solo rete interna, filesystem in sola lettura,
+  # scrive solo in /backups.
+  backup:
+    logging: *logging
+    image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193  # postgres:17-alpine
+    networks: [internal]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/opt/tsm-backup/backup.sh"]
+    environment:
+      TSM_DUMP_HOUR: ${TSM_DUMP_HOUR:-2}
+      TSM_DUMP_MINUTE: ${TSM_DUMP_MINUTE:-15}
+      TSM_DUMP_KEEP: ${TSM_DUMP_KEEP:-14}
+      TSM_DUMP_TZ: ${TSM_DUMP_TZ:-Europe/Rome}
+    secrets:
+      - postgres_password
+    volumes:
+      - backups:/backups
+      - ./deploy/backup.sh:/opt/tsm-backup/backup.sh:ro
+    healthcheck:
+      # Il ciclo tocca /tmp/alive ogni 5 minuti.
+      test: ["CMD-SHELL", "find /tmp/alive -mmin -15 | grep -q ."]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
   web:
+    logging: *logging
     build:
       context: .
       dockerfile: ./web/Dockerfile
-    image: tsm-web:0.4.1
+    image: tsm-web:0.4.2
     networks: [internal, edge]
     ports:
       # PORTE STANDARD sull'host: 80 e 443. Non è estetica (§8.31).

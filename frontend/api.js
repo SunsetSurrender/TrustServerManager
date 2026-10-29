@@ -95,6 +95,11 @@ export const doLogin = (username, password) =>
 export const doLogout = () => request('POST', '/api/auth/logout');
 export const changePassword = (currentPassword, newPassword) =>
   request('POST', '/api/auth/password', { currentPassword, newPassword });
+/** I propri dati personali: nome, cognome, telefono, email (0.4.2). */
+export const updateMyProfile = (patch) => request('PATCH', '/api/auth/me', patch);
+
+/** Stato del sistema, solo amministratori (0.4.2). */
+export const getSystemStatus = () => request('GET', '/api/system/status');
 
 // ------------------------------------------------------------------ utenze
 //
@@ -418,6 +423,10 @@ export function describeError(err) {
       return { titolo: 'Richiesta non valida',
                testo: err.message || 'Il server ha rifiutato la richiesta.', azione: null };
     case 401:
+      if (err.code === 'session_idle') {
+        return { titolo: 'Sessione chiusa per inattività',
+                 testo: 'Accedi di nuovo per continuare.', azione: 'login' };
+      }
       return { titolo: 'Sessione scaduta',
                testo: 'Accedi di nuovo per continuare.', azione: 'login' };
     case 403:

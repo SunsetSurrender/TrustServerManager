@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # altrimenti l'healthcheck va in timeout invece di dire "not ready".
     db_connect_timeout: int = 3
 
-    app_version: str = "0.4.1"
+    app_version: str = "0.4.2"
 
     # ------------------------------------------------------------- sessioni
     #: Il cookie di sessione è `Secure` per default: senza HTTPS non si entra.

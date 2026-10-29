@@ -110,6 +110,11 @@ class NotAuthenticated(AuthError):
     code = "not_authenticated"
 
 
+class SessionIdle(NotAuthenticated):
+    """Sessione chiusa per inattività (migrazione 0017)."""
+    code = "session_idle"
+
+
 class PasswordChangeRequired(AuthError):
     """Password provvisoria: la sessione è valida ma può fare solo tre cose (§8.26)."""
     code = "password_change_required"
@@ -354,9 +359,13 @@ def resolve_session(conn: Connection, token: str | None) -> AuthenticatedUser:
         raise NotAuthenticated("nessun cookie di sessione")
 
     row = conn.execute(text("""
-        SELECT s.id, u.id, u.username, u.role, u.must_change_pw
+        SELECT s.id, u.id, u.username, u.role, u.must_change_pw,
+               (p.idle_timeout_minutes > 0
+                AND coalesce(s.last_seen_at, s.created_at)
+                    < now() - make_interval(mins => p.idle_timeout_minutes)) AS idle
           FROM sessions s
           JOIN users u ON u.id = s.user_id
+          LEFT JOIN security_policy p ON p.id = 1
          WHERE s.token_hash = :th
            AND s.revoked_at IS NULL
            AND s.expires_at > now()
@@ -364,6 +373,17 @@ def resolve_session(conn: Connection, token: str | None) -> AuthenticatedUser:
     """), {"th": _token_hash(token)}).first()
     if row is None:
         raise NotAuthenticated("sessione inesistente, scaduta o revocata")
+    if row[5]:
+        # Inattività oltre la soglia: la sessione si revoca DAVVERO, in una
+        # transazione propria (quella della richiesta sta per fallire). Così non
+        # torna valida se la soglia viene alzata dopo.
+        sid = row[0]
+        _out_of_band_best_effort(
+            lambda c: c.execute(text(
+                "UPDATE sessions SET revoked_at = now() WHERE id = :sid "
+                "AND revoked_at IS NULL"), {"sid": sid}),
+            "revoca della sessione inattiva")
+        raise SessionIdle("sessione chiusa per inattività")
 
     conn.execute(text("UPDATE sessions SET last_seen_at = now() WHERE id = :sid"),
                  {"sid": row[0]})

@@ -87,7 +87,7 @@ def main() -> int:
         # ---- soglia ----
         sez = adm.locator("#sicurezza-accessi")
         check("riquadro «Sicurezza accessi» presente", sez.count() == 1)
-        soglia = sez.locator("input[type=number]")
+        soglia = sez.locator("input[type=number]").first
         iniziale = soglia.input_value()
         check("soglia caricata dal server", iniziale.isdigit() and 3 <= int(iniziale) <= 20, iniziale)
         soglia.fill("25")
@@ -120,7 +120,7 @@ def main() -> int:
         check("bloccata anche con la password giusta", "Utenza bloccata" in t, t[:300])
 
         # ---- sblocco ----
-        adm.get_by_role("button", name="Aggiorna").last.click()
+        adm.locator("#btn-aggiorna-utenze").click()
         adm.wait_for_timeout(1200)
         riga = adm.locator("div", has_text=utenza).filter(has=adm.get_by_role("button", name="Sblocca"))
         check("stato «bloccata» e pulsante Sblocca visibili",

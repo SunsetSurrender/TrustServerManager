@@ -341,6 +341,8 @@ def test_api_surface_is_the_expected_set():
         "/api/users/{user_id}/disable", "/api/users/{user_id}/enable",
         "/api/users/{user_id}/reset-password",
         "/api/users/{user_id}/unlock", "/api/security-policy",
+        # Stato del sistema (0.4.2): sola lettura, solo amministratori.
+        "/api/system/status",
         "/api/audit",
         "/api/settings",
         # Un solo endpoint di notifica, e manda un messaggio FISSO ai
@@ -427,8 +429,10 @@ def test_login_then_read_inventory(real_auth_client, head_version):
                               json={"username": "test-editor",
                                     "password": "password-lunga-1"})
     assert r.status_code == 200
-    assert r.json() == {"authenticated": True, "username": "test-editor",
-                        "role": "edit", "mustChangePassword": False}
+    b = r.json()
+    assert {k: b[k] for k in ("authenticated", "username", "role", "mustChangePassword")} \
+        == {"authenticated": True, "username": "test-editor",
+            "role": "edit", "mustChangePassword": False}
 
     r = real_auth_client.get("/api/inventory")
     assert r.status_code == 200

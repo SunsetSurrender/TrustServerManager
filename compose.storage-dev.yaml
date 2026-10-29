@@ -22,3 +22,5 @@ volumes:
     # `!reset` rimuove le opzioni del bind e lascia `driver: local` con il
     # comportamento predefinito: una directory sotto /var/lib/docker/volumes.
     driver_opts: !reset null
+  backups:
+    driver_opts: !reset null

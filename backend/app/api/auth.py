@@ -15,7 +15,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, stat
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 
-from app.api.deps import NO_STORE, SESSION_COOKIE, current_user, get_connection
+from app.api.deps import (NO_STORE, SESSION_COOKIE, current_user, get_connection,
+                           require_actor)
+from app.inventory import Actor
+from sqlalchemy import text
 from app.api.errors import http_error_for
 from app.api.request_context import client_ip
 from app.auth.service import (
@@ -52,6 +55,37 @@ class SessionOut(BaseModel):
     username: str
     role: str
     mustChangePassword: bool
+    # Profilo (0.4.2): li legge e li modifica la persona stessa dal Profilo.
+    nome: str | None = None
+    cognome: str | None = None
+    telefono: str | None = None
+    team: str | None = None
+    email: str | None = None
+    #: Minuti di inattività dopo cui la sessione si chiude (0 = mai). Il client lo
+    #: usa per avvisare e uscire da solo; la regola vera la applica il server.
+    idleTimeoutMinutes: int = 0
+
+
+class ProfileIn(BaseModel):
+    """Dati che una persona può cambiare da sé. Ruolo, utenza e team no: li decide
+    un amministratore."""
+    nome: str | None = Field(default=None, max_length=200)
+    cognome: str | None = Field(default=None, max_length=200)
+    telefono: str | None = Field(default=None, max_length=50)
+    email: str | None = Field(default=None, max_length=254)
+
+
+def _session_out(conn: Connection, username: str, role: str,
+                 must_change: bool) -> "SessionOut":
+    from app.auth import lockout
+    row = conn.execute(text(
+        "SELECT nome, cognome, telefono, team, email FROM users WHERE username = :u"),
+        {"u": username}).first()
+    nome, cognome, telefono, team, email = row if row else (None,) * 5
+    return SessionOut(authenticated=True, username=username, role=role,
+                      mustChangePassword=must_change, nome=nome, cognome=cognome,
+                      telefono=telefono, team=team, email=email,
+                      idleTimeoutMinutes=lockout.get_policy(conn).idle_timeout_minutes)
 
 
 class PasswordIn(BaseModel):
@@ -103,8 +137,7 @@ def do_login(payload: LoginIn, request: Request, response: Response,
     except Exception as exc:
         raise http_error_for(exc) from None
     _set_session_cookie(response, token)
-    return SessionOut(authenticated=True, username=user.username, role=user.role,
-                      mustChangePassword=user.must_change_pw)
+    return _session_out(conn, user.username, user.role, user.must_change_pw)
 
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT,
@@ -120,14 +153,30 @@ def do_logout(request: Request,
 
 
 @router.get("/auth/me", response_model=SessionOut, summary="Sessione corrente")
-def me(response: Response,
+def me(response: Response, conn: Connection = Depends(get_connection),
        user: AuthenticatedUser = Depends(current_user)) -> SessionOut:
     # Volutamente NON usa require_actor: con una password provvisoria l'utente
     # deve poter leggere il proprio stato per sapere che deve cambiarla (§8.26).
     # I campi sono riletti dal database a ogni richiesta, non dalla sessione.
     response.headers.update(NO_STORE)
-    return SessionOut(authenticated=True, username=user.username, role=user.role,
-                      mustChangePassword=user.must_change_pw)
+    return _session_out(conn, user.username, user.role, user.must_change_pw)
+
+
+@router.patch("/auth/me", response_model=SessionOut,
+              summary="Aggiorna i propri dati personali")
+def update_me(payload: ProfileIn, request: Request, response: Response,
+              conn: Connection = Depends(get_connection),
+              actor: Actor = Depends(require_actor)) -> SessionOut:
+    """Solo nome, cognome, telefono ed email, e solo i propri. Stessa validazione
+    e stessa riga di audit della modifica fatta da un amministratore."""
+    from app.auth import users as users_svc
+    response.headers.update(NO_STORE)
+    fields = payload.model_dump(exclude_unset=True)
+    try:
+        users_svc.update_user(conn, actor.user_id, actor=actor, role=None, **fields)
+    except Exception as exc:
+        raise http_error_for(exc) from None
+    return _session_out(conn, actor.username, actor.role, False)
 
 
 @router.post("/auth/password", status_code=status.HTTP_204_NO_CONTENT,

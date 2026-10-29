@@ -336,6 +336,21 @@ case " $ALLOWED_MODES " in
 esac
 ok "directory dei dati: ${DIR_UID}:${DIR_GID} 0${DIR_MODE}"
 
+# ------------------------------------------------ directory dei dump (0.4.2)
+# Sorella di quella dei dati, sullo stesso disco già verificato sopra. Si crea
+# qui se manca: è vuota per definizione al primo avvio, e farla creare a mano
+# sarebbe un passo in più da dimenticare durante un aggiornamento. Il servizio
+# `backup` scrive come root del container (senza capacità), quindi root:root 0700.
+BK_DIR="${DATA_MOUNT}/backups"
+if [ ! -d "$BK_DIR" ]; then
+    install -d -o 0 -g 0 -m 0700 "$BK_DIR" \
+        || fail 22 "$BK_DIR non esiste e non ho potuto crearla" \
+                "install -d -o 0 -g 0 -m 0700 $BK_DIR"
+    ok "directory dei dump creata: $BK_DIR"
+else
+    ok "directory dei dump: $BK_DIR ($(stat -c '%u:%g 0%a' "$BK_DIR"))"
+fi
+
 # ------------------------------------------------ scrivibilità reale
 # Si prova a scrivere DAVVERO, come l'utente di PostgreSQL, attraverso Docker.
 # Un controllo sui soli permessi non basta: sotto SELinux enforcing l'etichetta

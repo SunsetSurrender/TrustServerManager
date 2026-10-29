@@ -4,6 +4,7 @@ Cmnd_Alias TSM_CHECKS = /usr/local/lib/tsm/check_tsm.sh service, \
                         /usr/local/lib/tsm/check_tsm.sh containers, \
                         /usr/local/lib/tsm/check_tsm.sh worker, \
                         /usr/local/lib/tsm/check_tsm.sh runs, \
+                        /usr/local/lib/tsm/check_tsm.sh maintenance, \
                         /usr/local/lib/tsm/check_tsm.sh ready, \
                         /usr/local/lib/tsm/check_tsm.sh storage, \
                         /usr/local/lib/tsm/check_tsm.sh cert, \

@@ -111,6 +111,7 @@ from app.notifications import reminders as rem
 from app.notifications.digest import build_digest
 from app.notifications.smtp import SmtpNotConfigured, SmtpSendFailed, deliver
 from app.photos import gc as photo_gc
+from app.maintenance import purge as auth_purge
 from app.settings import copy_notifications
 from app.settings import repository as settings_repo
 
@@ -679,6 +680,19 @@ def main() -> int:                                # pragma: no cover
                          gc_result.run_date)
         except Exception:
             log.exception("giro di GC delle foto fallito")
+
+        # ---- manutenzione: pulizia dei dati di accesso (migrazione 0016) ----
+        # Terzo lavoro indipendente, stesso schema: try proprio, riga propria in
+        # `maintenance_runs`, nessun legame con le notifiche.
+        try:
+            pr = auth_purge.run_once(engine, now_utc=datetime.now(timezone.utc),
+                                     tz_name=photo_gc._timezone_for_gc(engine))
+            if pr.ran and pr.total:
+                log.info("pulizia accessi: %d tentativi, %d sessioni, %d codici di "
+                         "recupero rimossi", pr.login_attempts, pr.sessions,
+                         pr.recovery_codes)
+        except Exception:
+            log.exception("giro di pulizia dei dati di accesso fallito")
 
         for _ in range(TICK_SECONDS):
             if _stop:

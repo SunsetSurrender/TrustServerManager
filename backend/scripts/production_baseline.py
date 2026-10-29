@@ -153,6 +153,7 @@ MUST_BE_EMPTY = (
     ("sessions", "sessioni"),
     ("login_attempts", "tentativi di accesso"),
     ("recovery_codes", "codici di recupero dell accesso"),
+    ("db_dumps", "registro dei dump notturni"),
     ("reminders", "promemoria inviati"),
     ("reminder_deliveries", "consegne dei promemoria"),
     ("scheduler_runs", "giri dello scheduler"),

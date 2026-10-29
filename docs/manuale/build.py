@@ -7,7 +7,7 @@ import pdfplumber
 from pypdf import PdfReader, PdfWriter
 
 D = pathlib.Path(__file__).resolve().parent
-VERSIONE, DATA, CODICE = '0.4.1', '28 ottobre 2026', 'TT-TSM-MAN-01'
+VERSIONE, DATA, CODICE = '0.4.2', '28 ottobre 2026', 'TT-TSM-MAN-01'
 css = (D / 'style.css').read_text(encoding='utf-8')
 body = (D / 'body.html').read_text(encoding='utf-8')
 logo = base64.b64encode((D / 'logo.png').read_bytes()).decode()

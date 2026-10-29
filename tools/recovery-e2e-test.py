@@ -117,7 +117,7 @@ def main() -> int:
               testo(usr)[:300])
 
         # ---- admin: reimposta con password scelta ----
-        adm.get_by_role("button", name="Aggiorna").last.click()
+        adm.locator("#btn-aggiorna-utenze").click()
         adm.wait_for_timeout(1200)
         riga = adm.locator("div", has_text=utenza).filter(
             has=adm.get_by_role("button", name="Reimposta password"))
@@ -183,7 +183,7 @@ def main() -> int:
               testo(ctx2)[:300])
 
         # ---- interruttore ----
-        adm.get_by_role("button", name="Aggiorna").last.click()
+        adm.locator("#btn-aggiorna-utenze").click()
         adm.wait_for_timeout(1200)
         sez = adm.locator("#sicurezza-accessi")
         sez.get_by_role("button", name="attivo", exact=True).click()

@@ -83,6 +83,7 @@ carica_pin() { # file
 IDENTITA=(
     compose.yaml
     deploy/preflight.sh
+    deploy/backup.sh
     deploy/tsm.service
     deploy/baseline/production-baseline.json
 )
@@ -250,7 +251,7 @@ for f in "${ACCETTAZIONE[@]}"; do
         ko "non presente in ${HEAD_SHA:0:12}: $f"
     fi
 done
-chmod +x "$DEST/deploy/preflight.sh" "$DEST/deploy/make-internal-tls.sh" "$DEST"/accettazione/*.sh 2>/dev/null || true
+chmod +x "$DEST/deploy/preflight.sh" "$DEST/deploy/backup.sh" "$DEST/deploy/make-internal-tls.sh" "$DEST"/accettazione/*.sh 2>/dev/null || true
 
 # La baseline estratta DEVE avere il digest pinnato. È il controllo che
 # rende falsificabile tutto il resto.

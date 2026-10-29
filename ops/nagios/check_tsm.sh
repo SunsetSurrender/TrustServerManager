@@ -5,9 +5,10 @@
 #   check_tsm.sh <controllo>
 #
 #   service     docker.service e tsm.service attivi
-#   containers  db, api, web, worker: in esecuzione e «healthy», riavvii
+#   containers  db, api, web, worker, backup: in esecuzione e «healthy», riavvii
 #   worker      battito del worker delle notifiche e proiezione utilizzabile
 #   runs        nessun giro delle notifiche aperto da oltre un'ora
+#   maintenance GC delle foto, pulizia degli accessi e dump del database recenti
 #   ready       https://127.0.0.1/api/ready risponde «ready»
 #   storage     /srv/tsm-data montato, scrivibile, occupazione
 #   cert        scadenza del certificato TLS servito da nginx
@@ -29,7 +30,7 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
 DIR=/opt/tsm
 PROGETTO=tsm
 DATI=/srv/tsm-data
-SERVIZI="db api web worker"
+SERVIZI="db api web worker backup"
 DISCO_WARN=75          # deploy/README.md §6 (soglie di spazio)
 DISCO_CRIT=90
 CERT_WARN_GIORNI=30
@@ -66,7 +67,7 @@ containers)
     done
     [ ${#problemi[@]} -eq 0 ] || crit "${problemi[*]} |$perf"
     [ ${#avvisi[@]} -eq 0 ]   || warn "${avvisi[*]} |$perf"
-    ok "db, api, web, worker running e healthy |$perf"
+    ok "db, api, web, worker, backup running e healthy |$perf"
     ;;
 
 worker)
@@ -91,6 +92,18 @@ runs)
     [[ "$n" =~ ^[0-9]+$ ]] || unk "risposta inattesa: $n"
     [ "$n" = 0 ] || warn "$n giri delle notifiche aperti da oltre un'ora |open_runs=$n"
     ok "nessun giro aperto |open_runs=0"
+    ;;
+
+maintenance)
+    # I lavori notturni (03:30 GC foto e 03:45 pulizia accessi nel worker, 02:15 dump nel servizio backup):
+    # ciascuno deve avere un giro CONCLUSO negli ultimi due giorni.
+    out="$(timeout 30 docker exec "$(ctr db)" psql -U tsm -d tsm -tAc \
+        "SELECT j, coalesce(max(run_date)::text, 'mai') FROM unnest(ARRAY['photo_gc','auth_purge','db_dump']) j
+           LEFT JOIN maintenance_runs m ON m.job = j AND m.finished_at IS NOT NULL
+          GROUP BY j HAVING coalesce(max(run_date), '1970-01-01') < CURRENT_DATE - 1" 2>&1)" \
+        || unk "psql non eseguibile: $out"
+    [ -z "$out" ] || warn "manutenzione ferma: $(echo "$out" | tr '\n' ' ')"
+    ok "GC foto, pulizia accessi e dump del database eseguiti di recente"
     ;;
 
 ready)
@@ -142,6 +155,6 @@ images)
     ;;
 
 *)
-    unk "uso: $0 service|containers|worker|runs|ready|storage|cert|images"
+    unk "uso: $0 service|containers|worker|runs|maintenance|ready|storage|cert|images"
     ;;
 esac

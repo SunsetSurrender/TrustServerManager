@@ -27,6 +27,9 @@ class PolicyOut(BaseModel):
     updatedAt: str | None = None
     updatedBy: str | None = None
     passwordResetEnabled: bool = True
+    idleTimeoutMinutes: int = 60
+    minIdleTimeoutMinutes: int = 15
+    maxIdleTimeoutMinutes: int = 720
 
 
 class PolicyIn(BaseModel):
@@ -34,6 +37,7 @@ class PolicyIn(BaseModel):
     # i messaggi e i limiti stanno in un posto solo.
     maxFailedLogins: object = None
     passwordResetEnabled: object = None
+    idleTimeoutMinutes: object = None
 
 
 @router.get("/security-policy", response_model=PolicyOut,
@@ -57,6 +61,8 @@ def put_policy(payload: PolicyIn, response: Response,
             kwargs["max_failed_logins"] = sent["maxFailedLogins"]
         if "passwordResetEnabled" in sent:
             kwargs["password_reset_enabled"] = sent["passwordResetEnabled"]
+        if "idleTimeoutMinutes" in sent:
+            kwargs["idle_timeout_minutes"] = sent["idleTimeoutMinutes"]
         policy = lockout.set_policy(conn, actor=actor, **kwargs)
     except Exception as exc:
         raise http_error_for(exc) from None

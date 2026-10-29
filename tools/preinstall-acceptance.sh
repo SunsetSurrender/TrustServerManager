@@ -506,7 +506,7 @@ else
         fatto "baseline_file_sha=ASSENTE"
     fi
 
-    for f in deploy/preflight.sh deploy/tsm.service compose.yaml; do
+    for f in deploy/preflight.sh deploy/backup.sh deploy/tsm.service compose.yaml; do
         [ -f "$DIR_PROGETTO/$f" ] && ok "presente: $f" || ko "assente: $f"
     done
 

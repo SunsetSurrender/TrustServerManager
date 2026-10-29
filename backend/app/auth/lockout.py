@@ -37,6 +37,11 @@ MIN_MAX_FAILED_LOGINS = 3
 MAX_MAX_FAILED_LOGINS = 20
 DEFAULT_MAX_FAILED_LOGINS = 5
 
+#: Uscita per inattività (migrazione 0017): 0 = disattivata, altrimenti 15–720.
+MIN_IDLE_MINUTES = 15
+MAX_IDLE_MINUTES = 720
+DEFAULT_IDLE_MINUTES = 60
+
 
 class PolicyRejected(Exception):
     code = "security_policy_invalid"
@@ -53,6 +58,8 @@ class SecurityPolicy:
     updated_by: str | None
     #: Recupero della password via email (migrazione 0015).
     password_reset_enabled: bool = True
+    #: Minuti senza richieste dopo cui la sessione si chiude (0 = mai).
+    idle_timeout_minutes: int = DEFAULT_IDLE_MINUTES
 
     def as_dict(self) -> dict:
         return {
@@ -62,32 +69,48 @@ class SecurityPolicy:
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "updatedBy": self.updated_by,
             "passwordResetEnabled": self.password_reset_enabled,
+            "idleTimeoutMinutes": self.idle_timeout_minutes,
+            "minIdleTimeoutMinutes": MIN_IDLE_MINUTES,
+            "maxIdleTimeoutMinutes": MAX_IDLE_MINUTES,
         }
 
 
 def get_policy(conn: Connection) -> SecurityPolicy:
     row = conn.execute(text(
-        "SELECT max_failed_logins, updated_at, updated_by, password_reset_enabled "
+        "SELECT max_failed_logins, updated_at, updated_by, recovery_enabled, "
+        "       idle_timeout_minutes "
         "  FROM security_policy WHERE id = 1")).first()
     if row is None:
         # Senza riga si applica il predefinito, non «nessun limite»: un controllo
         # di sicurezza che si spegne quando manca un dato è un controllo spento.
         # Il recupero via email invece si spegne: è una porta in più, non un freno.
-        return SecurityPolicy(DEFAULT_MAX_FAILED_LOGINS, None, None, False)
-    return SecurityPolicy(int(row[0]), row[1], row[2], bool(row[3]))
+        return SecurityPolicy(DEFAULT_MAX_FAILED_LOGINS, None, None, False,
+                              DEFAULT_IDLE_MINUTES)
+    return SecurityPolicy(int(row[0]), row[1], row[2], bool(row[3]), int(row[4]))
 
 
 _UNSET = object()
 
 
 def set_policy(conn: Connection, max_failed_logins: Any = _UNSET, *, actor,
-               password_reset_enabled: Any = _UNSET) -> SecurityPolicy:
-    """Cambia uno o entrambi i campi. Un campo non passato resta com'è."""
-    if max_failed_logins is _UNSET and password_reset_enabled is _UNSET:
+               password_reset_enabled: Any = _UNSET,
+               idle_timeout_minutes: Any = _UNSET) -> SecurityPolicy:
+    """Cambia uno o più campi. Un campo non passato resta com'è."""
+    if (max_failed_logins is _UNSET and password_reset_enabled is _UNSET
+            and idle_timeout_minutes is _UNSET):
         raise PolicyRejected("nessun campo da modificare")
     before = get_policy(conn)
     n = before.max_failed_logins
     enabled = before.password_reset_enabled
+    idle = before.idle_timeout_minutes
+    if idle_timeout_minutes is not _UNSET:
+        v = idle_timeout_minutes
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise PolicyRejected("i minuti di inattività devono essere un numero intero")
+        if v != 0 and not MIN_IDLE_MINUTES <= v <= MAX_IDLE_MINUTES:
+            raise PolicyRejected(
+                f"inattività: 0 (mai) oppure fra {MIN_IDLE_MINUTES} e {MAX_IDLE_MINUTES} minuti")
+        idle = v
     if max_failed_logins is not _UNSET:
         if isinstance(max_failed_logins, bool) or not isinstance(max_failed_logins, int):
             raise PolicyRejected("la soglia deve essere un numero intero")
@@ -102,17 +125,20 @@ def set_policy(conn: Connection, max_failed_logins: Any = _UNSET, *, actor,
         enabled = password_reset_enabled
     conn.execute(text("""
         UPDATE security_policy
-           SET max_failed_logins = :n, password_reset_enabled = :e,
+           SET max_failed_logins = :n, recovery_enabled = :e,
+               idle_timeout_minutes = :idle,
                updated_at = now(), updated_by = :who
          WHERE id = 1
-    """), {"n": n, "e": enabled, "who": actor.username})
+    """), {"n": n, "e": enabled, "idle": idle, "who": actor.username})
     record_auth_event(conn, SECURITY_POLICY_UPDATED, username=actor.username,
                       user_id=actor.user_id, role=actor.role, ip=actor.ip,
                       detail={"maxFailedLogins": n,
                               "previous": before.max_failed_logins,
                               "passwordResetEnabled": enabled,
                               "previousPasswordResetEnabled":
-                                  before.password_reset_enabled})
+                                  before.password_reset_enabled,
+                              "idleTimeoutMinutes": idle,
+                              "previousIdleTimeoutMinutes": before.idle_timeout_minutes})
     return get_policy(conn)
 
 

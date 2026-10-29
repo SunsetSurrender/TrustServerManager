@@ -9,6 +9,7 @@ root. Un aggiornamento dell'applicazione non lo tocca.
 |---|---|---|
 | `nagios/` | `check_tsm.sh`, `nrpe-tsm.cfg`, `sudoers-tsm` | `/usr/local/lib/tsm/`, `/etc/nrpe.d/`, `/etc/sudoers.d/` |
 | `autoheal/` | `tsm-autoheal.sh`, `.service`, `.timer` | `/usr/local/lib/tsm/`, `/etc/systemd/system/` |
+| `logs/` | `daemon.json`, `journald-tsm.conf` | `/etc/docker/`, `/etc/systemd/journald.conf.d/` |
 
 Copia sulla VM (dal PC, come per il pacchetto):
 
@@ -54,6 +55,7 @@ pacchetto non cambia il codice che `sudo` esegue senza che qualcuno lo reinstall
 | `check_tsm_runs` | giri delle notifiche aperti da oltre un'ora (controllo 6) | 60 min |
 | `check_tsm_cert` | scadenza del certificato, 30/7 giorni | 1 giorno |
 | `check_tsm_images` | i container girano sulle immagini del pin | 1 giorno |
+| `check_tsm_maintenance` | GC delle foto e pulizia degli accessi concluse negli ultimi 2 giorni | 1 giorno |
 
 Dal **server Nagios**, oltre a NRPE, un controllo diretto: è l'unico che prova
 anche la rete fra gli operatori e la VM.
@@ -77,6 +79,7 @@ check_http -H 10.11.43.230 -S --sni -C 30,7
 | `/root/tsm-ca/` (finché c'è) | la chiave della CA interna: chi la cambia può emettere certificati fidati | **monitorare** — meglio ancora, spostarla fuori dalla VM |
 | `/usr/bin/docker*`, `/usr/bin/containerd*`, `/usr/libexec/docker/` | binari | già coperti dal profilo OS standard |
 | `/srv/tsm-data/postgres` | file del database: cambiano di continuo | **escludere** |
+| `/srv/tsm-data/backups` | dump notturni (dalla 0.4.2): cambiano ogni giorno | **escludere** |
 | `/var/lib/docker` | livelli delle immagini, stato e log dei container | **escludere** |
 
 L'integrità delle **immagini** non è compito del FIM (i livelli sotto
@@ -127,3 +130,47 @@ Un `tsm.service` **disabilitato** (`systemctl disable tsm`) è considerato una s
 non viene toccato. Se il preflight rifiuta l'avvio, il timer non insiste oltre il
 limite orario: il motivo è strutturale (disco, certificato) e va letto in
 `systemctl status tsm`.
+
+
+## 4. Log: limiti e rotazione
+
+Tre livelli, dal più vicino all'applicazione:
+
+| cosa | dove sta il limite | effetto |
+|---|---|---|
+| log dei container TSM | `compose.yaml` (`x-logging`), dalla 0.4.2 | 5 file da 10 MB per container, ruotati da Docker |
+| log di ogni altro container | `/etc/docker/daemon.json` (sotto) | stesso limite come predefinito del demone |
+| journal di sistema | `/etc/systemd/journald.conf.d/tsm.conf` (sotto) | massimo 1 GB, 90 giorni |
+
+La rotazione dei log dei container la fa Docker stesso (`max-size` + `max-file`):
+**non serve logrotate** per `/var/lib/docker/containers`, e anzi un logrotate su
+quei file li troncherebbe sotto i piedi di Docker. TSM non scrive altri file di log.
+
+```bash
+# predefinito del demone (se /etc/docker/daemon.json esiste già, UNIRE le chiavi)
+test -f /etc/docker/daemon.json && cat /etc/docker/daemon.json
+install -m 0644 /opt/tsm-ops/logs/daemon.json /etc/docker/daemon.json
+systemctl restart docker            # ⚠ riavvia anche TSM: farlo in una finestra concordata
+
+# journal
+install -d /etc/systemd/journald.conf.d
+install -m 0644 /opt/tsm-ops/logs/journald-tsm.conf /etc/systemd/journald.conf.d/tsm.conf
+systemctl restart systemd-journald
+
+# verifica
+docker inspect tsm-api-1 --format '{{json .HostConfig.LogConfig}}'   # max-size 10m, max-file 5
+journalctl --disk-usage
+```
+
+Il limite di `compose.yaml` vale dal primo `systemctl restart tsm` dopo
+l'aggiornamento alla 0.4.2, anche senza toccare `daemon.json`: i container vengono
+ricreati con la nuova configurazione.
+
+## 5. Pulizia dei dati di accesso (dalla 0.4.2)
+
+Ogni notte alle 03:45 il worker cancella tentativi di accesso, sessioni chiuse e
+codici di recupero più vecchi di **90 giorni** (`TSM_AUTH_RETENTION_DAYS` in
+`/opt/tsm/.env`, minimo 30). Il registro di audit non si tocca. Un giro per notte,
+con una riga in `maintenance_runs` (job `auth_purge`) e una riga di audit con i
+conteggi. Il controllo Nagios `check_tsm_maintenance` avvisa se la GC delle foto o
+questa pulizia non girano da più di un giorno.

@@ -33,7 +33,7 @@ set -uo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
 
 DIR=/opt/tsm
-SERVIZI="db api web worker"
+SERVIZI="db api web worker backup"
 STATO=/var/lib/tsm-autoheal
 MAX_PER_ORA=3
 

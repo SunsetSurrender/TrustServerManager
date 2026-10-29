@@ -97,8 +97,10 @@ def test_temporary_password_login_succeeds_with_flags(client):
     r = login(client, "temp", "password-lunga-2")
     assert r.status_code == 200
     body = r.json()
-    assert body == {"authenticated": True, "username": "temp", "role": "edit",
-                    "mustChangePassword": True}
+    # Dalla 0.4.2 la risposta porta anche il profilo e la soglia di inattività.
+    assert {k: body[k] for k in ("authenticated", "username", "role", "mustChangePassword")} \
+        == {"authenticated": True, "username": "temp", "role": "edit",
+            "mustChangePassword": True}
     assert "tsm_session" in r.cookies or r.headers.get("set-cookie")
 
 

@@ -32,6 +32,7 @@ from app.api.request_context import origin_is_acceptable
 from app.api.settings import router as settings_router
 from app.api.users import router as users_router
 from app.api.security import router as security_router
+from app.api.system import router as system_router
 from app.config import get_settings
 from app.photos import MAX_UPLOAD_BYTES
 
@@ -173,6 +174,7 @@ app.include_router(inventory_router, prefix="/api", tags=["inventory"])
 app.include_router(queries_router, prefix="/api", tags=["inventory"])
 app.include_router(users_router, prefix="/api", tags=["users"])
 app.include_router(security_router, prefix="/api", tags=["users"])
+app.include_router(system_router, prefix="/api", tags=["operations"])
 app.include_router(audit_router, prefix="/api", tags=["audit"])
 app.include_router(settings_router, prefix="/api", tags=["settings"])
 app.include_router(notifications_router, prefix="/api", tags=["notifications"])

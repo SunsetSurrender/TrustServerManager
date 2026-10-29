@@ -855,7 +855,9 @@ def _privilege(engine, role: str, table: str, priv: str) -> bool:
     ("tsm_worker", "inventory_versions", "SELECT", True),
     ("tsm_worker", "inventory_versions", "INSERT", False),
     # Le esecuzioni di manutenzione non sono affare dell'API.
-    ("tsm_api", "maintenance_runs", "SELECT", False),
+    # Dalla 0017 l'API LEGGE i giri di manutenzione (pagina «Stato del sistema»);
+    # scriverli resta del worker.
+    ("tsm_api", "maintenance_runs", "SELECT", True),
     ("tsm_api", "maintenance_runs", "INSERT", False),
     ("tsm_worker", "maintenance_runs", "INSERT", True),
     ("tsm_worker", "maintenance_runs", "DELETE", False),
@@ -863,6 +865,7 @@ def _privilege(engine, role: str, table: str, priv: str) -> bool:
     # 0008 le aveva dato quando il worker condivideva il suo ruolo.
     ("tsm_api", "reminders", "UPDATE", False),
     ("tsm_api", "worker_heartbeat", "UPDATE", False),
+    ("tsm_api", "worker_heartbeat", "SELECT", True),       # stato del sistema (0017)
     ("tsm_worker", "reminders", "UPDATE", True),
     ("tsm_worker", "worker_heartbeat", "UPDATE", True),
     # --- fase 2C: l'API mantiene la proiezione, quindi la scrive (§8.44) ---

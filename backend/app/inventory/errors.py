@@ -112,6 +112,20 @@ class VersionConflictError(InventoryError):
         self.current_sha256 = current_sha256
 
 
+class RackLockedError(InventoryError):
+    """Il salvataggio tocca un rack che un'altra persona sta modificando (0.5.0).
+
+    Il blocco è dell'utenza che l'ha preso e scade da solo se il suo browser
+    smette di rinnovarlo. Si traduce in 423 con chi lo tiene, perché l'interfaccia
+    possa dirlo per nome.
+    """
+    code = "rack_locked"
+
+    def __init__(self, locks: list[dict]):
+        super().__init__(f"{len(locks)} rack bloccati da altre utenze", {"locks": locks})
+        self.locks = locks
+
+
 class DocumentRejectedError(InventoryError):
     """Lo schema congelato del documento non è rispettato (§8.16)."""
     code = "document_rejected"

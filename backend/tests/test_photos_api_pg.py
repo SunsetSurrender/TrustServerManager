@@ -866,6 +866,19 @@ def _privilege(engine, role: str, table: str, priv: str) -> bool:
     ("tsm_api", "reminders", "UPDATE", False),
     ("tsm_api", "worker_heartbeat", "UPDATE", False),
     ("tsm_api", "worker_heartbeat", "SELECT", True),       # stato del sistema (0017)
+    # --- 0.5.0 (0018): avvisi, storico, presenza e blocchi, tutti dell'API ---
+    ("tsm_api", "scheduler_runs", "SELECT", True),
+    ("tsm_api", "scheduler_runs", "UPDATE", False),
+    ("tsm_api", "system_alerts", "INSERT", True),
+    ("tsm_api", "system_alerts", "UPDATE", True),
+    ("tsm_api", "system_alerts", "DELETE", False),
+    ("tsm_api", "system_alert_config", "UPDATE", True),
+    ("tsm_api", "system_alert_config", "INSERT", False),
+    ("tsm_api", "status_snapshots", "INSERT", True),
+    ("tsm_api", "status_snapshots", "DELETE", False),
+    ("tsm_api", "edit_locks", "INSERT", True),
+    ("tsm_api", "edit_locks", "UPDATE", True),
+    ("tsm_api", "edit_locks", "DELETE", False),
     ("tsm_worker", "reminders", "UPDATE", True),
     ("tsm_worker", "worker_heartbeat", "UPDATE", True),
     # --- fase 2C: l'API mantiene la proiezione, quindi la scrive (§8.44) ---

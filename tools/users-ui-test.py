@@ -33,7 +33,7 @@ except ImportError:
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-NUOVO = "e2e-utente"
+NUOVO = "e2e-utente-" + __import__("uuid").uuid4().hex[:6]   # unico: il test si può ripetere
 
 results: list[tuple[str, bool, str]] = []
 
@@ -208,10 +208,13 @@ def run(page, ctx, base, args, api_calls, api_bodies, console_text) -> None:
 
     # ---------------- disattivazione / riattivazione ----------------
     api_calls.clear()
-    dis = page.get_by_role("button", name="Disattiva")
+    # La riga dell'utenza di prova, per nome: altre utenze (di altri test) possono
+    # stare prima o dopo nell'elenco.
+    riga = page.locator(f'[data-tsm-user="{NUOVO}"]')
+    dis = riga.get_by_role("button", name="Disattiva")
     check("esiste un'azione di disattivazione", dis.count() > 0)
     if dis.count():
-        dis.last.dispatch_event("click")
+        riga.get_by_role("button", name="Disattiva").dispatch_event("click")
         page.wait_for_timeout(2800)
         check("la disattivazione passa da POST .../disable",
               any("/disable" in c for c in api_calls), str(api_calls))
@@ -224,7 +227,7 @@ def run(page, ctx, base, args, api_calls, api_bodies, console_text) -> None:
               page.get_by_role("button", name="Riattiva").count() > 0)
 
         api_calls.clear()
-        page.get_by_role("button", name="Riattiva").last.dispatch_event("click")
+        riga.get_by_role("button", name="Riattiva").dispatch_event("click")
         page.wait_for_timeout(2800)
         check("la riattivazione passa da POST .../enable",
               any("/enable" in c for c in api_calls), str(api_calls))
@@ -234,7 +237,7 @@ def run(page, ctx, base, args, api_calls, api_bodies, console_text) -> None:
 
     # ---------------- modifica di ruolo e profilo ----------------
     api_calls.clear()
-    page.get_by_role("button", name="Modifica").last.click()
+    riga.get_by_role("button", name="Modifica").click()
     page.wait_for_selector("#form-modifica-utenza", timeout=10000)
     m = page.locator("#form-modifica-utenza")
     m.locator('input[name="telefono"]').fill("06-1234567")
@@ -255,10 +258,9 @@ def run(page, ctx, base, args, api_calls, api_bodies, console_text) -> None:
     # Anche qui i due clic nello stesso task, sull'ultima riga.
     # Dalla 0.4.1 il pulsante della riga apre una finestra (provvisoria o password
     # scelta); il doppio clic si prova sul pulsante che conferma.
-    page.evaluate("""() => {
-      const bs = [...document.querySelectorAll('[data-tsm-reset]')];
-      bs[bs.length - 1].click();
-    }""")
+    page.evaluate("""(n) => {
+      document.querySelector('[data-tsm-user="' + n + '"] [data-tsm-reset]').click();
+    }""", NUOVO)
     page.wait_for_timeout(500)
     page.evaluate("""() => {
       const f = document.querySelector('#form-reimposta-password');
@@ -305,8 +307,7 @@ def run(page, ctx, base, args, api_calls, api_bodies, console_text) -> None:
     page.wait_for_timeout(4500)
     open_profile(page)
     api_calls.clear()
-    # `admin` è la prima riga (ordinamento per username)
-    page.get_by_role("button", name="Modifica").first.click()
+    page.locator(f'[data-tsm-user="{args.username}"]').get_by_role("button", name="Modifica").click()
     page.wait_for_selector("#form-modifica-utenza", timeout=10000)
     m = page.locator("#form-modifica-utenza")
     check("si sta modificando la propria utenza",

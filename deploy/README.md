@@ -1236,6 +1236,21 @@ Le immagini vecchie si tolgono dopo aver verificato il nuovo rilascio, per tag
 (`docker rmi tsm-api:<vecchio> tsm-web:<vecchio>`): Docker rifiuta di togliere
 un'immagine che un container sta usando.
 
+### 3.11.1 Note sulla 0.5.0
+
+- Migrazione `0018_ops_presence`, automatica al riavvio (`migrate`): tabelle degli
+  avvisi di sistema, storico giornaliero, presenza e blocchi dei rack. Nessuna
+  ricostruzione della proiezione.
+- La **sentinella** degli avvisi gira dentro `api` (thread, ogni 5 minuti): non c'è
+  un servizio nuovo. Si configura dall'applicazione (Impostazioni → Notifiche →
+  Avvisi di sistema); in `.env` solo, se serve, `TSM_SENTINEL_ENABLED=false` per
+  spegnerla e `TSM_SENTINEL_INTERVAL_SECONDS` per cambiarne il ritmo.
+- Il servizio `backup` fa una **prova di ripristino** settimanale in un database
+  temporaneo `tsm_restore_check` (`TSM_RESTORE_TEST_DAY`, predefinito 7 = domenica).
+- Il ripristino automatico (`ops/autoheal`) si installa con
+  `bash /opt/tsm-ops/install-autoheal.sh` (ops/README.md §3) e annota i suoi
+  interventi nell'applicazione.
+
 ## 4. Il caso che conta: disco dei dati assente
 
 Da provare **prima** di mettere il servizio in esercizio, e da ripetere dopo ogni

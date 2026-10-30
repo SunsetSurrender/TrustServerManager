@@ -134,7 +134,7 @@ services:
     logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.3
+    image: tsm-api:0.5.0
     # Applica le migrazioni E imposta la password del ruolo di runtime leggendola
     # dal secret: una password non può stare in una migrazione, che finisce nel
     # repository e nell'immagine.
@@ -162,7 +162,7 @@ services:
     logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.3
+    image: tsm-api:0.5.0
     networks: [internal, edge]
     # NESSUNA porta pubblicata (§8.34).
     #
@@ -227,6 +227,9 @@ services:
       # Verifica del certificato del relay. `true` per default: un certificato
       # non valido deve far fallire l'invio, non passare in silenzio.
       TSM_SMTP_TLS_VERIFY: ${TSM_SMTP_TLS_VERIFY:-true}
+      # 0.5.0: sentinella degli avvisi di sistema (thread dell'API, ogni 5 minuti).
+      TSM_SENTINEL_ENABLED: ${TSM_SENTINEL_ENABLED:-true}
+      TSM_SENTINEL_INTERVAL_SECONDS: ${TSM_SENTINEL_INTERVAL_SECONDS:-300}
     healthcheck:
       # LIVENESS, non readiness. L'healthcheck di Docker decide riavvii e ordine
       # di avvio: legarlo a /api/ready significherebbe che un'installazione nuova
@@ -275,7 +278,7 @@ services:
     logging: *logging
     build:
       context: ./backend
-    image: tsm-api:0.4.3
+    image: tsm-api:0.5.0
     command: ["python", "scripts/worker.py"]
     # Rete interna per PostgreSQL, più `egress` (0.4.3) per raggiungere il relay
     # SMTP: `internal` non ha uscita per costruzione, e fino alla 0.4.2 gli avvisi
@@ -354,6 +357,7 @@ services:
       TSM_DUMP_HOUR: ${TSM_DUMP_HOUR:-2}
       TSM_DUMP_MINUTE: ${TSM_DUMP_MINUTE:-15}
       TSM_DUMP_KEEP: ${TSM_DUMP_KEEP:-14}
+      TSM_RESTORE_TEST_DAY: ${TSM_RESTORE_TEST_DAY:-7}
       TSM_DUMP_TZ: ${TSM_DUMP_TZ:-Europe/Rome}
     secrets:
       - postgres_password
@@ -379,7 +383,7 @@ services:
     build:
       context: .
       dockerfile: ./web/Dockerfile
-    image: tsm-web:0.4.3
+    image: tsm-web:0.5.0
     networks: [internal, edge]
     ports:
       # PORTE STANDARD sull'host: 80 e 443. Non è estetica (§8.31).

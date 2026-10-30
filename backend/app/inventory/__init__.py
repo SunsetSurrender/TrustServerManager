@@ -63,6 +63,7 @@ from .errors import (
     NotBootstrappedError,
     ProjectionInconsistentError,
     ProjectionNotCurrentError,
+    RackLockedError,
     VersionConflictError,
 )
 from .repository import (
@@ -85,5 +86,5 @@ __all__ = [
     "InventoryError", "NotBootstrappedError", "AlreadyBootstrappedError",
     "VersionConflictError", "DocumentRejectedError", "IdentityRejectedError",
     "NotAuthorizedError", "ProjectionNotCurrentError",
-    "ProjectionInconsistentError",
+    "ProjectionInconsistentError", "RackLockedError",
 ]

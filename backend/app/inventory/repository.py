@@ -75,8 +75,11 @@ from app.inventory.errors import (
     IdentityRejectedError,
     NotAuthorizedError,
     NotBootstrappedError,
+    RackLockedError,
     VersionConflictError,
 )
+from app.inventory.merge import MergeConflict, touched_racks
+from app.inventory.merge import merge as merge_documents
 from app.photos import refs as photo_refs
 from app.photos.refs import photo_ids
 
@@ -110,6 +113,7 @@ class SaveResult:
     created: bool                 # False = no-op canonico, nessuna storia scritta
     events: tuple[dict, ...] = ()
     scopes: tuple[str, ...] = ()
+    merged: bool = False          # 0.5.0: unito a una versione salvata nel frattempo
 
 
 @dataclass(frozen=True)
@@ -346,8 +350,32 @@ class InventoryRepository:
         # Con il lock preso, questo confronto è race-free: chi arriva secondo ha
         # aspettato qui e rilegge la testa aggiornata, quindi ottiene un conflitto
         # corretto invece di una violazione di chiave primaria travestita.
+        #
+        # 0.5.0: prima di rifiutare si prova a UNIRE. Se le modifiche di chi salva e
+        # quelle arrivate nel frattempo toccano cose diverse (rack diversi), il
+        # candidato diventa la testa con sopra le sue modifiche, e da qui in poi
+        # segue esattamente il percorso normale — identità, modello, permessi.
+        # Il lock sulla testa è tenuto: nessuno può scrivere nel mezzo.
+        merged = False
         if int(base_version) != current_version:
-            raise VersionConflictError(base_version, current_version, current_sha)
+            base_row = self.conn.execute(
+                text("SELECT doc FROM inventory_versions WHERE version = :v"),
+                {"v": int(base_version)}).first()
+            if base_row is None or int(base_version) > current_version:
+                raise VersionConflictError(base_version, current_version, current_sha)
+            try:
+                candidate = canonicalise(merge_documents(
+                    canonicalise(base_row[0]), candidate, current_canonical))
+            except MergeConflict:
+                raise VersionConflictError(base_version, current_version,
+                                           current_sha) from None
+            candidate_sha = canonical_sha256(candidate)
+            if candidate_sha == current_sha:
+                return SaveResult(version=current_version, created=False, merged=True)
+            merged = True
+            pre = validate_normal_document(candidate, max_bytes=MAX_DOCUMENT_BYTES)
+            if pre:
+                raise VersionConflictError(base_version, current_version, current_sha)
 
         # --- 6. transizione di identità ---
         id_errors = validate_against_base(current_canonical, candidate)
@@ -367,6 +395,9 @@ class InventoryRepository:
                 f"modifica non autorizzata per il ruolo '{actor.role}' "
                 f"({len(decision.violations)} violazioni)",
                 [v.as_dict() for v in decision.violations])
+
+        # --- 8-ter (0.5.0). rack che un'altra utenza sta modificando ---
+        self._require_unlocked(current_canonical, candidate, actor)
 
         # --- 8-bis. le foto referenziate devono esistere ---
         #
@@ -428,6 +459,9 @@ class InventoryRepository:
         photo_refs.record(self.conn, version, refs)
 
         # --- 13. audit ---
+        if merged:
+            nota = f"[unito alla versione {current_version}]"
+            client_hint = f"{client_hint} {nota}" if client_hint else nota
         self._insert_audit(version, actor, action="inventory.save", scopes=scopes,
                            events=event_dicts, client_hint=client_hint)
 
@@ -436,7 +470,30 @@ class InventoryRepository:
 
         # --- 15. il commit è del chiamante, che possiede la transazione ---
         return SaveResult(version=version, created=True,
-                          events=tuple(event_dicts), scopes=tuple(scopes))
+                          events=tuple(event_dicts), scopes=tuple(scopes), merged=merged)
+
+    def _require_unlocked(self, current: dict, candidate: dict, actor: Actor) -> None:
+        """Rifiuta se il candidato cambia un rack bloccato da UN'ALTRA utenza.
+
+        Senza `user_id` (script, bootstrap) non c'è un proprietario da confrontare:
+        il controllo vale solo per le utenze reali, che sono le sole a prendere
+        blocchi.
+        """
+        racks = touched_racks(current, candidate)
+        if not racks or actor.user_id is None:
+            return
+        rows = self.conn.execute(text("""
+            SELECT l.rack_uid, u.username, coalesce(nullif(trim(concat_ws(' ', u.nome, u.cognome)), ''),
+                   u.username), r.code
+              FROM edit_locks l
+              JOIN users u ON u.id = l.user_id
+              LEFT JOIN inventory_racks r ON r.uid::text = l.rack_uid::text
+             WHERE l.rack_uid::text = ANY(:racks) AND l.expires_at > now()
+               AND l.user_id::text <> :me
+        """), {"racks": [str(r) for r in racks], "me": str(actor.user_id)}).all()
+        if rows:
+            raise RackLockedError([{"rackUid": str(r[0]), "username": r[1], "display": r[2],
+                                    "rack": r[3]} for r in rows])
 
     # --------------------------------------------------------------- interni
     #

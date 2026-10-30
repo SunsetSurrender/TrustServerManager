@@ -8,7 +8,12 @@ da questa suite (validità, codici ED eventi di dominio).
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+# La sentinella degli avvisi (0.5.0) è un thread dell'API: nei test non deve
+# partire da sola. I suoi test la chiamano direttamente con `run_once`.
+os.environ.setdefault("TSM_SENTINEL_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient

@@ -348,7 +348,8 @@ def login(conn: Connection, username: str, password: str, *,
                                     must_change_pw=bool(row[4]))
 
 
-def resolve_session(conn: Connection, token: str | None) -> AuthenticatedUser:
+def resolve_session(conn: Connection, token: str | None, *,
+                    touch: bool = True) -> AuthenticatedUser:
     """Sessione → utente. Solleva `NotAuthenticated` se non è valida.
 
     Ricontrolla `disabled_at` a ogni richiesta e non si fida della sessione:
@@ -385,8 +386,12 @@ def resolve_session(conn: Connection, token: str | None) -> AuthenticatedUser:
             "revoca della sessione inattiva")
         raise SessionIdle("sessione chiusa per inattività")
 
-    conn.execute(text("UPDATE sessions SET last_seen_at = now() WHERE id = :sid"),
-                 {"sid": row[0]})
+    # `touch=False` (0.5.0): il segnale di presenza del browser NON è attività
+    # dell'utente. Se aggiornasse `last_seen_at`, una scheda lasciata aperta non
+    # scadrebbe mai per inattività.
+    if touch:
+        conn.execute(text("UPDATE sessions SET last_seen_at = now() WHERE id = :sid"),
+                     {"sid": row[0]})
     return AuthenticatedUser(id=row[1], username=str(row[2]), role=row[3],
                              must_change_pw=bool(row[4]))
 
@@ -402,6 +407,13 @@ def logout(conn: Connection, token: str | None, *, ip: str | None = None) -> Non
     conn.execute(text("""
         UPDATE sessions SET revoked_at = now()
          WHERE token_hash = :th AND revoked_at IS NULL
+    """), {"th": _token_hash(token)})
+    # I blocchi di modifica presi da questa sessione si liberano subito (0.5.0),
+    # invece di aspettare la scadenza.
+    conn.execute(text("""
+        UPDATE edit_locks SET expires_at = now()
+         WHERE expires_at > now()
+           AND session_id = (SELECT id FROM sessions WHERE token_hash = :th)
     """), {"th": _token_hash(token)})
     if row is not None:
         record_auth_event(conn, LOGOUT, username=str(row[1]), user_id=row[0],

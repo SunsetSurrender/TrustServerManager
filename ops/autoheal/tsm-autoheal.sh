@@ -39,6 +39,27 @@ MAX_PER_ORA=3
 
 log() { logger -t tsm-autoheal -p "daemon.$1" -- "$2"; printf '%s: %s\n' "$1" "$2"; }
 
+# 0.5.0: ogni intervento si annota anche nell'applicazione, che lo mette nella
+# Diagnostica e lo manda per email con gli avvisi di sistema. Se il database non
+# risponde (Docker appena ripartito) si riprova alla fine del giro.
+INTERVENTI=()
+annota() { INTERVENTI+=("$1"); }
+registra_interventi() {
+    [ "${#INTERVENTI[@]}" -eq 0 ] && return 0
+    cd "$DIR" 2>/dev/null || return 0
+    local i=0 testo
+    for testo in "${INTERVENTI[@]}"; do
+        i=$((i + 1))
+        testo=$(printf '%s' "$testo" | tr -cd 'A-Za-z0-9 .,:;()/_-' | head -c 300)
+        docker compose exec -T db psql -U tsm -d tsm -q -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO system_alerts (key, kind, level, title, detail, resolved_at)
+             VALUES ('autoheal:$(date +%s):$i', 'reminder', 'warn',
+                     'Ripristino automatico', '$testo', now())" >/dev/null 2>&1 \
+            || log warning "intervento non annotato nell'applicazione (database non raggiungibile)"
+    done
+}
+trap registra_interventi EXIT
+
 install -d -m 0700 "$STATO"
 [ -e "$STATO/pausa" ] && exit 0
 # Un servizio disabilitato è una scelta, non un guasto.
@@ -60,6 +81,7 @@ budget() {
 if ! systemctl is-active --quiet docker.service; then
     budget docker || exit 1
     log warning "docker.service non attivo: azzero il limite di systemd e lo avvio"
+    annota "Docker era fermo: riavviato"
     systemctl reset-failed docker.service docker.socket 2>/dev/null
     if ! systemctl start docker.service; then
         log err "docker.service non parte: journalctl -u docker"
@@ -72,6 +94,7 @@ fi
 if ! systemctl is-active --quiet tsm.service; then
     budget tsm.service || exit 1
     log warning "tsm.service non attivo: lo avvio (preflight compreso)"
+    annota "il servizio tsm era fermo: riavviato"
     systemctl reset-failed tsm.service 2>/dev/null
     if ! systemctl start tsm.service; then
         log err "tsm.service non parte, probabilmente rifiutato dal preflight: systemctl status tsm"
@@ -94,11 +117,13 @@ for s in $SERVIZI; do
         "running unhealthy")
             budget "$s" || continue
             log warning "$s unhealthy: docker compose restart $s"
+            annota "il container $s non rispondeva (unhealthy): riavviato"
             docker compose restart "$s" >/dev/null 2>&1 || log err "$s: restart non riuscito"
             ;;
         *)
             budget "$s" || continue
             log warning "$s in stato «$stato»: docker compose up -d $s"
+            annota "il container $s era $stato: riavviato"
             docker compose up -d "$s" >/dev/null 2>&1 || log err "$s: avvio non riuscito"
             ;;
     esac

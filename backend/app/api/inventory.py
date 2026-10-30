@@ -78,6 +78,11 @@ class SaveOut(BaseModel):
     schemaVersion: int
     sha256: str
     changed: bool
+    # 0.5.0: il salvataggio è stato UNITO a una versione arrivata nel frattempo.
+    # Il client deve ripartire da `doc`, non da ciò che ha in mano: il suo
+    # documento non contiene le modifiche dell'altra persona.
+    merged: bool = False
+    doc: dict | None = None
 
 
 @router.get("/inventory", response_model=InventoryOut,
@@ -149,4 +154,6 @@ def put_inventory(payload: SaveIn, response: Response,
         schemaVersion=doc.get("schemaVersion", CURRENT_SCHEMA_VERSION),
         sha256=canonical_sha256(doc),
         changed=result.created,
+        merged=result.merged,
+        doc=doc if result.merged else None,
     )

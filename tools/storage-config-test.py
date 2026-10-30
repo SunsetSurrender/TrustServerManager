@@ -2612,7 +2612,7 @@ _migrazioni = sorted((ROOT / "backend" / "migrations" / "versions").glob("0*.py"
 # applicativi DICHIARATI qui uno per uno: una migrazione nuova è una decisione da
 # scrivere in questa lista, non una che passa inosservata.
 _DOPO_2I = ["0014_account_lockout.py", "0015_account_recovery.py", "0016_auth_purge.py",
-            "0017_idle_and_dumps.py"]
+            "0017_idle_and_dumps.py", "0018_ops_presence.py"]
 _nomi = [p.name for p in _migrazioni]
 check("dopo la fase 2I solo le migrazioni dichiarate",
       len(_nomi) == 13 + len(_DOPO_2I) and _nomi[12].startswith("0013")

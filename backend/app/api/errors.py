@@ -43,6 +43,7 @@ from app.inventory import (
     NotBootstrappedError,
     ProjectionInconsistentError,
     ProjectionNotCurrentError,
+    RackLockedError,
     VersionConflictError,
 )
 from app.inventory.queries import CursorRejected, QueryRejected
@@ -191,6 +192,15 @@ def http_error_for(exc: Exception) -> HTTPException:
                                                 "da un'altra sessione",
                                      "currentVersion": exc.current_version,
                                      "currentSha256": exc.current_sha256},
+                             headers=NO_STORE)
+    if isinstance(exc, RackLockedError):
+        primo = exc.locks[0] if exc.locks else {}
+        return HTTPException(423,
+                             detail={"code": exc.code,
+                                     "message": f"{primo.get('display') or 'un altro utente'} "
+                                                f"sta modificando il rack "
+                                                f"{primo.get('rack') or ''}".strip(),
+                                     "locks": exc.locks},
                              headers=NO_STORE)
     if isinstance(exc, AlreadyBootstrappedError):
         return HTTPException(status.HTTP_409_CONFLICT,

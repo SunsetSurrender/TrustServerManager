@@ -165,9 +165,21 @@ def main() -> int:
             page.get_by_role("button", name="Scegli tu la password").click()
             shot("10-reimposta", el=page.locator("#form-reimposta-password"))
             page.locator("#form-reimposta-password").get_by_role("button", name="Annulla").click()
+        page.set_viewport_size({"width": 1440, "height": 2200})   # schede lunghe: intere
+        # Un'email all'amministratore d'esempio: gli avvisi hanno un destinatario.
+        me = page.request.get(base + "/api/auth/me").json()
+        if not me.get("email"):
+            page.request.patch(base + "/api/auth/me", data={"email": "amministratore@esempio.it"},
+                               headers={"Origin": base})
         scheda(page, "stato", 1500)
         if page.locator("#stato-sistema").count():
             shot("11-stato", el=page.locator("#stato-sistema"))
+        scheda(page, "notifiche", 1500)
+        if page.locator("#avvisi-sistema").count():
+            shot("13-avvisi", el=page.locator("#avvisi-sistema"))
+        scheda(page, "diagnostica", 2000)
+        if page.locator("#diagnostica").count():
+            shot("14-diagnostica", el=page.locator("#diagnostica"))
         b.close()
     return 0
 

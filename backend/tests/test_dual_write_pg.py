@@ -841,8 +841,10 @@ def test_a_stale_base_version_with_different_content_still_conflicts(db, engine)
     save(engine, relbuild.variant_renamed(), base=v1)
     prima = snapshot_of_everything(engine)
 
+    # Dalla 0.5.0 due modifiche a cose DIVERSE si uniscono: il conflitto resta
+    # quando si tocca la STESSA cosa (qui il rack appena rinominato).
     doc = deepcopy(DOCUMENTS["base"])
-    doc["locations"][0]["nome"] = "Un'altra modifica ancora"
+    relbuild._find_rack(doc, relbuild.K1)["name"] = "Un'altra modifica ancora"
     with pytest.raises(VersionConflictError):
         save(engine, doc, base=v1)
 
@@ -1229,7 +1231,8 @@ def test_two_concurrent_saves_never_leave_the_two_halves_apart(db, engine):
 
     doc_a = relbuild.variant_renamed()
     doc_b = deepcopy(DOCUMENTS["base"])
-    doc_b["locations"][0]["nome"] = "Modificato da B"
+    # Lo STESSO rack di A: dalla 0.5.0 modifiche a cose diverse si uniscono.
+    relbuild._find_rack(doc_b, relbuild.K1)["name"] = "Modificato da B"
 
     esiti: dict[str, object] = {}
     partenza = threading.Barrier(2)
@@ -1278,7 +1281,7 @@ def test_the_loser_sees_an_already_synchronised_projection(db, engine):
     assert currency.current
 
     doc = deepcopy(DOCUMENTS["base"])
-    doc["locations"][0]["nome"] = "B si sveglia"
+    relbuild._find_rack(doc, relbuild.K1)["name"] = "B si sveglia"
     with pytest.raises(VersionConflictError) as err:
         save(engine, doc, base=v1)
     assert err.value.current_version == v2
@@ -1420,8 +1423,10 @@ def test_the_frontend_contract_is_unchanged(db, engine):
             r = client.put("/api/inventory", headers=ORIGIN,
                            json={"baseVersion": version,
                                  "doc": relbuild.variant_renamed()})
+            # `merged` e `doc` dalla 0.5.0: il documento torna SOLO dopo un'unione.
             assert set(r.json()) <= {"version", "changed", "sha256", "schemaVersion",
-                                     "events", "scopes"}, sorted(r.json())
+                                     "events", "scopes", "merged", "doc"}, sorted(r.json())
+            assert r.json().get("doc") is None
             testo = json.dumps(r.json())
             for parola in PROJECTION_TABLES + ("mapper_version", "projection",
                                                "garanzia_date"):

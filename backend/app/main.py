@@ -27,6 +27,7 @@ from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
 from app.api.notifications import router as notifications_router
 from app.api.photos import router as photos_router
+from app.api.presence import router as presence_router
 from app.api.queries import router as queries_router
 from app.api.request_context import origin_is_acceptable
 from app.api.settings import router as settings_router
@@ -164,6 +165,18 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
         headers={"Cache-Control": "no-store"})
 
 
+@app.on_event("startup")
+def _avvia_sentinella() -> None:                     # pragma: no cover
+    from app.ops import sentinel
+    sentinel.start()
+
+
+@app.on_event("shutdown")
+def _ferma_sentinella() -> None:                     # pragma: no cover
+    from app.ops import sentinel
+    sentinel.stop()
+
+
 app.include_router(health_router, prefix="/api", tags=["operations"])
 app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(inventory_router, prefix="/api", tags=["inventory"])
@@ -179,3 +192,4 @@ app.include_router(audit_router, prefix="/api", tags=["audit"])
 app.include_router(settings_router, prefix="/api", tags=["settings"])
 app.include_router(notifications_router, prefix="/api", tags=["notifications"])
 app.include_router(photos_router, prefix="/api", tags=["photos"])
+app.include_router(presence_router, prefix="/api", tags=["presence"])

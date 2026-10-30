@@ -4,7 +4,7 @@
 <table class="ctrl"><tbody>
 <tr><td>Titolo</td><td>Trust Server Manager. Manuale tecnico e applicativo</td></tr>
 <tr><td>Codice</td><td>TT-TSM-MAN-01</td></tr>
-<tr><td>Versione</td><td>0.4.3</td></tr>
+<tr><td>Versione</td><td>0.5.0</td></tr>
 <tr><td>Data</td><td>28 ottobre 2026</td></tr>
 <tr><td>Stato</td><td>Bozza</td></tr>
 <tr><td>Redatto da</td><td>M. Zandonella</td></tr>
@@ -19,7 +19,8 @@
 <tr><td>0.4</td><td>28/10/2026</td><td>Password minima di 12 caratteri con indicatore di robustezza; blocco dell'utenza dopo accessi falliti, con soglia impostabile e sblocco da amministratore; monitoraggio, FIM e ripristino automatico spostati nella cartella sistemistica <code>ops/</code>.</td></tr>
 <tr><td>0.4.1</td><td>28/10/2026</td><td>Recupero della password via email con codice monouso; indirizzo email sulle utenze; reimpostazione da amministratore con password scelta; provvisorie in gruppi facili da ridigitare; al cambio obbligatorio la provvisoria non si ridigita e la nuova va confermata.</td></tr>
 <tr><td>0.4.2</td><td>29/10/2026</td><td>Schermate nella parte applicativa; import dei seriali dei rack dall'applicazione; tetto ai log dei container; pulizia notturna dei dati di accesso dopo 90 giorni; controllo Nagios della manutenzione.; dump notturno del database con 14 copie e procedura di ripristino; uscita per inattività; dati personali modificabili dal Profilo; pagina «Stato del sistema» per gli amministratori</td></tr>
-<tr><td>0.4.3</td><td>29/10/2026</td><td>Impostazioni come pagina a schede; Profilo solo personale; email in HTML con logo; failover fra due relay SMTP; uscita di rete per gli avvisi di scadenza; «Password dimenticata?» sempre visibile; motivi espliciti nello stato del sistema.</td></tr></tbody></table>
+<tr><td>0.4.3</td><td>29/10/2026</td><td>Impostazioni come pagina a schede; Profilo solo personale; email in HTML con logo; failover fra due relay SMTP; uscita di rete per gli avvisi di scadenza; «Password dimenticata?» sempre visibile; motivi espliciti nello stato del sistema.</td></tr>
+<tr><td>0.5.0</td><td>30/10/2026</td><td>Avvisi di sistema via email agli amministratori; scheda Diagnostica con andamento a 90 giorni; prova di ripristino settimanale del dump; promemoria del certificato; interventi del ripristino automatico annotati e segnalati; utenti collegati; blocco per rack durante la modifica; unione automatica dei salvataggi concorrenti su rack diversi.</td></tr></tbody></table>
 
 <h3>Scopo</h3>
 <p>Il documento descrive l'installazione di produzione di Trust Server Manager (TSM) e il suo utilizzo. La Parte I è rivolta a chi amministra il server; la Parte II a chi usa l'applicazione.</p>
@@ -294,6 +295,7 @@ bash tools/release-bundle.sh --out &lt;cartella&gt; --with-images</pre>
 <p>Dalla 0.4.2 il servizio <code>backup</code> scrive ogni notte alle 02:15 un dump completo del database in <code>/srv/tsm-data/backups</code> (formato <code>pg_dump -Fc</code>, file <code>tsm-AAAAMMGG-HHMMSS.dump</code>, permessi 0600) e conserva gli ultimi 14. Il file prende il nome definitivo solo dopo essere stato riletto per intero. Esito, dimensione e spazio libero del disco dati sono visibili nella pagina «Stato del sistema» e controllati da <code>check_tsm_maintenance</code>. Orario e numero di copie si cambiano in <code>.env</code> (<code>TSM_DUMP_HOUR</code>, <code>TSM_DUMP_MINUTE</code>, <code>TSM_DUMP_KEEP</code>).</p>
 <p>Il dump non sostituisce Veeam: Veeam salva la macchina, il dump è una copia sicuramente coerente del solo database, ripristinabile anche su un'altra installazione. Un dump si può lanciare a mano prima di un intervento:</p>
 <pre>docker compose exec backup sh /opt/tsm-backup/backup.sh --now</pre>
+<p><b>Prova di ripristino.</b> Dalla 0.5.0, una volta alla settimana (la domenica, <code>TSM_RESTORE_TEST_DAY</code>, 1 = lunedì … 7 = domenica) il dump appena scritto viene ripristinato davvero in un database temporaneo (<code>tsm_restore_check</code>), si contano le versioni dell'inventario e il database temporaneo si cancella. L'esito è nello Stato del sistema («Prova di ripristino») e nella Diagnostica; una prova fallita è un problema critico e parte un avviso. A mano: <code>backup.sh --now --restore-test</code>. Un dump molto più piccolo del precedente (meno della metà) è segnalato come da controllare.</p>
 <h3>Ripristino da un dump</h3>
 <pre><span class="c"># 1. fermare il ripristino automatico e i servizi che scrivono</span>
 systemctl stop tsm-autoheal.timer
@@ -322,6 +324,15 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 <h2><span class="sn">9</span>Monitoraggio e diagnostica</h2>
 <div class="nota"><div class="l">NOTA</div>
 <p>Monitoraggio, integrità dei file e ripristino automatico sono attività sistemistiche: i relativi file stanno nella cartella <code>ops/</code> del repository, documentata in <code>ops/README.md</code>, non fanno parte del pacchetto di rilascio e un aggiornamento dell'applicazione non li modifica.</p></div>
+<h3>Avvisi di sistema</h3>
+<p>Dalla 0.5.0 l'applicazione si controlla da sola: ogni 5 minuti una sentinella, dentro il servizio <code>api</code>, rilegge le voci dello Stato del sistema (con le stesse soglie dei controlli Nagios) e scrive agli amministratori quando una voce diventa critica: dump fallito o vecchio, prova di ripristino fallita, disco dati oltre il 90%, battito del worker assente, migrazione non allineata, certificato in scadenza. Il problema si ricorda ogni 24 ore finché resta aperto, e quando torna a posto arriva il messaggio «risolto». Un'email per controllo, con tutti i problemi del momento.</p>
+<ul>
+<li><b>Destinatari.</b> Gli amministratori attivi con un indirizzo email, più gli indirizzi aggiuntivi (per esempio la casella del gruppo), in Impostazioni → Notifiche → «Avvisi di sistema». Lì si sceglie anche se scrivere solo per i problemi critici o anche per quelli da controllare, e ogni quante ore ripetere.</li>
+<li><b>Certificato.</b> Promemoria a 60, 30 e 7 giorni dalla scadenza, una volta per soglia.</li>
+<li><b>Ripristino automatico.</b> Ogni intervento del timer <code>tsm-autoheal</code> (container riavviato, Docker ripartito) viene annotato nell'applicazione e segnalato per email.</li>
+<li><b>Invio non riuscito.</b> Se il relay rifiuta o non risponde, i problemi restano da segnalare e si riprova dopo 30 minuti.</li>
+</ul>
+<p>Lo stesso servizio che va controllato non può accorgersi di essere spento: se l'API è ferma non parte alcun avviso. Per questo il controllo esterno (Nagios, <code>check_http</code> su <code>/api/ready</code>) resta necessario.</p>
 <h3>Controlli Nagios</h3>
 <p>I controlli sono eseguiti via NRPE dallo script <code>/usr/local/lib/tsm/check_tsm.sh</code>. L'utente <code>nrpe</code> lo esegue tramite <code>sudo</code>, con una regola limitata allo script e ai suoi argomenti; non appartiene al gruppo <code>docker</code>. Nomi e soglie sono in corso di allineamento agli standard di monitoraggio del gruppo.</p>
 <table><thead><tr><th style="width:27%">Comando</th><th>Verifica</th><th style="width:13%">Intervallo</th></tr></thead><tbody>
@@ -418,10 +429,16 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 </tbody></table>
 <h3>Visualizzazione ed Editing</h3>
 <p>Il selettore in alto a sinistra (Ctrl+E) alterna la modalità di consultazione e quella di modifica. In Editing sono disponibili i comandi consentiti dal proprio privilegio; per le utenze in sola lettura la modalità Editing non è attivabile.</p>
+<h3>Lavorare in più persone</h3>
+<ul>
+<li><b>Chi è collegato.</b> Il pulsante «● N online» nella barra superiore elenca chi ha l'applicazione aperta e, con 🔒, chi sta modificando un rack.</li>
+<li><b>Un rack alla volta.</b> Aprendo un rack in Editing lo si riserva: gli altri lo vedono con il lucchetto 🔒 sulla pianta e l'avviso «<i>Nome Cognome</i> sta modificando questo rack», e possono consultarlo ma non modificarlo. Il rack si libera quando si passa a un altro rack, si torna in Visualizzazione, si apre Impostazioni o Profilo, si esce, oppure da solo entro un paio di minuti se il browser viene chiuso. Il controllo è anche del server: un salvataggio su un rack riservato da un altro è rifiutato. Un amministratore può forzare lo sblocco dalla scheda Diagnostica o dall'avviso sul rack.</li>
+<li><b>Salvataggi contemporanei.</b> Se due persone salvano nello stesso momento modifiche a rack diversi, le modifiche si uniscono e compare «Salvato insieme alle modifiche arrivate nel frattempo da un'altra persona». Solo se entrambe hanno modificato la stessa cosa il secondo salvataggio è respinto e la pagina si ricarica con i dati aggiornati.</li>
+</ul>
 <h3>Profilo</h3>
 <p>Il profilo si apre dall'icona con le iniziali, nella barra superiore, ed è personale: nome, cognome, telefono ed email si modificano da sé con «Salva dati» (il team lo imposta un amministratore), e da qui si cambia la propria password.</p>
 <h3>Impostazioni</h3>
-<p>«⚙ Impostazioni» apre una pagina a schede. Per tutti: <b>Generale</b> (manuale, numero di modifiche annullabili, tema Scuro, Chiaro o TIM). Per gli amministratori anche: <b>Importa / Esporta</b>, <b>Notifiche</b>, <b>Utenti e privilegi</b>, <b>Sicurezza accessi</b>, <b>Stato del sistema</b> e <b>Registro</b>.</p>
+<p>«⚙ Impostazioni» apre una pagina a schede. Per tutti: <b>Generale</b> (manuale, numero di modifiche annullabili, tema Scuro, Chiaro o TIM). Per gli amministratori anche: <b>Importa / Esporta</b>, <b>Notifiche</b>, <b>Utenti e privilegi</b>, <b>Sicurezza accessi</b>, <b>Stato del sistema</b>, <b>Diagnostica</b> e <b>Registro</b>.</p>
 <div class="fig shot"><img src="img/12-impostazioni.png"><div class="cap">Figura 12 — La pagina Impostazioni, scheda «Utenti e privilegi».</div></div>
 <p>Dopo un periodo senza attività (60 minuti in modo predefinito) la sessione si chiude e si torna alla schermata di accesso: il web gateway è condiviso, e una sessione lasciata aperta resterebbe usabile da chi si siede dopo.</p>
 </section>
@@ -560,8 +577,14 @@ docker compose run --rm migrate python scripts/project.py --verify</pre>
 <h3>Registro delle modifiche</h3>
 <p>Il registro elenca in sola lettura tutte le modifiche, con autore, data e contenuto.</p>
 <h3>Stato del sistema</h3>
-<p>In Impostazioni, scheda «Stato del sistema», gli amministratori trovano un riepilogo dello stato: versione, migrazione del database, battito del worker, ultimi giri di manutenzione, ultimo dump e spazio sul disco dati, configurazione della posta, scadenza del certificato, utenze bloccate o senza email. Ogni voce è verde, ambra o rossa con le stesse soglie dei controlli Nagios; sotto il titolo sono elencate per nome le voci da controllare (per esempio SMTP non configurato o utenze senza email). Non sostituisce il monitoraggio: è un colpo d'occhio per chi usa l'applicazione.</p>
+<p>In Impostazioni, scheda «Stato del sistema», gli amministratori trovano un riepilogo dello stato: versione, migrazione del database, battito del worker, ultimi giri di manutenzione, ultimo dump e spazio sul disco dati, configurazione della posta, scadenza del certificato, utenze bloccate o senza email. Ogni voce è verde, ambra o rossa con le stesse soglie dei controlli Nagios; sotto il titolo sono elencate per nome le voci da controllare (per esempio SMTP non configurato o utenze senza email). Le voci grigie sono solo informative: riportano un valore che non ha una soglia (dimensione del database, sessioni aperte). Una legenda in fondo riassume i colori. Non sostituisce il monitoraggio: è un colpo d'occhio per chi usa l'applicazione.</p>
 <div class="fig shot"><img src="img/11-stato.png" style="width:62%"><div class="cap">Figura 11 — Stato del sistema.</div></div>
+<h3>Avvisi di sistema</h3>
+<p>Sotto le notifiche di scadenza, nella stessa scheda, il riquadro «Avvisi di sistema» decide chi riceve le email sui problemi dell'applicazione (capitolo 9): tutti gli amministratori con un'email, indirizzi aggiuntivi, solo i problemi critici o anche quelli da controllare, ogni quante ore ripetere. «Invia una prova» verifica che i messaggi arrivino. Sotto i pulsanti sono indicati l'ultimo controllo e l'ultimo avviso inviato.</p>
+<div class="fig shot"><img src="img/13-avvisi.png" style="width:70%"><div class="cap">Figura 13 — Avvisi di sistema, in Impostazioni → Notifiche.</div></div>
+<h3>Diagnostica</h3>
+<p>La scheda «Diagnostica» racconta cosa è successo: avvisi aperti e chiusi, andamento degli ultimi 90 giorni (dimensione del database, occupazione del disco dati, dimensione dei dump, numero di dispositivi, accessi falliti), gli ultimi dump con l'esito delle prove di ripristino, accessi riusciti e falliti con le utenze e gli indirizzi più ricorrenti, gli ultimi giri degli avvisi di scadenza e i rack in modifica, con il pulsante per sbloccarli.</p>
+<div class="fig shot"><img src="img/14-diagnostica.png" style="width:80%"><div class="cap">Figura 14 — Diagnostica.</div></div>
 <h3>Preferenze</h3>
 <p>Nella scheda Generale di Impostazioni sono disponibili i temi Scuro (predefinito), Chiaro e TIM, e la scelta del numero di modifiche annullabili (5, 10, 15 o 20).</p>
 </section>

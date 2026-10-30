@@ -101,6 +101,15 @@ export const updateMyProfile = (patch) => request('PATCH', '/api/auth/me', patch
 /** Stato del sistema, solo amministratori (0.4.2). */
 export const getSystemStatus = () => request('GET', '/api/system/status');
 
+// 0.5.0 — avvisi di sistema, diagnostica, presenza e blocchi dei rack.
+export const getSystemAlerts = () => request('GET', '/api/system/alerts');
+export const putSystemAlerts = (cfg) => request('PUT', '/api/system/alerts', cfg);
+export const testSystemAlerts = () => request('POST', '/api/system/alerts/test', {});
+export const getDiagnostics = () => request('GET', '/api/system/diagnostics');
+export const sendPresence = (rackUid) => request('POST', '/api/presence', { rackUid: rackUid || null });
+export const forceUnlock = (rackUid) =>
+  request('POST', `/api/locks/${encodeURIComponent(rackUid)}/release`, {});
+
 // ------------------------------------------------------------------ utenze
 //
 // Solo /api/users. Le utenze NON stanno nel documento dell'inventario: il server
@@ -365,9 +374,30 @@ export class InventoryWriter {
         const out = await this.inFlight;
         // La versione da cui ripartire è quella che il server dichiara, sempre:
         // anche per un no-op (`changed: false`), dove è quella già in testa.
+        //
+        // 0.5.0: `merged` = il server ha UNITO questo salvataggio a una versione
+        // arrivata nel frattempo da un'altra persona. Il documento che abbiamo in
+        // mano non contiene le sue modifiche: si riparte da quello del server.
+        // Se nel frattempo è in coda un altro salvataggio, è derivato dal nostro
+        // documento vecchio: lo si manda con la base VECCHIA, così il server lo
+        // unisce di nuovo invece di cancellare le modifiche altrui.
+        if (out.merged && this.pending) {
+          if (this.hooks.onSaved) this.hooks.onSaved(out.version, out.sha256, out.changed);
+          continue;
+        }
         this.baseVersion = out.version;
+        if (out.merged && this.hooks.onMerged) this.hooks.onMerged(out.version, out.sha256, out.doc);
         if (this.hooks.onSaved) this.hooks.onSaved(out.version, out.sha256, out.changed);
       } catch (err) {
+        if (err instanceof ApiError && err.status === 423) {
+          // 0.5.0: il rack è in modifica da un'altra persona. Come il conflitto:
+          // si smette di scrivere e si ricarica, ma il messaggio dice chi.
+          this.stopped = true;
+          this.pending = null;
+          if (this.hooks.onLocked) this.hooks.onLocked(err);
+          else if (this.hooks.onConflict) this.hooks.onConflict(null);
+          break;
+        }
         if (err instanceof ApiError && err.status === 409) {
           // Conflitto: qualcun altro ha scritto. Si SMETTE di scrivere e si
           // chiede un ricaricamento esplicito. Continuare significherebbe
@@ -449,6 +479,11 @@ export function describeError(err) {
                  ? `Questa operazione richiede il ruolo "${err.detail.requiredRole}".`
                  : 'Il tuo ruolo non consente questa operazione.',
                azione: null };
+    case 423:
+      return { titolo: 'Rack in modifica',
+               testo: (err.message || 'Un\'altra persona sta modificando questo rack')
+                      + '. La tua ultima modifica non è stata salvata: riprova quando avrà finito.',
+               azione: 'ricarica' };
     case 409:
       // 409 non è un caso solo: lo stesso stato copre il conflitto di versione
       // dell'inventario, l'utenza già esistente e la protezione dell'ultimo

@@ -164,7 +164,8 @@ def test_put_change_returns_changed_true(as_editor, head_version):
                             "action": "Modificato srv-01"})
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"version", "schemaVersion", "sha256", "changed"}
+    assert set(body) == {"version", "schemaVersion", "sha256", "changed", "merged", "doc"}
+    assert body["merged"] is False and body["doc"] is None
     assert body["changed"] is True
     assert body["version"] > head_version
     assert r.headers.get("cache-control") == "no-store"
@@ -343,6 +344,8 @@ def test_api_surface_is_the_expected_set():
         "/api/users/{user_id}/unlock", "/api/security-policy",
         # Stato del sistema (0.4.2): sola lettura, solo amministratori.
         "/api/system/status",
+        "/api/system/alerts", "/api/system/alerts/test", "/api/system/diagnostics",
+        "/api/presence", "/api/locks/{rack_uid}/release",
         "/api/audit",
         "/api/settings",
         # Un solo endpoint di notifica, e manda un messaggio FISSO ai

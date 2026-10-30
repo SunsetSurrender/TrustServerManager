@@ -107,6 +107,19 @@ fermo, riavvia `tsm.service` se non è attivo, e per db/api/web/worker fa
 errore nel journal — un guasto che ritorna va guardato, non riavviato in loop.
 Nagios (`check_tsm_containers`, `check_tsm_service`) lo vede comunque.
 
+Dalla 0.5.0 ogni intervento si annota anche nell'applicazione: compare nella
+scheda **Diagnostica** e parte per email con gli **avvisi di sistema**
+(«Ripristino automatico: il container api non rispondeva, riavviato»). Così si
+sa che TSM si è curato da solo anche senza guardare il journal.
+
+Installazione in un comando (rilanciabile):
+
+```bash
+bash /opt/tsm-ops/install-autoheal.sh
+```
+
+oppure, passo per passo:
+
 ```bash
 install -m 0755 -o root -g root /opt/tsm-ops/autoheal/tsm-autoheal.sh /usr/local/lib/tsm/
 install -m 0644 /opt/tsm-ops/autoheal/tsm-autoheal.service /etc/systemd/system/

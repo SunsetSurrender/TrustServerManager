@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # altrimenti l'healthcheck va in timeout invece di dire "not ready".
     db_connect_timeout: int = 3
 
-    app_version: str = "0.4.3"
+    app_version: str = "0.5.0"
 
     # ------------------------------------------------------------- sessioni
     #: Il cookie di sessione è `Secure` per default: senza HTTPS non si entra.
@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     #: una sessione di amministratore usata per generare posta. Stretta di
     #: proposito — un invio di prova serve a verificare la configurazione, e per
     #: farlo bastano pochi tentativi.
+    # 0.5.0: la sentinella degli avvisi di sistema, dentro l'API. Si spegne solo
+    # per i test e per gli strumenti che importano l'applicazione.
+    sentinel_enabled: bool = True
+    sentinel_interval_seconds: int = 300
+
     notification_test_max_per_actor: int = 3
     notification_test_max_global: int = 10
     notification_test_window_seconds: int = 3600

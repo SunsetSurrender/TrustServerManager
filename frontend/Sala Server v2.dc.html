@@ -295,12 +295,32 @@
         <sc-if value="{{ isAdminUser }}" hint-placeholder-val="{{ false }}">
           <button id="btn-registro" onClick="{{ toggleAudit }}" style="background:var(--d161b22); color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:8px; padding:7px 14px; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0" style-hover="color:var(--accent); border-color:var(--d2c4a45)">Registro</button>
         </sc-if>
+        <!-- 0.5.0: chi è collegato adesso -->
+        <div style="position:relative; flex-shrink:0">
+          <button id="btn-online" onClick="{{ toggleOnline }}" title="{{ onlineTip }}" style="{{ onlineBtnStyle }}">{{ onlineLabel }}</button>
+          <sc-if value="{{ onlineOpen }}" hint-placeholder-val="{{ false }}">
+            <div id="pannello-online" style="position:absolute; right:0; top:calc(100% + 6px); z-index:80; min-width:270px; background:var(--d12161c); border:1px solid var(--d2b333d); border-radius:10px; padding:12px 14px; box-shadow:0 12px 32px rgba(0,0,0,0.5); display:flex; flex-direction:column; gap:7px">
+              <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">COLLEGATI ADESSO</div>
+              <sc-for list="{{ onlineRows }}" as="o" hint-placeholder-count="2">
+                <div style="display:flex; gap:8px; align-items:baseline; font-size:12.5px">
+                  <span style="width:8px; height:8px; border-radius:4px; background:#3ddc84; flex-shrink:0"></span>
+                  <span style="flex:1; color:var(--dd7dde4)">{{ o.nome }}</span>
+                  <span style="font-size:11px; color:var(--d8a94a2)">{{ o.dove }}</span>
+                </div>
+              </sc-for>
+              <div style="font-size:10.5px; color:var(--d57626f)">Chi ha l'applicazione aperta negli ultimi due minuti. 🔒 = rack in modifica.</div>
+            </div>
+          </sc-if>
+        </div>
         <button onClick="{{ toggleProfile }}" title="{{ profileTip }}" style="{{ profileBtnStyle }}" style-hover="filter:brightness(1.15)">{{ userInitials }}</button>
         <div style="position:relative; flex-shrink:0">
           <!-- Stato del salvataggio: "salvato" appare SOLO dopo la conferma del
                server. Prima di quella non si può affermare che i dati esistano. -->
           <sc-if value="{{ saving }}" hint-placeholder-val="{{ false }}">
             <span style="font-size:11px; color:var(--dd9a13f); font-family:'Roboto Mono',monospace; white-space:nowrap; flex-shrink:0">salvataggio…</span>
+          </sc-if>
+          <sc-if value="{{ hasMergeNote }}" hint-placeholder-val="{{ false }}">
+            <span id="nota-unione" style="font-size:11px; color:#3ddc84; white-space:nowrap; flex-shrink:0">{{ mergeNote }}</span>
           </sc-if>
           <sc-if value="{{ hasSaveError }}" hint-placeholder-val="{{ false }}">
             <span title="{{ saveError }}" style="font-size:11px; color:#ff5c5c; font-family:'Roboto Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:320px; flex-shrink:1">{{ saveError }}</span>
@@ -707,10 +727,109 @@
                       <div id="settings-test-msg" style="{{ setTestMsgStyle }}">{{ setTestMsg }}</div>
                     </sc-if>
 
-                    <div style="font-size:10.5px; color:var(--d57626f)">Il server di posta e le sue credenziali sono configurati dai sistemisti e non da questa schermata. L'invio automatico agli orari indicati arriverà con lo scheduler.</div>
+                    <div style="font-size:10.5px; color:var(--d57626f)">Il server di posta e le sue credenziali sono configurati dai sistemisti e non da questa schermata. Il worker manda l'avviso ogni giorno all'ora indicata.</div>
                   </div>
                 </sc-if>
               </div>
+          </div>
+          <!-- 0.5.0: avvisi di sistema -->
+          <div id="avvisi-sistema" style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+            <div><div style="font-size:15px; font-weight:700; color:var(--de6ecf2)">Avvisi di sistema</div><div style="font-size:11.5px; color:var(--d8a94a2); margin-top:3px">Email quando una voce dello Stato del sistema diventa critica (dump fallito, disco pieno, worker fermo…), un promemoria finché resta aperta, e un messaggio quando torna a posto. Anche il promemoria del certificato TLS a 60, 30 e 7 giorni.</div></div>
+            <sc-if value="{{ alLoaded }}" hint-placeholder-val="{{ false }}">
+              <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--dd7dde4); cursor:pointer">
+                <input id="al-enabled" type="checkbox" checked="{{ alEnabled }}" onChange="{{ onAlEnabled }}"> Avvisi di sistema attivi
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--dd7dde4); cursor:pointer">
+                <input id="al-admins" type="checkbox" checked="{{ alIncludeAdmins }}" onChange="{{ onAlAdmins }}"> Scrivi a tutti gli amministratori che hanno un'email
+              </label>
+              <label style="font-size:11px; color:var(--d7c8794)">Altri destinatari (uno per riga: per esempio la casella del gruppo)
+                <textarea id="al-extra" rows="2" value="{{ alExtra }}" onChange="{{ onAlExtra }}" placeholder="sistemi@azienda.it" style="width:100%; box-sizing:border-box; margin-top:4px; resize:vertical; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px"></textarea>
+              </label>
+              <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end">
+                <label style="font-size:11px; color:var(--d7c8794)">Quando scrivere
+                  <select id="al-level" value="{{ alMinLevel }}" onChange="{{ onAlLevel }}" style="display:block; margin-top:4px; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                    <option value="crit">solo per i problemi critici (rosso)</option>
+                    <option value="warn">anche per quelli da controllare (ambra)</option>
+                  </select>
+                </label>
+                <label style="font-size:11px; color:var(--d7c8794)">Ricorda ogni (ore)
+                  <input id="al-repeat" type="number" min="1" max="168" value="{{ alRepeat }}" onChange="{{ onAlRepeat }}" style="display:block; width:80px; margin-top:4px; box-sizing:border-box; background:var(--d0c0f13); border:1px solid var(--d2b333d); border-radius:4px; color:var(--de6ecf2); padding:7px 9px; font-family:'Roboto Mono',monospace; font-size:12px">
+                </label>
+              </div>
+              <div id="al-dest" style="font-size:11.5px; color:var(--d8a94a2)">{{ alDestLabel }}</div>
+              <div style="display:flex; gap:8px">
+                <button id="btn-al-save" onClick="{{ salvaAvvisi }}" disabled="{{ alBusy }}" style="background:var(--accent); color:#ffffff; border:none; border-radius:6px; padding:8px 16px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit">Salva</button>
+                <button id="btn-al-test" onClick="{{ provaAvvisi }}" disabled="{{ alBusy }}" style="background:transparent; color:var(--dd7dde4); border:1px solid var(--d2b333d); border-radius:6px; padding:8px 14px; font-size:12.5px; cursor:pointer; font-family:inherit">Invia una prova</button>
+              </div>
+              <sc-if value="{{ alHasMsg }}" hint-placeholder-val="{{ false }}">
+                <div id="al-msg" style="{{ alMsgStyle }}">{{ alMsg }}</div>
+              </sc-if>
+              <div style="font-size:10.5px; color:var(--d57626f)">{{ alStatoInvio }}</div>
+            </sc-if>
+          </div>
+          </sc-if>
+          <sc-if value="{{ setTabDiagnostica }}" hint-placeholder-val="{{ false }}">
+          <div id="diagnostica" style="border:1px solid var(--d2b333d); border-radius:10px; background:var(--d10141a); padding:16px 18px; display:flex; flex-direction:column; gap:14px">
+            <div style="display:flex; align-items:center; gap:10px">
+              <div style="flex:1"><div style="font-size:15px; font-weight:700; color:var(--de6ecf2)">Diagnostica</div><div style="font-size:11.5px; color:var(--d8a94a2); margin-top:3px">Cosa è successo e come sta andando: avvisi, andamento degli ultimi 90 giorni, dump e prove di ripristino, accessi, invii degli avvisi di scadenza, rack in modifica.</div></div>
+              <button onClick="{{ diagReload }}" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; font-family:inherit">Aggiorna</button>
+            </div>
+            <sc-if value="{{ diagHasErr }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:11.5px; color:#ff5c5c">{{ diagErr }}</div>
+            </sc-if>
+            <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">AVVISI DI SISTEMA</div>
+            <sc-for list="{{ diagAlerts }}" as="a" hint-placeholder-count="0">
+              <div style="display:flex; gap:8px; align-items:baseline; font-size:12px; padding:3px 0; border-top:1px solid var(--d1c232c)">
+                <span style="{{ a.dot }}"></span>
+                <span style="flex:1; min-width:0; color:var(--dd7dde4)"><b>{{ a.title }}</b> <span style="color:var(--d8a94a2)">{{ a.detail }}</span></span>
+                <span style="font-size:11px; color:var(--d8a94a2); white-space:nowrap">{{ a.when }}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ diagNoAlerts }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:12px; color:var(--d8a94a2)">Nessun avviso registrato.</div>
+            </sc-if>
+            <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">ANDAMENTO (90 GIORNI)</div>
+            <div style="display:flex; gap:12px; flex-wrap:wrap">
+              <sc-for list="{{ diagCharts }}" as="g" hint-placeholder-count="0">
+                <div style="flex:1; min-width:200px; border:1px solid var(--d1c232c); border-radius:8px; padding:10px 12px">
+                  <div style="font-size:11.5px; color:var(--d8a94a2)">{{ g.titolo }}</div>
+                  <div style="font-size:16px; font-weight:700; color:var(--de6ecf2); font-family:'Roboto Mono',monospace">{{ g.ultimo }}</div>
+                  <div style="display:flex; align-items:flex-end; gap:1px; height:40px; margin-top:4px">
+                    <sc-for list="{{ g.barre }}" as="bb" hint-placeholder-count="0"><div title="{{ bb.tip }}" style="{{ bb.st }}"></div></sc-for>
+                  </div>
+                  <div style="font-size:10.5px; color:var(--d57626f)">{{ g.nota }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ diagNoHistory }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:12px; color:var(--d8a94a2)">Lo storico si riempie da solo: una fotografia al giorno.</div>
+            </sc-if>
+            <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">DUMP DEL DATABASE</div>
+            <sc-for list="{{ diagDumps }}" as="d" hint-placeholder-count="0">
+              <div style="display:flex; gap:8px; align-items:baseline; font-size:11.5px; padding:2px 0; font-family:'Roboto Mono',monospace">
+                <span style="{{ d.dot }}"></span>
+                <span style="width:130px; color:var(--dd7dde4)">{{ d.quando }}</span>
+                <span style="width:80px; color:var(--d8a94a2)">{{ d.size }}</span>
+                <span style="flex:1; min-width:0; color:var(--d8a94a2); overflow-wrap:anywhere">{{ d.nota }}</span>
+              </div>
+            </sc-for>
+            <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">ACCESSI</div>
+            <div style="font-size:12px; color:var(--dd7dde4)">{{ diagAccessi }}</div>
+            <div style="font-size:11.5px; color:var(--d8a94a2)">{{ diagAccessiTop }}</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">AVVISI DI SCADENZA (ULTIMI GIRI)</div>
+            <sc-for list="{{ diagRuns }}" as="r" hint-placeholder-count="0">
+              <div style="font-size:11.5px; color:var(--d8a94a2); font-family:'Roboto Mono',monospace">{{ r.riga }}</div>
+            </sc-for>
+            <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--d8a94a2)">RACK IN MODIFICA</div>
+            <sc-for list="{{ diagLocks }}" as="l" hint-placeholder-count="0">
+              <div style="display:flex; gap:8px; align-items:center; font-size:12px">
+                <span style="flex:1; color:var(--dd7dde4)">🔒 {{ l.rack }} — {{ l.chi }}</span>
+                <button onClick="{{ l.sblocca }}" style="background:transparent; color:#ffb020; border:1px solid #ffb020; border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; font-family:inherit">Sblocca</button>
+              </div>
+            </sc-for>
+            <sc-if value="{{ diagNoLocks }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:12px; color:var(--d8a94a2)">Nessun rack in modifica.</div>
+            </sc-if>
           </div>
           </sc-if>
           <sc-if value="{{ setTabUtenti }}" hint-placeholder-val="{{ false }}">
@@ -764,7 +883,7 @@
 
               <div style="display:flex; flex-direction:column">
                 <sc-for list="{{ usersRows }}" as="ur" hint-placeholder-count="0">
-                  <div style="{{ ur.rowStyle }}">
+                  <div data-tsm-user="{{ ur.username }}" style="{{ ur.rowStyle }}">
                     <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px">
                       <div style="display:flex; align-items:center; gap:8px">
                         <span style="font-family:'Roboto Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ ur.username }}</span>
@@ -836,6 +955,12 @@
                   <span style="flex:1; min-width:0; color:var(--d8a94a2); font-family:'Roboto Mono',monospace; font-size:11px; overflow-wrap:anywhere">{{ sr.valore }}</span>
                 </div>
               </sc-for>
+              <div id="stato-legenda" style="display:flex; gap:14px; flex-wrap:wrap; font-size:10.5px; color:var(--d8a94a2); padding-top:6px; border-top:1px solid var(--d1c232c)">
+                <span><span style="display:inline-block; width:8px; height:8px; border-radius:4px; background:#3ddc84"></span> in ordine</span>
+                <span><span style="display:inline-block; width:8px; height:8px; border-radius:4px; background:#ffb020"></span> da controllare</span>
+                <span><span style="display:inline-block; width:8px; height:8px; border-radius:4px; background:#ff5c5c"></span> critico</span>
+                <span><span style="display:inline-block; width:8px; height:8px; border-radius:4px; background:#57626f"></span> solo informativo (nessuna soglia)</span>
+              </div>
               <div style="font-size:10.5px; color:var(--d57626f)">{{ statoGenerato }}</div>
             </div>
           </sc-if>
@@ -1395,14 +1520,26 @@
         </div>
 
         <button onClick="{{ openScheda }}" title="Scheda rack stampabile" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:8px 10px; font-size:12px; cursor:pointer; font-family:inherit; white-space:nowrap" style-hover="color:var(--accent); border-color:var(--d2c4a45)">🖶 Scheda</button>
-        <sc-if value="{{ canAdmin }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ canAdminSel }}" hint-placeholder-val="{{ false }}">
           <button onClick="{{ startEditRack }}" title="Modifica rack" style="background:transparent; color:var(--d8a94a2); border:1px solid var(--d2b333d); border-radius:6px; padding:8px 10px; font-size:12px; cursor:pointer; font-family:inherit" style-hover="color:var(--accent); border-color:var(--d2c4a45)">⚙ Rack</button>
         </sc-if>
-        <sc-if value="{{ canEdit }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ canEditSel }}" hint-placeholder-val="{{ false }}">
           <button onClick="{{ startAdd }}" style="background:var(--d1a2a27); color:var(--accent); border:1px solid var(--d2c4a45); border-radius:6px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit" style-hover="background:var(--d21362f)">+ Dispositivo</button>
         </sc-if>
       </div>
 
+      <!-- 0.5.0: rack in modifica da un'altra persona -->
+      <sc-if value="{{ selLocked }}" hint-placeholder-val="{{ false }}">
+        <div id="rack-bloccato" style="margin:12px 20px 0; padding:10px 12px; border-radius:8px; border-left:4px solid #ffb020; background:var(--d161b22); font-size:12.5px; color:var(--dd7dde4); display:flex; align-items:center; gap:10px">
+          <span style="flex:1">🔒 <b>{{ selLockedBy }}</b> sta modificando questo rack. Puoi consultarlo; potrai modificarlo quando avrà finito.</span>
+          <sc-if value="{{ isAdminUser }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ forceUnlockSel }}" style="background:transparent; color:#ffb020; border:1px solid #ffb020; border-radius:6px; padding:5px 10px; font-size:11.5px; cursor:pointer; font-family:inherit">Sblocca</button>
+          </sc-if>
+        </div>
+      </sc-if>
+      <sc-if value="{{ selMineLocked }}" hint-placeholder-val="{{ false }}">
+        <div id="rack-mio" style="margin:10px 20px 0; font-size:11.5px; color:var(--d8a94a2)">🔒 Stai modificando questo rack: gli altri lo vedono bloccato finché resta aperto.</div>
+      </sc-if>
       <!-- Form aggiungi / modifica -->
       <sc-if value="{{ isEditing }}" hint-placeholder-val="{{ false }}">
         <div style="padding:16px 20px; border-bottom:1px solid var(--d1e252e); background:var(--d12181f)">
@@ -1725,7 +1862,7 @@ class Component extends DCLogic {
             usersPanelOpen: false, usersList: [], usersLoading: false, usersError: '',
             usersBusy: {}, userDraft: null, userFormOpen: false, userEdit: null,
             tempPw: null, tempPwCopied: false,
-            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', setTab: 'generale', sysStatus: null, sysStatusErr: '', secIdleDraft: '', loginMode: 'login', rcUser: '', rcCode: '', rcBusy: false, rcMsg: '', rcMsgErr: false, resetAvailable: false, pwNew2: '', forceCurKnown: false, userReset: null, usersInfo: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
+            booted: false, bootError: '', session: null, mustChangePw: false, saving: false, saveState: '', saveError: '', serverVersion: null, serverSha: '', loginBusy: false, data: null, locId: null, roomId: null, query: '', selRack: null, selDev: null, editing: false, draft: null, draftError: '', highlightDev: null, dirty: false, rots: {}, views: {}, view3d: false, role: 'view', rackEditing: null, rackDraft: null, rackError: '', theme: 'dark', accountOpen: false, profileOpen: false, profDraft: null, profMsg: '', manEditing: false, manDraft: null, pwCur: '', pwNew: '', pwMsg: '', appVersion: '', setTab: 'generale', presence: null, onlineOpen: false, alCfg: null, alDraft: null, alMsg: '', alMsgErr: false, alBusy: false, mergeNote: '', diag: null, diagErr: '', sysStatus: null, sysStatusErr: '', secIdleDraft: '', loginMode: 'login', rcUser: '', rcCode: '', rcBusy: false, rcMsg: '', rcMsgErr: false, resetAvailable: false, pwNew2: '', forceCurKnown: false, userReset: null, usersInfo: '', secPolicy: null, secDraft: '', secMsg: '', secBusy: false, panelOpen: true, typeFilter: null, regOpen: false, qrOpen: false, devDrag: null, rackDrag: null, rackResize: null, undoStack: [], redoStack: [], undoDepth: 10, invOpen: false, invSort: null, invFilters: {}, expOpen: false, capOpen: false, diffOpen: false, diffRows: [], siteFormOpen: false, siteName: '', roomFormOpen: false, roomDraft: null, roomError: '', schedaOpen: false, scadOpen: false, scadFiltri: { stato: '', presenza: '' }, dashOpen: true,
             // --- interrogazioni relazionali (fase 2H) ---
             //
             // Uno slot per interrogazione, sempre della stessa forma:
@@ -1908,6 +2045,8 @@ class Component extends DCLogic {
     this._writer = new api.InventoryWriter({
       onSaved: (version, sha, changed) => this._onSaved(version, sha, changed),
       onConflict: (currentVersion) => this._onConflict(currentVersion),
+      onMerged: (version, sha, doc) => this._onMerged(version, sha, doc),
+      onLocked: (err) => this._onLocked(err),
       onError: (err) => this._onSaveError(err),
       onPendingChange: (pending) => this.setState({ saving: pending }),
     });
@@ -1921,7 +2060,138 @@ class Component extends DCLogic {
     };
     window.addEventListener('beforeunload', this._onBeforeUnload);
 
+    // 0.5.0 — presenza e blocco del rack in modifica. Il controllo gira ogni due
+    // secondi ma CHIAMA il server solo quando il rack in modifica cambia, o ogni
+    // 30 secondi per rinnovare il blocco (che il server fa scadere dopo 90).
+    this._presenceTimer = setInterval(() => this._presenceTick(), 2000);
+
     await this._refreshSession();
+  }
+
+  /** Codice leggibile («Backend / R01») di un rack dal suo uid, dal documento caricato. */
+  _codiceRack(uid) {
+    const d = this.state.data;
+    if (!d || !uid) return '';
+    for (const L of d.locations) for (const R of L.sale) for (const K of R.racks)
+      if (K._uid === uid) return R.nome + ' / ' + K.id;
+    return '';
+  }
+
+  /** Uid del rack aperto, se si è in modalità modifica; altrimenti null. */
+  _rackInModifica() {
+    const S = this.state;
+    if (!S.data || !S.selRack || (S.role !== 'edit' && S.role !== 'admin')) return null;
+    // Con Impostazioni o Profilo aperti non si sta modificando il rack: il blocco
+    // si libera, invece di tenerlo occupato mentre si fa altro.
+    if (S.accountOpen || S.profileOpen) return null;
+    const L = S.data.locations.find(l => l.id === S.locId) || S.data.locations[0];
+    const R = L && (L.sale.find(r => r.id === S.roomId) || L.sale[0]);
+    const K = R && R.racks.find(r => r.id === S.selRack);
+    return (K && K._uid) || null;
+  }
+
+  async _presenceTick(force) {
+    const S = this.state;
+    if (!S.session || S.mustChangePw || !S.data || this._presBusy) return;
+    const want = this._rackInModifica();
+    const now = Date.now();
+    if (!force && want === this._presLast && now - (this._presAt || 0) < 30000) return;
+    this._presBusy = true;
+    try {
+      const out = await API.sendPresence(want);
+      this._presLast = want; this._presAt = Date.now();
+      this.setState({ presence: out });
+    } catch (err) {
+      // Il segnale di presenza non è essenziale: un errore non deve disturbare
+      // chi lavora. Una sessione scaduta la scopre la prossima richiesta vera.
+      this._presAt = Date.now();
+    } finally {
+      this._presBusy = false;
+    }
+  }
+
+  /** 0.5.0: il server ha unito il salvataggio alle modifiche di un'altra persona. */
+  _onMerged(version, sha, doc) {
+    if (!doc) { this._loadInventory(); return; }
+    // Le istantanee di annullamento sono del documento VECCHIO: riapplicarne una
+    // cancellerebbe le modifiche dell'altra persona. Si svuotano.
+    this.setState({ data: doc, serverVersion: version, serverSha: sha,
+                    undoStack: [], redoStack: [],
+                    mergeNote: 'Salvato insieme alle modifiche arrivate nel frattempo da un\'altra persona.' });
+    clearTimeout(this._mergeNoteTimer);
+    this._mergeNoteTimer = setTimeout(() => this.setState({ mergeNote: '' }), 6000);
+  }
+
+  /** 0.5.0: 423 — il rack è in modifica da un'altra persona. */
+  async _onLocked(err) {
+    const d = API.describeError(err);
+    this.setState({ saveState: 'conflitto', dirty: false, saveError: d.titolo + ' — ' + d.testo });
+    await this._loadInventory();
+    this._presenceTick(true);
+  }
+
+  async _forceUnlock(rackUid) {
+    if (!rackUid || !window.confirm('Sbloccare il rack? Chi lo sta modificando non potrà più salvarlo finché non lo riapre.')) return;
+    try { await API.forceUnlock(rackUid); } catch (err) { /* già libero */ }
+    this._presenceTick(true);
+    if (this.state.diag) this._loadDiag();
+  }
+
+  async _loadAlerts() {
+    try {
+      const c = await API.getSystemAlerts();
+      this.setState({ alCfg: c, alDraft: this._alDraftOf(c), alMsg: '' });
+    } catch (err) {
+      const d = API.describeError(err);
+      this.setState({ alMsg: d.titolo + ' — ' + d.testo, alMsgErr: true });
+    }
+  }
+
+  _alDraftOf(c) {
+    return { enabled: !!c.enabled, includeAdmins: !!c.includeAdmins,
+             extra: (c.extraRecipients || []).join('\n'), minLevel: c.minLevel || 'crit',
+             repeatHours: String(c.repeatHours || 24) };
+  }
+
+  async _saveAlerts() {
+    const d = this.state.alDraft;
+    if (!d || this.state.alBusy) return;
+    this.setState({ alBusy: true, alMsg: '' });
+    try {
+      const c = await API.putSystemAlerts({
+        enabled: d.enabled, includeAdmins: d.includeAdmins,
+        extraRecipients: d.extra.split(/[\s,;]+/).filter(Boolean),
+        minLevel: d.minLevel, repeatHours: parseInt(d.repeatHours, 10) || 0 });
+      this.setState({ alCfg: c, alDraft: this._alDraftOf(c), alBusy: false,
+                      alMsg: 'Salvato.', alMsgErr: false });
+    } catch (err) {
+      const e = API.describeError(err);
+      this.setState({ alBusy: false, alMsg: e.titolo + ' — ' + e.testo, alMsgErr: true });
+    }
+  }
+
+  async _testAlerts() {
+    if (this.state.alBusy) return;
+    this.setState({ alBusy: true, alMsg: '' });
+    try {
+      const r = await API.testSystemAlerts();
+      this.setState({ alBusy: false, alMsgErr: false,
+                      alMsg: 'Prova inviata a: ' + (r.recipients || []).join(', ') + '.' });
+    } catch (err) {
+      const e = API.describeError(err);
+      this.setState({ alBusy: false, alMsgErr: true,
+                      alMsg: (err && err.message) ? 'Prova non riuscita — ' + err.message : e.titolo + ' — ' + e.testo });
+    }
+  }
+
+  async _loadDiag() {
+    try {
+      const d = await API.getDiagnostics();
+      this.setState({ diag: d, diagErr: '' });
+    } catch (err) {
+      const e = API.describeError(err);
+      this.setState({ diagErr: e.titolo + ' — ' + e.testo });
+    }
   }
 
   /** Chiede chi siamo e decide cosa mostrare. Nessun dato prima di saperlo. */
@@ -2319,6 +2589,7 @@ class Component extends DCLogic {
       window.removeEventListener(ev, this._onActivity, { capture: true });
     }
     clearInterval(this._idleTimer);
+    clearInterval(this._presenceTimer);
   }
 
   static manual() {
@@ -3373,6 +3644,11 @@ class Component extends DCLogic {
     const tilt3d = view.tilt ?? 55, spin3d = view.spin ?? -45;
     const canEdit = S.role === 'edit' || S.role === 'admin';
     const canAdmin = S.role === 'admin';
+    // 0.5.0 — rack in modifica da ALTRE persone (il server lo fa rispettare al
+    // salvataggio; qui serve a mostrarlo e a non lasciar cominciare un lavoro
+    // che verrebbe rifiutato).
+    const presLocks = (S.presence && S.presence.locks) || [];
+    const lockedByOthers = new Set(presLocks.filter(l => !l.mine).map(l => l.rackUid));
 
     // --- ricerca globale: la risposta la calcola il SERVER (fase 2H) ---
     //
@@ -3604,7 +3880,7 @@ class Component extends DCLogic {
         const dragging = S.rackDrag && S.rackDrag.id === rk.id;
         const resizing = S.rackResize && S.rackResize.id === rk.id;
         return {
-          id: lbl1,
+          id: (lockedByOthers.has(rk._uid) ? '🔒 ' : '') + lbl1,
           count: lbl2,
           tip: [rk.id, (rk.seriali || []).join(' / ')].filter(Boolean).join(' · '),
           devsS: bands('S', 'bb'), devsE: bands('E', '88'), devsN: bands('N', '66'), devsW: bands('W', '88'),
@@ -3733,6 +4009,10 @@ class Component extends DCLogic {
 
     // --- rack selezionato ---
     const sel = room ? room.racks.find(r => r.id === S.selRack) || null : null;
+    const lockOtherSel = sel ? presLocks.find(l => l.rackUid === sel._uid && !l.mine) || null : null;
+    const lockMineSel = sel ? presLocks.find(l => l.rackUid === sel._uid && l.mine) || null : null;
+    const canEditSel = canEdit && !lockOtherSel;
+    const canAdminSel = canAdmin && !lockOtherSel;
 
     // --- foto del rack (§8.5) ---
     //
@@ -3772,7 +4052,7 @@ class Component extends DCLogic {
         // opzione senza che nessuno l'abbia scelta. Passando dal dominio la select
         // mostra il valore EFFETTIVO — che per un legacy è «presente», ed è anche
         // quello che il salvataggio scriverebbe.
-        if (canEdit) this.setState({ selDev: d.id, editing: true, highlightDev: null, draftError: '', draft: { ...d, stato: DOM.statoOf(d), presenza: DOM.presenzaOf(d), room: room.id, rack: sel.id } });
+        if (canEditSel) this.setState({ selDev: d.id, editing: true, highlightDev: null, draftError: '', draft: { ...d, stato: DOM.statoOf(d), presenza: DOM.presenzaOf(d), room: room.id, rack: sel.id } });
         else this.setState({ highlightDev: d.id });
       };
       elevDevices = sel.devices.map(d => {
@@ -3797,12 +4077,12 @@ class Component extends DCLogic {
             boxShadow: dragging ? '0 0 16px ' + accent : (hl ? '0 0 12px ' + accent : 'none'),
             animation: hl && !dragging ? 'srpPulse 1.2s infinite' : 'none',
             zIndex: dragging ? 5 : 1,
-            borderRadius: 2, cursor: canEdit ? (dragging ? 'grabbing' : 'grab') : 'pointer', display: 'flex', alignItems: 'center',
+            borderRadius: 2, cursor: canEditSel ? (dragging ? 'grabbing' : 'grab') : 'pointer', display: 'flex', alignItems: 'center',
             paddingLeft: 8, fontFamily: "'Roboto Mono',monospace", fontSize: 10.5,
             color: 'var(--de6ecf2)', overflow: 'hidden', whiteSpace: 'nowrap', boxSizing: 'border-box', userSelect: 'none'
           },
           onClick: openDraft(d),
-          onDrag: canEdit ? (e) => {
+          onDrag: canEditSel ? (e) => {
             if (e.button !== 0) return;
             e.preventDefault(); e.stopPropagation();
             const startY = e.clientY, u0 = d.u, maxU = sel.u - (d.h || 1) + 1;
@@ -4476,6 +4756,26 @@ class Component extends DCLogic {
         borderRadius: 8, padding: '7px 8px', fontFamily: 'inherit', fontSize: 13
       },
       canEdit, canAdmin,
+      hasMergeNote: !!S.mergeNote, mergeNote: S.mergeNote || '',
+      ...(() => {
+        const on = (S.presence && S.presence.online) || [];
+        const codice = (uid) => this._codiceRack(uid);
+        const locks = (S.presence && S.presence.locks) || [];
+        const rows = on.map(o => {
+          const lk = locks.find(l => l.username === o.username);
+          return { nome: o.display + (o.you ? ' (tu)' : ''),
+                   dove: lk ? '🔒 ' + (codice(lk.rackUid) || 'rack') : (o.rackUid ? 'su ' + (codice(o.rackUid) || 'un rack') : '') };
+        });
+        return {
+          onlineRows: rows, onlineOpen: !!S.onlineOpen,
+          onlineLabel: '● ' + (on.length || 1) + ' online',
+          onlineTip: rows.map(r => r.nome).join(', ') || 'Solo tu',
+          toggleOnline: () => { this.setState(s => ({ onlineOpen: !s.onlineOpen })); this._presenceTick(true); },
+          onlineBtnStyle: { background: 'var(--d161b22)', color: on.length > 1 ? '#3ddc84' : 'var(--d8a94a2)',
+                            border: '1px solid var(--d2b333d)', borderRadius: 8, padding: '7px 10px',
+                            fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+        };
+      })(),
       isAdminUser: !!(S_user && S_user.ruolo === 'admin'),
       userEmail: S_user ? S_user.email : '',
       userRuoloLabel: S_user ? (S_user.ruolo === 'admin' ? 'Privilegio: Admin' : (S_user.ruolo === 'edit' ? 'Privilegio: Operatore' : 'Privilegio: Visualizzazione')) : '',
@@ -4535,7 +4835,8 @@ class Component extends DCLogic {
         const voci = [['generale', 'Generale']];
         if (admin) voci.push(['importa', 'Importa / Esporta'], ['notifiche', 'Notifiche'],
                              ['utenti', 'Utenti e privilegi'], ['sicurezza', 'Sicurezza accessi'],
-                             ['stato', 'Stato del sistema'], ['registro', 'Registro']);
+                             ['stato', 'Stato del sistema'], ['diagnostica', 'Diagnostica'],
+                             ['registro', 'Registro']);
         const cur = voci.some(v => v[0] === S.setTab) ? S.setTab : 'generale';
         return {
           setTabs: voci.map(([k, l]) => ({
@@ -4545,6 +4846,8 @@ class Component extends DCLogic {
               this.setState({ setTab: k });
               if (k === 'utenti' || k === 'sicurezza') this._loadUsers();
               if (k === 'stato') this._loadStatus();
+              if (k === 'notifiche') this._loadAlerts();
+              if (k === 'diagnostica') this._loadDiag();
             },
             style: { textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13,
                      cursor: 'pointer', fontFamily: 'inherit', border: 'none',
@@ -4556,7 +4859,7 @@ class Component extends DCLogic {
           setTabGenerale: cur === 'generale', setTabImporta: cur === 'importa',
           setTabNotifiche: cur === 'notifiche', setTabUtenti: cur === 'utenti',
           setTabSicurezza: cur === 'sicurezza', setTabStato: cur === 'stato',
-          setTabRegistro: cur === 'registro',
+          setTabRegistro: cur === 'registro', setTabDiagnostica: cur === 'diagnostica',
         };
       })(),
       // --- profilo ---
@@ -4750,6 +5053,105 @@ class Component extends DCLogic {
         const v = e.target.value;
         if (v !== this.state.secIdleDraft) this.setState({ secIdleDraft: v, secMsg: '' });
       },
+      // --- avvisi di sistema (0.5.0) ---
+      ...(() => {
+        const c = S.alCfg, d = S.alDraft;
+        const patch = (p) => this.setState(s => ({ alDraft: { ...s.alDraft, ...p }, alMsg: '' }));
+        const quando = (iso) => iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        let dest = '';
+        if (c) {
+          dest = c.recipients && c.recipients.length
+            ? 'Destinatari effettivi (salvati): ' + c.recipients.join(', ')
+            : 'Nessun destinatario: nessuno verrebbe avvisato. Aggiungi un indirizzo o un\'email agli amministratori.';
+          if (!c.smtpConfigured) dest += ' — ⚠ l\'invio email non è configurato sul server.';
+        }
+        let statoInvio = '';
+        if (c) {
+          statoInvio = c.lastRunAt ? 'Ultimo controllo: ' + quando(c.lastRunAt) + '. ' : 'La sentinella non ha ancora fatto un controllo. ';
+          if (c.lastSendError && (!c.lastSendOkAt || c.lastSendAttemptAt > c.lastSendOkAt))
+            statoInvio += 'Ultimo invio NON riuscito (' + c.lastSendError + '), si riprova fra 30 minuti.';
+          else if (c.lastSendOkAt) statoInvio += 'Ultimo avviso inviato: ' + quando(c.lastSendOkAt) + '.';
+          if (c.updatedBy) statoInvio += ' Modificato da ' + c.updatedBy + '.';
+        }
+        return {
+          alLoaded: !!d,
+          alEnabled: !!(d && d.enabled), alIncludeAdmins: !!(d && d.includeAdmins),
+          alExtra: d ? d.extra : '', alMinLevel: d ? d.minLevel : 'crit', alRepeat: d ? d.repeatHours : '24',
+          onAlEnabled: (e) => patch({ enabled: e.target.checked }),
+          onAlAdmins: (e) => patch({ includeAdmins: e.target.checked }),
+          onAlExtra: (e) => { if (e.target.value !== (this.state.alDraft || {}).extra) patch({ extra: e.target.value }); },
+          onAlLevel: (e) => { if (e.target.value !== (this.state.alDraft || {}).minLevel) patch({ minLevel: e.target.value }); },
+          onAlRepeat: (e) => { if (String(e.target.value) !== String((this.state.alDraft || {}).repeatHours)) patch({ repeatHours: e.target.value }); },
+          alDestLabel: dest, alStatoInvio: statoInvio,
+          alBusy: !!S.alBusy,
+          salvaAvvisi: () => { this._saveAlerts(); },
+          provaAvvisi: () => { this._testAlerts(); },
+          alHasMsg: !!S.alMsg, alMsg: S.alMsg || '',
+          alMsgStyle: { fontSize: 11.5, color: S.alMsgErr ? '#ff5c5c' : '#3ddc84' },
+        };
+      })(),
+      // --- diagnostica (0.5.0) ---
+      ...(() => {
+        const g = S.diag;
+        const COL = { crit: '#ff5c5c', warn: '#ffb020', info: '#57626f', ok: '#3ddc84' };
+        const dot = (c) => ({ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: c });
+        const q = (iso) => iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        const mb = (n) => n == null ? '—' : (n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB'
+                   : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB');
+        const alerts = (g && g.alerts || []).map(a => ({
+          dot: dot(a.open ? COL[a.level] : (a.kind === 'reminder' ? COL.warn : COL.ok)),
+          title: a.title, detail: a.detail || '',
+          when: a.open ? 'aperto dal ' + q(a.firstSeenAt) + (a.notifiedAt ? ' · segnalato' : ' · non ancora segnalato')
+                       : (a.kind === 'reminder' ? 'promemoria ' + q(a.firstSeenAt) : 'risolto ' + q(a.resolvedAt)),
+        }));
+        const h = (g && g.history) || [];
+        const serie = (titolo, key, fmt, nota) => {
+          const vals = h.map(x => x[key]).filter(v => v != null);
+          if (!vals.length) return null;
+          const max = Math.max(...vals, 1);
+          return { titolo, ultimo: fmt(vals[vals.length - 1]), nota,
+                   barre: h.map(x => ({ tip: x.day + ': ' + (x[key] == null ? '—' : fmt(x[key])),
+                                        st: { flex: 1, minWidth: 1, borderRadius: 1, background: 'var(--accent)', opacity: 0.8,
+                                              height: x[key] == null ? 0 : Math.max(2, Math.round(40 * x[key] / max)) } })) };
+        };
+        const charts = [
+          serie('Database', 'dbBytes', mb, 'dimensione su disco'),
+          serie('Disco dati occupato', 'diskUsedPct', v => v + '%', 'soglie: 75% ambra, 90% rosso'),
+          serie('Ultimo dump', 'dumpBytes', mb, 'un crollo improvviso va guardato'),
+          serie('Dispositivi', 'devices', v => String(v), 'in inventario'),
+          serie('Accessi falliti', 'failedLogins', v => String(v), 'nelle 24 ore'),
+        ].filter(Boolean);
+        const dumps = (g && g.dumps || []).map(d => ({
+          dot: dot(!d.ok ? COL.crit : (d.restoreOk === false ? COL.crit : COL.ok)),
+          quando: q(d.startedAt), size: mb(d.bytes),
+          nota: !d.ok ? 'ERRORE: ' + (d.message || '')
+                : (d.restoreOk === true ? '✔ ripristino provato: ' + d.restoreRows + (d.restoreRows === 1 ? ' versione' : ' versioni')
+                   : d.restoreOk === false ? 'PROVA DI RIPRISTINO FALLITA: ' + (d.restoreMessage || '')
+                   : (d.tocEntries ? d.tocEntries + ' tabelle' : '')) }));
+        const a = g && g.access;
+        const top = a ? [
+          a.topUsers.length ? 'Utenze con più errori (7 gg): ' + a.topUsers.map(x => x.username + ' ' + x.count).join(', ') : '',
+          a.topIps.length ? 'Indirizzi: ' + a.topIps.map(x => x.ip + ' ' + x.count).join(', ') : '',
+        ].filter(Boolean).join(' · ') : '';
+        const ESITI = { sent: 'avviso inviato', nothing_due: 'niente in scadenza',
+                        no_recipients_configured: 'nessun destinatario', inventory_not_bootstrapped: 'inventario vuoto' };
+        return {
+          diagReload: () => { this._loadDiag(); },
+          diagHasErr: !!S.diagErr, diagErr: S.diagErr || '',
+          diagAlerts: alerts, diagNoAlerts: !!g && !alerts.length,
+          diagCharts: charts, diagNoHistory: !!g && !charts.length,
+          diagDumps: dumps,
+          diagAccessi: a ? ('Ultime 24 ore: ' + a.ok24h + ' accessi riusciti, ' + a.failed24h + ' falliti. Ultimi 7 giorni: '
+                            + a.ok7d + ' riusciti, ' + a.failed7d + ' falliti, ' + (a.blocked7d || 0) + ' bloccati.') : '',
+          diagAccessiTop: top,
+          diagRuns: (g && g.expiryRuns || []).map(r => ({
+            riga: r.runDate + ' · ' + (ESITI[(r.outcome || '').split(':')[0]] || r.outcome || 'in corso')
+                  + (r.due != null ? ' · ' + r.due + ' in scadenza, ' + (r.sent || 0) + ' inviati' : '') })),
+          diagLocks: (g && g.locks || []).map(l => ({ rack: this._codiceRack(l.rackUid) || l.rackUid, chi: l.display,
+                                                      sblocca: () => this._forceUnlock(l.rackUid) })),
+          diagNoLocks: !!g && !(g.locks || []).length,
+        };
+      })(),
       // --- stato del sistema ---
       statoReload: () => { this._loadStatus(); },
       hasStatoErr: !!S.sysStatusErr, statoErr: S.sysStatusErr || '',
@@ -4857,7 +5259,8 @@ class Component extends DCLogic {
                          mustChange: true },
             usersError: '', usersInfo: '' }),
           emailLabel: u.email ? u.email : 'nessuna email',
-          dettagli: [u.role === 'admin' ? 'Admin' : (u.role === 'edit' ? 'Operatore' : 'Visualizzazione'),
+          dettagli: [((S.presence && S.presence.online) || []).some(o => o.username === u.username) ? '● online ora' : '',
+                     u.role === 'admin' ? 'Admin' : (u.role === 'edit' ? 'Operatore' : 'Visualizzazione'),
                      [u.nome, u.cognome].filter(Boolean).join(' ') + (u.team ? ' · ' + u.team : ''),
                      u.email ? u.email : 'nessuna email',
                      'ultimo accesso ' + (u.lastLoginAt ? String(u.lastLoginAt).slice(0, 16).replace('T', ' ') : 'mai')]
@@ -5715,6 +6118,10 @@ class Component extends DCLogic {
         : '',
       hasDevRimossi: selRimossi > 0,
       isEditing: S.editing,
+      canEditSel, canAdminSel,
+      selLocked: !!lockOtherSel, selLockedBy: lockOtherSel ? lockOtherSel.display : '',
+      selMineLocked: !!lockMineSel && !lockOtherSel && canEdit,
+      forceUnlockSel: () => { if (lockOtherSel) this._forceUnlock(lockOtherSel.rackUid); },
       formTitle: S.selDev ? 'MODIFICA DISPOSITIVO' : 'NUOVO DISPOSITIVO',
       canDelete: !!S.selDev,
       draft, typeOptions, roomOptions, rackOptions,
